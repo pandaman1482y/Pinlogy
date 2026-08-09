@@ -1,0 +1,256 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
+import 'package:flutter/material.dart';
+
+import '../app/app_scope.dart';
+import '../core/theme.dart';
+import '../features/inbox/inbox_tab.dart';
+import '../features/maps/maps_tab.dart';
+import '../features/onboarding/onboarding_sheet.dart';
+import '../features/profile/profile_tab.dart';
+import '../features/settings/cloud_sync_page.dart';
+import '../models/models.dart';
+import '../widgets/common_widgets.dart';
+import '../widgets/map_tiles.dart';
+
+class PinlogyApp extends StatelessWidget {
+  const PinlogyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Pinlogy',
+      theme: buildPinlogyTheme(),
+      home: const BootstrapScreen(),
+    );
+  }
+}
+
+class BootstrapScreen extends StatelessWidget {
+  const BootstrapScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = AppScope.of(context);
+    if (controller.loading) {
+      return const PinlogyBackdrop(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: LoadingView(message: 'Pinlogy を準備中…'),
+        ),
+      );
+    }
+    if (controller.loadError != null) {
+      return PinlogyBackdrop(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: EmptyState(
+            icon: Icons.error_outline,
+            title: '起動に失敗しました',
+            message: controller.loadError!,
+            action: FilledButton(
+              onPressed: controller.initialize,
+              child: const Text('再試行'),
+            ),
+          ),
+        ),
+      );
+    }
+    return const HomeScreen();
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int index = 0;
+  StreamSubscription<SourcePost>? _shareSub;
+  StreamSubscription<Uri>? _linkSub;
+  Timer? _onboardingTimer;
+  final AppLinks _appLinks = AppLinks();
+  String? _handledShareCode;
+  bool _checkingQuotaNotice = false;
+  bool _quotaDialogOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = AppScope.read(context);
+      unawaited(_listenForMapShares());
+      // 共有起動直後は投稿受信を優先し、チュートリアルとの二重表示を防ぐ。
+      _onboardingTimer = Timer(const Duration(milliseconds: 800), () {
+        if (!mounted || controller.hub.snapshot.sourcePosts.isNotEmpty) {
+          return;
+        }
+        unawaited(showOnboardingIfNeeded(context));
+      });
+      // 個人の保存座標は送信せず、日本全体の共通タイルと接続だけ先に温める。
+      unawaited(
+        PinlogyMapTiles.preloadAround(
+          context,
+          latitude: 36.4,
+          longitude: 138.0,
+          zoom: 5.2,
+        ),
+      );
+      _shareSub = controller.shareIntake.onSaved.listen((_) {
+        if (!mounted) return;
+        setState(() => index = 1);
+        final message =
+            controller.consumeShareToast() ??
+            controller.shareIntake.lastSavedMessage ??
+            '受信箱に保存しました';
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 3),
+            content: Text(message),
+            action: SnackBarAction(
+              label: '場所候補を見る',
+              textColor: leafWash,
+              onPressed: () => _selectTab(1),
+            ),
+          ),
+        );
+      });
+      final pending = controller.consumeShareToast();
+      if (pending != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 3),
+            content: Text(pending),
+            action: SnackBarAction(
+              label: '受信箱',
+              textColor: leafWash,
+              onPressed: () => _selectTab(1),
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _listenForMapShares() async {
+    try {
+      final initial = await _appLinks.getInitialLink();
+      if (initial != null) await _handleLink(initial);
+      _linkSub ??= _appLinks.uriLinkStream.listen((uri) {
+        unawaited(_handleLink(uri));
+      });
+    } catch (_) {
+      // リンク受信に失敗しても通常起動と共有コード手入力は利用できる。
+    }
+  }
+
+  Future<void> _handleLink(Uri uri) async {
+    if (!mounted || uri.scheme != 'pinlogy' || uri.host != 'map-share') return;
+    final code = uri.queryParameters['code']?.trim();
+    if (code == null || code.isEmpty || code == _handledShareCode) return;
+    _handledShareCode = code;
+    _onboardingTimer?.cancel();
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.map_outlined),
+        title: const Text('共有マップを受け取りますか？'),
+        content: const Text(
+          '内容を確認して、自分のPinlogyに追加できます。ログインしていない場合は先にアカウント設定が必要です。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('あとで'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('確認する'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || open != true) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CloudSyncPage(initialShareCode: code),
+      ),
+    );
+  }
+
+  void _selectTab(int value) {
+    if (!mounted) return;
+    setState(() => index = value);
+  }
+
+  Future<void> _showQuotaNoticeIfNeeded() async {
+    if (!mounted || _checkingQuotaNotice || _quotaDialogOpen) return;
+    _checkingQuotaNotice = true;
+    try {
+      final shouldShow = await AppScope.read(context).consumeAiQuotaNotice();
+      if (!mounted || !shouldShow) return;
+      _quotaDialogOpen = true;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.auto_awesome_outlined),
+          title: const Text('本日のAI取り込みは終了しました'),
+          content: const Text(
+            '1日10回のAI取り込み上限に達しました。\n\n'
+            '明日になると自動で再開します。それまでも端末内の簡易解析、手動登録、地図検索、ピン追加はご利用いただけます。',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('わかりました'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _checkingQuotaNotice = false;
+      _quotaDialogOpen = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _onboardingTimer?.cancel();
+    _shareSub?.cancel();
+    _linkSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = AppScope.of(context).inboxBadgeCount;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_showQuotaNoticeIfNeeded());
+    });
+    return PinlogyBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          bottom: false,
+          child: IndexedStack(
+            index: index,
+            children: const [MapsTab(), InboxTab(), ProfileTab()],
+          ),
+        ),
+        bottomNavigationBar: PinlogyPillNav(
+          index: index,
+          inboxBadge: badge,
+          onChanged: _selectTab,
+        ),
+      ),
+    );
+  }
+}

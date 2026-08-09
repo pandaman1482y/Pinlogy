@@ -1,0 +1,226 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+
+import '../models/models.dart';
+import 'location_services.dart';
+
+/// 投稿文と端末内OCRから住所を優先して候補を作る実解析。
+/// 画像・認識文字は端末外へ送信しない。
+class LocalPostAnalysisService implements PostAnalysisService {
+  @override
+  Future<PostAnalysisResponse> analyze(PostAnalysisRequest request) async {
+    final parts = <_TextPart>[];
+    if (request.text?.trim().isNotEmpty == true) {
+      parts.add(_TextPart(request.text!.trim(), '投稿文'));
+    }
+    for (var i = 0; i < request.imageUrls.length; i++) {
+      final text = await _readImage(request.imageUrls[i]);
+      if (text.trim().isNotEmpty) parts.add(_TextPart(text, '画像${i + 1}枚目'));
+    }
+
+    final drafts = parts.expand(_extract);
+    final shortReason = _summarize(parts);
+    final hours = _extractOpeningHours(parts);
+    final unique = <String, _CandidateDraft>{};
+    for (final draft in drafts) {
+      final key = _normalize(draft.address ?? draft.name);
+      if (key.isNotEmpty) unique.putIfAbsent(key, () => draft);
+    }
+    final candidates = unique.values
+        .take(10)
+        .map(
+          (draft) => ExtractionCandidate(
+            name: draft.name,
+            address: draft.address,
+            postAddress: draft.address,
+            reason: shortReason,
+            evidenceSummary: draft.address == null
+                ? '店名候補の取得元：${draft.source}。住所は手動確認してください'
+                : '住所の取得元：${draft.source} / 店名候補も同じ投稿から抽出',
+            confidencePercent: draft.address == null ? 50 : 78,
+            match: PlaceMatchConfidence.needsReview,
+            openingTimeMinutes: hours?.$1,
+            closingTimeMinutes: hours?.$2,
+            closedWeekdays: _extractClosedWeekdays(parts),
+          ),
+        )
+        .toList();
+
+    if (candidates.isEmpty) {
+      final fallback = _fallbackName(parts, request.url);
+      if (fallback != null) {
+        candidates.add(
+          ExtractionCandidate(
+            name: fallback,
+            reason: shortReason,
+            evidenceSummary: '住所を特定できなかったため確認が必要です',
+            confidencePercent: 40,
+            match: PlaceMatchConfidence.needsReview,
+            openingTimeMinutes: hours?.$1,
+            closingTimeMinutes: hours?.$2,
+            closedWeekdays: _extractClosedWeekdays(parts),
+          ),
+        );
+      }
+    }
+    return PostAnalysisResponse(
+      sourcePostId: request.sourcePostId,
+      rawSummary: parts.any((p) => p.source.startsWith('画像'))
+          ? '投稿文と画像を端末内で解析しました'
+          : '投稿文を端末内で解析しました',
+      candidates: candidates,
+      evidenceText: parts.map((part) => part.text).join('\n\n'),
+    );
+  }
+
+  Future<String> _readImage(String rawPath) async {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      return '';
+    }
+    final path = rawPath.startsWith('file://')
+        ? Uri.parse(rawPath).toFilePath()
+        : rawPath;
+    if (path.startsWith('local://') || !await File(path).exists()) return '';
+    final recognizer = TextRecognizer(script: TextRecognitionScript.japanese);
+    try {
+      return (await recognizer.processImage(
+        InputImage.fromFilePath(path),
+      )).text;
+    } catch (_) {
+      return '';
+    } finally {
+      await recognizer.close();
+    }
+  }
+
+  List<_CandidateDraft> _extract(_TextPart part) {
+    final lines = part.text
+        .split(RegExp(r'[\r\n]+'))
+        .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    final result = <_CandidateDraft>[];
+    for (var i = 0; i < lines.length; i++) {
+      final address = _addressFrom(lines[i]);
+      if (address == null) continue;
+      result.add(
+        _CandidateDraft(
+          name: _nearbyName(lines, i, address) ?? '名称を確認してください',
+          address: address,
+          source: part.source,
+        ),
+      );
+    }
+    return result;
+  }
+
+  String? _addressFrom(String line) {
+    final cleaned = line
+        .replaceFirst(RegExp(r'^(住所|所在地|場所|アクセス)\s*[:：]?\s*'), '')
+        .replaceFirst(RegExp(r'^〒\s*\d{3}[-ー]?\d{4}\s*'), '')
+        .trim();
+    final hasPrefecture = RegExp(
+      r'(北海道|東京都|京都府|大阪府|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)',
+    ).hasMatch(cleaned);
+    final specific = RegExp(r'(市|区|町|村).*(丁目|番地|番|号|\d)').hasMatch(cleaned);
+    if (!hasPrefecture || !specific || cleaned.length > 100) return null;
+    return cleaned.replaceAll(RegExp(r'\s*[|｜].*$'), '').trim();
+  }
+
+  String? _nearbyName(List<String> lines, int addressIndex, String address) {
+    final sameLine = lines[addressIndex].replaceAll(address, '').trim();
+    if (_isName(sameLine)) return sameLine;
+    for (final index in [
+      addressIndex - 1,
+      addressIndex + 1,
+      addressIndex - 2,
+    ]) {
+      if (index >= 0 && index < lines.length && _isName(lines[index])) {
+        return lines[index];
+      }
+    }
+    return null;
+  }
+
+  bool _isName(String value) {
+    if (value.isEmpty || value.length > 60) return false;
+    if (value.startsWith('http') ||
+        value.startsWith('#') ||
+        value.startsWith('@')) {
+      return false;
+    }
+    if (_addressFrom(value) != null) return false;
+    return RegExp(r'[ぁ-んァ-ヶ一-龠A-Za-z]').hasMatch(value);
+  }
+
+  String? _fallbackName(List<_TextPart> parts, String? url) {
+    for (final part in parts) {
+      for (final line in part.text.split(RegExp(r'[\r\n]+'))) {
+        final value = line.trim();
+        if (_isName(value)) return value;
+      }
+    }
+    return url == null ? null : '共有された場所';
+  }
+
+  String _summarize(List<_TextPart> parts) {
+    final candidates = parts
+        .expand((part) => part.text.split(RegExp(r'[\r\n。！？!?]+')))
+        .map(
+          (value) => value
+              .replaceAll(RegExp(r'https?://\S+|#[^\s#]+|@[^\s@]+'), '')
+              .trim(),
+        )
+        .where((value) => value.length >= 4 && _addressFrom(value) == null)
+        .where((value) => !RegExp(r'^(住所|所在地|アクセス|営業時間)').hasMatch(value));
+    final value = candidates.isEmpty ? '共有された投稿で気になった場所' : candidates.first;
+    return value.length <= 42 ? value : '${value.substring(0, 41)}…';
+  }
+
+  (int, int)? _extractOpeningHours(List<_TextPart> parts) {
+    final text = parts.map((part) => part.text).join('\n');
+    final match = RegExp(
+      r'(?:営業時間[^0-9]*)?(\d{1,2})[:：](\d{2})\s*[〜~～\-ー]\s*(\d{1,2})[:：](\d{2})',
+    ).firstMatch(text);
+    if (match == null) return null;
+    final open = int.parse(match.group(1)!) * 60 + int.parse(match.group(2)!);
+    final close = int.parse(match.group(3)!) * 60 + int.parse(match.group(4)!);
+    if (open > 1439 || close > 1439) return null;
+    return (open, close);
+  }
+
+  List<int> _extractClosedWeekdays(List<_TextPart> parts) {
+    final text = parts.map((part) => part.text).join(' ');
+    final match = RegExp(
+      r'(?:定休日|休業日)\s*[:：]?\s*([月火水木金土日](?:曜(?:日)?)?)',
+    ).firstMatch(text);
+    if (match == null) return const [];
+    const names = '月火水木金土日';
+    final weekday = names.indexOf(match.group(1)![0]);
+    return weekday < 0 ? const [] : [weekday + 1];
+  }
+
+  String _normalize(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[\s　\-ー,，.。]'), '');
+}
+
+class _TextPart {
+  const _TextPart(this.text, this.source);
+  final String text;
+  final String source;
+}
+
+class _CandidateDraft {
+  const _CandidateDraft({
+    required this.name,
+    required this.source,
+    this.address,
+  });
+  final String name;
+  final String source;
+  final String? address;
+}
