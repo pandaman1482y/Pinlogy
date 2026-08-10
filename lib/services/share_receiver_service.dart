@@ -108,6 +108,7 @@ abstract class ShareReceiverService {
   Future<SourcePost> receive(
     SharedContent content, {
     bool waitForAnalysis = false,
+    bool analyze = true,
   });
 
   Future<SourcePost> refreshOfficialPreview(
@@ -151,6 +152,7 @@ class LocalShareReceiverService implements ShareReceiverService {
   Future<SourcePost> receive(
     SharedContent content, {
     bool waitForAnalysis = false,
+    bool analyze = true,
   }) async {
     if (_busy) {
       throw StateError('共有の取り込み処理中です。完了してから再試行してください。');
@@ -184,7 +186,7 @@ class LocalShareReceiverService implements ShareReceiverService {
       }
       final job = await analysis.enqueue(post.id);
 
-      if (autoAnalyze) {
+      if (autoAnalyze && analyze) {
         if (waitForAnalysis) {
           await _analyze(job, post);
         } else {
@@ -376,7 +378,8 @@ class ShareIntakeCoordinator {
 
   Future<SourcePost?> _handleShared(SharedContent content) async {
     try {
-      final post = await shareReceiver.receive(content);
+      // OS共有では、ユーザーが補足メモを入力してから解析を開始する。
+      final post = await shareReceiver.receive(content, analyze: false);
       lastSavedMessage = '受信箱に保存しました';
       if (!_savedController.isClosed) {
         _savedController.add(post);

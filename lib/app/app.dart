@@ -13,6 +13,7 @@ import '../features/settings/cloud_sync_page.dart';
 import '../models/models.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/map_tiles.dart';
+import '../widgets/sheet_layout.dart';
 
 class PinlogyApp extends StatelessWidget {
   const PinlogyApp({super.key});
@@ -78,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _handledShareCode;
   bool _checkingQuotaNotice = false;
   bool _quotaDialogOpen = false;
+  Future<void> _sharePromptQueue = Future.value();
 
   @override
   void initState() {
@@ -102,29 +104,14 @@ class _HomeScreenState extends State<HomeScreen> {
           zoom: 5.2,
         ),
       );
-      _shareSub = controller.shareIntake.onSaved.listen((_) {
-        if (!mounted) return;
-        setState(() => index = 1);
-        final message =
-            controller.consumeShareToast() ??
-            controller.shareIntake.lastSavedMessage ??
-            '受信箱に保存しました';
-        final messenger = ScaffoldMessenger.of(context);
-        messenger.hideCurrentSnackBar();
-        messenger.showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 3),
-            content: Text(message),
-            action: SnackBarAction(
-              label: '場所候補を見る',
-              textColor: leafWash,
-              onPressed: () => _selectTab(1),
-            ),
-          ),
-        );
+      _shareSub = controller.shareIntake.onSaved.listen((post) {
+        controller.acknowledgeSharedPost(post.id);
+        _enqueueSharePrompt(post);
       });
+      final pendingPost = controller.consumePendingSharedPost();
+      if (pendingPost != null) _enqueueSharePrompt(pendingPost);
       final pending = controller.consumeShareToast();
-      if (pending != null) {
+      if (pending != null && pendingPost == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 3),
@@ -138,6 +125,70 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     });
+  }
+
+  void _enqueueSharePrompt(SourcePost post) {
+    _sharePromptQueue = _sharePromptQueue.then(
+      (_) => _promptForSharedPost(post),
+    );
+  }
+
+  Future<void> _promptForSharedPost(SourcePost post) async {
+    if (!mounted) return;
+    _onboardingTimer?.cancel();
+    setState(() => index = 1);
+    final memoController = TextEditingController();
+    String? memo;
+    try {
+      memo = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.edit_note_rounded),
+          title: const Text('取り込みメモ'),
+          content: TextField(
+            controller: memoController,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: '店名や住所など（任意）',
+              helperText: '入力すると場所を検索しやすくなります',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, ''),
+              child: const Text('メモなしで追加'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, memoController.text),
+              child: const Text('追加して検索'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      disposeAfterFrame([memoController]);
+    }
+    if (!mounted || memo == null) return;
+    await AppScope.read(context).analyzeSharedPost(post, memo: memo);
+    if (!mounted) return;
+    final message = AppScope.read(context).consumeShareToast() ?? '受信箱に保存しました';
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 3),
+        content: Text(message),
+        action: SnackBarAction(
+          label: '場所候補を見る',
+          textColor: leafWash,
+          onPressed: () => _selectTab(1),
+        ),
+      ),
+    );
   }
 
   Future<void> _listenForMapShares() async {

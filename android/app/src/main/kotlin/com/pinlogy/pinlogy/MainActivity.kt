@@ -18,6 +18,7 @@ class MainActivity : FlutterActivity() {
     private var methodChannel: MethodChannel? = null
     private var pendingShare: HashMap<String, Any?>? = null
     private var flutterReady = false
+    private var dartReady = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,6 +29,7 @@ class MainActivity : FlutterActivity() {
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getInitialSharedMedia" -> {
+                    dartReady = true
                     result.success(pendingShare)
                     pendingShare = null
                 }
@@ -55,7 +57,7 @@ class MainActivity : FlutterActivity() {
 
     private fun handleShareIntent(intent: Intent?) {
         val payload = extractShare(intent) ?: return
-        if (flutterReady && methodChannel != null) {
+        if (dartReady && methodChannel != null) {
             methodChannel?.invokeMethod("onShared", payload)
         } else {
             pendingShare = payload

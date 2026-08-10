@@ -8,6 +8,7 @@ import UIKit
   private let pendingKey = "pinlogy.pending_share"
   private var methodChannel: FlutterMethodChannel?
   private var setupAttempts = 0
+  private var dartReady = false
 
   override func application(
     _ application: UIApplication,
@@ -44,6 +45,7 @@ import UIKit
       }
       switch call.method {
       case "getInitialSharedMedia":
+        self.dartReady = true
         result(self.consumePendingShare())
       default:
         result(FlutterMethodNotImplemented)
@@ -53,9 +55,7 @@ import UIKit
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
-    if let payload = consumePendingShare() {
-      methodChannel?.invokeMethod("onShared", arguments: payload)
-    }
+    dispatchPendingShareIfReady()
   }
 
   override func application(
@@ -64,12 +64,17 @@ import UIKit
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
     if url.scheme == "pinlogy" {
-      if let payload = consumePendingShare() {
-        methodChannel?.invokeMethod("onShared", arguments: payload)
-      }
+      dispatchPendingShareIfReady()
       return true
     }
     return super.application(app, open: url, options: options)
+  }
+
+  private func dispatchPendingShareIfReady() {
+    guard dartReady, let methodChannel else { return }
+    if let payload = consumePendingShare() {
+      methodChannel.invokeMethod("onShared", arguments: payload)
+    }
   }
 
   private func consumePendingShare() -> [String: Any]? {

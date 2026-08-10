@@ -87,6 +87,7 @@ class PinlogyController extends ChangeNotifier {
 
   /// 共有保存直後の短い案内。HomeScreen が表示したら消費する。
   String? pendingShareToast;
+  SourcePost? _pendingSharedPost;
 
   MapRepository get maps => hub.maps;
   PlaceRepository get places => hub.places;
@@ -125,7 +126,8 @@ class PinlogyController extends ChangeNotifier {
           _seenInboxPostIds.toList(),
         );
       }
-      shareIntake.onSaved.listen((_) {
+      shareIntake.onSaved.listen((post) {
+        _pendingSharedPost = post;
         pendingShareToast = shareIntake.lastSavedMessage ?? '受信箱に保存しました';
         notifyListeners();
       });
@@ -145,6 +147,35 @@ class PinlogyController extends ChangeNotifier {
     final message = pendingShareToast;
     pendingShareToast = null;
     return message;
+  }
+
+  SourcePost? consumePendingSharedPost() {
+    final post = _pendingSharedPost;
+    _pendingSharedPost = null;
+    return post;
+  }
+
+  void acknowledgeSharedPost(String sourcePostId) {
+    if (_pendingSharedPost?.id == sourcePostId) {
+      _pendingSharedPost = null;
+    }
+  }
+
+  Future<void> analyzeSharedPost(SourcePost post, {String? memo}) async {
+    final trimmedMemo = memo?.trim() ?? '';
+    if (trimmedMemo.isNotEmpty) {
+      final existing = post.body?.trim() ?? '';
+      await sourcePosts.update(
+        post.copyWith(
+          body: existing.isEmpty ? trimmedMemo : '$existing\n$trimmedMemo',
+          updatedAt: DateTime.now(),
+        ),
+      );
+    }
+    final job = await analysis.getBySourcePostId(post.id);
+    if (job != null) {
+      await analysisRunner.runJob(job.id);
+    }
   }
 
   Future<bool> consumeAiQuotaNotice() async {

@@ -18,6 +18,8 @@ import '../plans/plan_detail_page.dart';
 class MapsTab extends StatelessWidget {
   const MapsTab({super.key});
 
+  static bool _createMapSheetOpen = false;
+
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
@@ -195,26 +197,33 @@ class MapsTab extends StatelessWidget {
   }
 
   static Future<void> _showCreateMap(BuildContext context) async {
-    if (ModalRoute.of(context)?.isCurrent != true) return;
+    if (_createMapSheetOpen || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _createMapSheetOpen = true;
     final controller = AppScope.read(context);
-    final result = await showModalBottomSheet<_CreateMapResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (ctx) => const _CreateMapSheet(),
-    );
-    if (result != null && context.mounted) {
-      final created = await runGuarded(
-        context,
-        () => controller.createMap(
-          name: result.name,
-          description: result.description,
-          icon: result.icon,
-        ),
+    try {
+      final result = await showModalBottomSheet<_CreateMapResult>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (ctx) => const _CreateMapSheet(),
       );
-      if (created != null && context.mounted) {
-        showInfoSnackBar(context, '「${result.name}」を作成しました');
+      if (result != null && context.mounted) {
+        final created = await runGuarded(
+          context,
+          () => controller.createMap(
+            name: result.name,
+            description: result.description,
+            icon: result.icon,
+          ),
+        );
+        if (created != null && context.mounted) {
+          showInfoSnackBar(context, '「${result.name}」を作成しました');
+        }
       }
+    } finally {
+      _createMapSheetOpen = false;
     }
   }
 }
