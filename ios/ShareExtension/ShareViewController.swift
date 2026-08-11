@@ -85,7 +85,7 @@ final class ShareViewController: UIViewController {
         self.saveButton.isHidden = true
         self.cancelButton.isHidden = true
       }
-      try? await Task.sleep(for: .milliseconds(700))
+      try? await Task.sleep(nanoseconds: 700_000_000)
       self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
   }
