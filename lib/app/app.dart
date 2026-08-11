@@ -13,7 +13,9 @@ import '../features/settings/cloud_sync_page.dart';
 import '../models/models.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/map_tiles.dart';
+import '../widgets/place_photo.dart';
 import '../widgets/sheet_layout.dart';
+import '../widgets/source_post_tile.dart';
 
 class PinlogyApp extends StatelessWidget {
   const PinlogyApp({super.key});
@@ -79,7 +81,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _handledShareCode;
   bool _checkingQuotaNotice = false;
   bool _quotaDialogOpen = false;
-  Future<void> _sharePromptQueue = Future.value();
+  final List<SourcePost> _queuedSharePrompts = [];
+  bool _drainingSharePrompts = false;
+  BuildContext? _activeShareDialogContext;
 
   @override
   void initState() {
@@ -106,10 +110,12 @@ class _HomeScreenState extends State<HomeScreen> {
         controller.acknowledgeSharedPost(post.id);
         _enqueueSharePrompt(post);
       });
-      final pendingPost = controller.consumePendingSharedPost();
-      if (pendingPost != null) _enqueueSharePrompt(pendingPost);
+      final pendingPosts = controller.consumePendingSharedPosts();
+      for (final post in pendingPosts) {
+        _enqueueSharePrompt(post);
+      }
       final pending = controller.consumeShareToast();
-      if (pending != null && pendingPost == null) {
+      if (pending != null && pendingPosts.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             duration: const Duration(seconds: 3),
@@ -126,9 +132,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _enqueueSharePrompt(SourcePost post) {
-    _sharePromptQueue = _sharePromptQueue.then(
-      (_) => _promptForSharedPost(post),
-    );
+    _queuedSharePrompts.add(post);
+    final dialogContext = _activeShareDialogContext;
+    if (dialogContext != null && Navigator.of(dialogContext).canPop()) {
+      Navigator.pop(dialogContext, '');
+    }
+    unawaited(_drainSharePrompts());
+  }
+
+  Future<void> _drainSharePrompts() async {
+    if (_drainingSharePrompts) return;
+    _drainingSharePrompts = true;
+    try {
+      while (mounted && _queuedSharePrompts.isNotEmpty) {
+        final post = _queuedSharePrompts.removeAt(0);
+        // さらに共有が待っている場合は先頭をメモなしで確定し、最後の1件だけ入力を待つ。
+        if (_queuedSharePrompts.isNotEmpty) {
+          await AppScope.read(context).analyzeSharedPost(post);
+          continue;
+        }
+        await _promptForSharedPost(post);
+      }
+    } finally {
+      _drainingSharePrompts = false;
+    }
   }
 
   Future<void> _showFirstRunGuidance() async {
@@ -143,56 +170,107 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => index = 1);
     await showAiAnalysisConsentIfNeeded(context);
     if (!mounted) return;
+    final controller = AppScope.read(context);
+    var displayPost = await controller.sourcePosts.getById(post.id) ?? post;
+    if (displayPost.imagePaths.isEmpty && displayPost.url != null) {
+      try {
+        displayPost = await controller.shareReceiver.refreshOfficialPreview(
+          displayPost,
+        );
+      } catch (_) {
+        // サムネイル取得に失敗してもURLとメモ入力で取り込みを続ける。
+      }
+    }
+    if (!mounted) return;
+    if (_queuedSharePrompts.isNotEmpty) {
+      await controller.analyzeSharedPost(displayPost);
+      return;
+    }
     final memoController = TextEditingController();
     String? memo;
     try {
       memo = await showDialog<String>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          icon: const Icon(Icons.edit_note_rounded),
-          title: const Text('取り込みメモ'),
-          content: TextField(
-            controller: memoController,
-            autofocus: true,
-            minLines: 2,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: '店名や住所など（任意）',
-              helperText: '入力すると場所を検索しやすくなります',
+        builder: (dialogContext) {
+          _activeShareDialogContext = dialogContext;
+          return AlertDialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 24,
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, ''),
-              child: const Text('メモなしで追加'),
+            icon: const Icon(Icons.edit_note_rounded),
+            title: const Text('取り込みメモ'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (displayPost.imagePaths.isNotEmpty) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: PlacePhoto(
+                            path: displayPost.imagePaths.first,
+                            fallback: const ColoredBox(
+                              color: Color(0xFFE8F1EC),
+                              child: Center(
+                                child: Icon(Icons.movie_outlined, size: 36),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    SourcePostTile(post: displayPost, compact: true),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: memoController,
+                      autofocus: true,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        hintText: '店名や住所など（任意）',
+                        helperText: '入力すると場所を検索しやすくなります',
+                        helperMaxLines: 2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, memoController.text),
-              child: const Text('追加して検索'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, ''),
+                child: const Text('メモなしで追加'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, memoController.text),
+                child: const Text('追加して検索'),
+              ),
+            ],
+          );
+        },
       );
     } finally {
+      _activeShareDialogContext = null;
       disposeAfterFrame([memoController]);
     }
     if (!mounted || memo == null) return;
-    await AppScope.read(context).analyzeSharedPost(post, memo: memo);
+    await AppScope.read(context).analyzeSharedPost(displayPost, memo: memo);
     if (!mounted) return;
     final message = AppScope.read(context).consumeShareToast() ?? '受信箱に保存しました';
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
+    messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 2),
         content: Text(message),
-        action: SnackBarAction(
-          label: '場所候補を見る',
-          textColor: leafWash,
-          onPressed: () => _selectTab(1),
-        ),
       ),
     );
   }

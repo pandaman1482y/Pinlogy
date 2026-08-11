@@ -37,8 +37,8 @@ Future<bool> showAiAnalysisConsentIfNeeded(BuildContext context) async {
       icon: const Icon(Icons.auto_awesome_outlined),
       title: const Text('AIで場所を見つけやすく'),
       content: const Text(
-        '共有した投稿文と、端末で読み取った文字をAIで解析して、店名や住所の候補を高精度に探します。\n\n'
-        '画像ファイル、個人メモ、保存済みの位置情報はAIへ送りません。設定からいつでもOFFにできます。',
+        '共有した投稿文、取り込みメモ、共有画像・動画サムネイルをAIで解析して、店名や住所の候補を高精度に探します。\n\n'
+        'これらはSupabase経由でOpenAIへ送信されます。保存済みの位置情報や場所の個人メモは送りません。設定からいつでもOFFにできます。',
       ),
       actions: [
         TextButton(

@@ -172,6 +172,27 @@ class AiPostAnalysisService implements PostAnalysisService {
     final encoded = <String>[];
     for (final rawPath in paths.take(3)) {
       try {
+        final remote = Uri.tryParse(rawPath);
+        if (remote?.scheme == 'https' && _isAllowedPreviewHost(remote!.host)) {
+          final response = await _client
+              .get(remote, headers: const {'Accept': 'image/*'})
+              .timeout(const Duration(seconds: 8));
+          final contentType = response.headers['content-type'] ?? '';
+          final bytes = response.bodyBytes;
+          if (response.statusCode == 200 &&
+              _isAllowedPreviewHost(response.request?.url.host ?? '') &&
+              contentType.startsWith('image/') &&
+              bytes.isNotEmpty &&
+              bytes.length <= 2 * 1024 * 1024) {
+            final mime = contentType.split(';').first.toLowerCase();
+            if (mime == 'image/jpeg' ||
+                mime == 'image/png' ||
+                mime == 'image/webp') {
+              encoded.add('data:$mime;base64,${base64Encode(bytes)}');
+            }
+          }
+          continue;
+        }
         final path = rawPath.startsWith('file://')
             ? Uri.parse(rawPath).toFilePath()
             : rawPath;
@@ -193,5 +214,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       }
     }
     return encoded;
+  }
+
+  bool _isAllowedPreviewHost(String rawHost) {
+    final host = rawHost.toLowerCase();
+    return const ['tiktokcdn.com', 'tiktokcdn-us.com', 'muscdn.com', 'ytimg.com']
+        .any((domain) => host == domain || host.endsWith('.$domain'));
   }
 }

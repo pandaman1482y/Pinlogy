@@ -50,6 +50,7 @@ class _InboxTabState extends State<InboxTab> {
       final values = <String>[
         post.title ?? '',
         post.body ?? '',
+        post.userMemo ?? '',
         post.url ?? '',
         post.service ?? '',
         for (final candidate in candidates) ...[
@@ -261,11 +262,11 @@ class _InboxTabState extends State<InboxTab> {
                     final post = posts[i];
                     final job = controller.jobForPost(post.id);
                     final candidates = controller.candidatesForPost(post.id);
-                    final resolvedTitle =
-                        candidates.isNotEmpty &&
-                            candidates.first.name.trim().isNotEmpty &&
-                            candidates.first.name != '共有された場所'
-                        ? candidates.first.name.trim()
+                    final namedCandidate = candidates
+                        .where(controller.isIdentifiedPlaceCandidate)
+                        .firstOrNull;
+                    final resolvedTitle = namedCandidate != null
+                        ? namedCandidate.name.trim()
                         : post.title == '共有されたURL'
                         ? '${post.service ?? 'SNS'}の投稿'
                         : post.title ?? post.url ?? '無題の投稿';
@@ -290,6 +291,7 @@ class _InboxTabState extends State<InboxTab> {
                         icon: _iconFor(post.service),
                         source: post.service ?? 'その他',
                         title: resolvedTitle,
+                        memo: post.userMemo,
                         status: savedPostIds.contains(post.id)
                             ? '保存済み'
                             : duplicatePostIds.contains(post.id)
@@ -571,16 +573,17 @@ class _InboxTabState extends State<InboxTab> {
                       }
                     },
                   ),
-                if (job?.status == AnalysisJobStatus.failed)
-                  ListTile(
-                    leading: const Icon(Icons.edit_note_rounded),
-                    title: const Text('投稿文を補足して再解析'),
-                    subtitle: const Text('店名や住所を追記すると見つけやすくなります'),
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _editAndRetry(context, post, job!);
-                    },
+                ListTile(
+                  leading: const Icon(Icons.edit_note_rounded),
+                  title: Text(
+                    (post.userMemo ?? '').trim().isEmpty ? 'メモを追記' : 'メモを編集',
                   ),
+                  subtitle: const Text('店名や住所を追記して、場所をもう一度検索できます'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _editAndRetry(context, post, job);
+                  },
+                ),
                 if (job?.status == AnalysisJobStatus.processing ||
                     job?.status == AnalysisJobStatus.pending)
                   ListTile(
@@ -640,9 +643,9 @@ class _InboxTabState extends State<InboxTab> {
   Future<void> _editAndRetry(
     BuildContext context,
     SourcePost post,
-    AnalysisJob job,
+    AnalysisJob? job,
   ) async {
-    final textController = TextEditingController(text: post.body ?? '');
+    final textController = TextEditingController(text: post.userMemo ?? '');
     try {
       final body = await showDialog<String>(
         context: context,
@@ -669,11 +672,19 @@ class _InboxTabState extends State<InboxTab> {
           ],
         ),
       );
-      if (body == null || body.isEmpty || !context.mounted) return;
+      if (body == null || !context.mounted) return;
       final controller = AppScope.read(context);
-      await controller.sourcePosts.update(post.copyWith(body: body));
-      await controller.analysis.retry(job.id);
-      await controller.analysisRunner.runJob(job.id);
+      await controller.sourcePosts.update(
+        post.copyWith(
+          userMemo: body,
+          clearUserMemo: body.isEmpty,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      if (job != null) {
+        await controller.analysis.retry(job.id);
+        await controller.analysisRunner.runJob(job.id);
+      }
     } finally {
       textController.dispose();
     }
@@ -755,6 +766,7 @@ class _InboxCard extends StatelessWidget {
     required this.icon,
     required this.source,
     required this.title,
+    this.memo,
     required this.status,
     required this.statusColor,
     this.onTap,
@@ -769,6 +781,7 @@ class _InboxCard extends StatelessWidget {
   final IconData icon;
   final String source;
   final String title;
+  final String? memo;
   final String status;
   final Color statusColor;
   final VoidCallback? onTap;
@@ -856,6 +869,17 @@ class _InboxCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
+                    if (memo?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'メモ：${memo!.trim()}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF596A61),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
                     Row(
                       children: [

@@ -44,6 +44,6 @@ flutter build ipa --release \
 ## App Store Connect
 
 - 位置情報は「App使用中」のみを申告する。
-- 投稿画像は端末内OCRで処理し、画像自体はSupabaseへ送信しない旨を記載する。
+- AI高度解析OFF時は投稿画像を端末内OCRだけで処理し、ON時は共有画像・動画サムネイルをSupabase経由でOpenAIへ送信する旨を記載する。
 - 住所検索時は住所文字列を国土地理院/OpenStreetMapへ送る旨をプライバシーポリシーへ記載する。
 - 暗号化輸出申告は`ITSAppUsesNonExemptEncryption = false`に合わせて回答する。

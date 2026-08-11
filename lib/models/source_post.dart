@@ -8,6 +8,7 @@ class SourcePost {
     this.service,
     this.title,
     this.body,
+    this.userMemo,
     List<String>? imagePaths,
     DateTime? receivedAt,
     DateTime? createdAt,
@@ -23,6 +24,7 @@ class SourcePost {
   String? service;
   String? title;
   String? body;
+  String? userMemo;
   List<String> imagePaths;
   DateTime receivedAt;
   DateTime createdAt;
@@ -33,6 +35,8 @@ class SourcePost {
     String? service,
     String? title,
     String? body,
+    String? userMemo,
+    bool clearUserMemo = false,
     List<String>? imagePaths,
     DateTime? updatedAt,
   }) {
@@ -42,6 +46,7 @@ class SourcePost {
       service: service ?? this.service,
       title: title ?? this.title,
       body: body ?? this.body,
+      userMemo: clearUserMemo ? null : userMemo ?? this.userMemo,
       imagePaths: imagePaths ?? this.imagePaths,
       receivedAt: receivedAt,
       createdAt: createdAt,
@@ -55,6 +60,7 @@ class SourcePost {
     'service': service,
     'title': title,
     'body': body,
+    'userMemo': userMemo,
     'imagePaths': imagePaths,
     'receivedAt': receivedAt.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
@@ -67,6 +73,7 @@ class SourcePost {
     service: json['service'] as String?,
     title: json['title'] as String?,
     body: json['body'] as String?,
+    userMemo: json['userMemo'] as String?,
     imagePaths: ((json['imagePaths'] as List?) ?? const [])
         .map((e) => e as String)
         .toList(),

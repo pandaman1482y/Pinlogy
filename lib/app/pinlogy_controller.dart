@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -87,7 +88,7 @@ class PinlogyController extends ChangeNotifier {
 
   /// 共有保存直後の短い案内。HomeScreen が表示したら消費する。
   String? pendingShareToast;
-  SourcePost? _pendingSharedPost;
+  final Queue<SourcePost> _pendingSharedPosts = Queue<SourcePost>();
 
   MapRepository get maps => hub.maps;
   PlaceRepository get places => hub.places;
@@ -127,7 +128,7 @@ class PinlogyController extends ChangeNotifier {
         );
       }
       shareIntake.onSaved.listen((post) {
-        _pendingSharedPost = post;
+        _pendingSharedPosts.addLast(post);
         pendingShareToast = shareIntake.lastSavedMessage ?? '受信箱に保存しました';
         notifyListeners();
       });
@@ -150,24 +151,33 @@ class PinlogyController extends ChangeNotifier {
   }
 
   SourcePost? consumePendingSharedPost() {
-    final post = _pendingSharedPost;
-    _pendingSharedPost = null;
-    return post;
+    return _pendingSharedPosts.isEmpty ? null : _pendingSharedPosts.removeFirst();
+  }
+
+  List<SourcePost> consumePendingSharedPosts() {
+    final posts = _pendingSharedPosts.toList(growable: false);
+    _pendingSharedPosts.clear();
+    return posts;
   }
 
   void acknowledgeSharedPost(String sourcePostId) {
-    if (_pendingSharedPost?.id == sourcePostId) {
-      _pendingSharedPost = null;
-    }
+    _pendingSharedPosts.removeWhere((post) => post.id == sourcePostId);
   }
 
   Future<void> analyzeSharedPost(SourcePost post, {String? memo}) async {
+    var currentPost = await sourcePosts.getById(post.id) ?? post;
+    if (currentPost.imagePaths.isEmpty && currentPost.url != null) {
+      try {
+        currentPost = await shareReceiver.refreshOfficialPreview(currentPost);
+      } catch (_) {
+        // 画像取得に失敗しても投稿文・URL・メモで解析を続ける。
+      }
+    }
     final trimmedMemo = memo?.trim() ?? '';
     if (trimmedMemo.isNotEmpty) {
-      final existing = post.body?.trim() ?? '';
       await sourcePosts.update(
-        post.copyWith(
-          body: existing.isEmpty ? trimmedMemo : '$existing\n$trimmedMemo',
+        currentPost.copyWith(
+          userMemo: trimmedMemo,
           updatedAt: DateTime.now(),
         ),
       );
@@ -324,13 +334,27 @@ class PinlogyController extends ChangeNotifier {
     final job = jobForPost(post.id);
     if (job == null) return '未解析';
     if (job.status == AnalysisJobStatus.completed) {
-      final count = candidatesForPost(post.id).length;
-      return count > 0 ? '$count件の場所を検出' : '場所は見つかりませんでした';
+      final candidates = candidatesForPost(post.id);
+      final count = candidates.where(isIdentifiedPlaceCandidate).length;
+      if (count > 0) return '$count件の場所を検出';
+      return candidates.isEmpty ? '場所は見つかりませんでした' : '場所候補を確認してください';
     }
     if (job.status == AnalysisJobStatus.failed) {
       return job.errorMessage ?? '解析に失敗';
     }
     return job.status.label;
+  }
+
+  bool isIdentifiedPlaceCandidate(ExtractionCandidate candidate) {
+    final name = candidate.name.trim();
+    final meaningfulName = name.isNotEmpty &&
+        name != '共有された場所' &&
+        name != '名称を確認してください';
+    final hasLocation = candidate.address?.trim().isNotEmpty == true ||
+        (candidate.latitude != null && candidate.longitude != null);
+    return meaningfulName &&
+        candidate.match != PlaceMatchConfidence.unresolved &&
+        (hasLocation || (candidate.confidencePercent ?? 0) >= 60);
   }
 
   Future<List<Place>> addCandidatesToMap({

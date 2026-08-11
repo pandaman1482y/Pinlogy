@@ -174,16 +174,29 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                 SwitchListTile.adaptive(
                   secondary: const Icon(Icons.auto_awesome_outlined),
                   value: aiAnalysisEnabled,
-                  title: const Text('AIで投稿を高精度解析'),
-                  subtitle: const Text('投稿文とOCR文字を安全に解析'),
-                  onChanged: configured && !busy
-                      ? (value) async {
+                  title: const Text('AI高度解析'),
+                  subtitle: Text(
+                    configured
+                        ? '投稿文と画像内の文字から店舗を検索します'
+                        : '現在は未設定です。ONの場合でもOFFへ変更できます',
+                  ),
+                  onChanged: busy
+                      ? null
+                      : (value) async {
+                          if (value && !configured) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                duration: Duration(seconds: 3),
+                                content: Text('AI高度解析は現在利用できません'),
+                              ),
+                            );
+                            return;
+                          }
                           await AiAnalysisConsent().setConsented(value);
                           if (mounted) {
                             setState(() => aiAnalysisEnabled = value);
                           }
-                        }
-                      : null,
+                        },
                 ),
                 const Divider(height: 1, indent: 56),
                 ExpansionTile(
@@ -315,7 +328,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               Text(
                 '同期対象：マップ名、店名、住所、座標、カテゴリ、訪問状態、元投稿URL。\n'
                 '同期しない情報：個人メモ、投稿本文、OCR結果、解析結果、端末内画像。\n\n'
-                'AI解析では投稿文と端末OCRの抽出候補をSupabase経由でOpenAIへ送信します。画像ファイル自体は送信しません。',
+                'AI高度解析をONにした場合は、共有した投稿文、取り込みメモ、共有画像・動画サムネイルをSupabase経由でOpenAIへ送信します。',
                 style: TextStyle(height: 1.55),
               ),
             ],

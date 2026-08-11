@@ -102,6 +102,21 @@ void main() {
     );
   });
 
+  test('投稿本文と取り込みメモを分けて保存できる', () async {
+    final post = await hub.sourcePosts.create(
+      SourcePost(
+        title: '喫茶ソワレ',
+        body: 'TikTokから共有された投稿文',
+        userMemo: '京都の青いゼリーのお店',
+      ),
+    );
+    final restored = AppSnapshot.fromJson(hub.snapshot.toJson());
+    final saved = restored.sourcePosts.singleWhere((item) => item.id == post.id);
+
+    expect(saved.body, 'TikTokから共有された投稿文');
+    expect(saved.userMemo, '京都の青いゼリーのお店');
+  });
+
   test('削除したマップはクラウド削除キューへ残る', () async {
     final hub = LocalRepositoryHub(InMemoryDataStore());
     await hub.load();

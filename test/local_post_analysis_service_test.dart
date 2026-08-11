@@ -38,4 +38,15 @@ void main() {
     expect(result.candidates.single.name, '週末に行きたいカフェ');
     expect(result.candidates.single.confidencePercent, 40);
   });
+
+  test('URLだけの共有を場所検出として数えない', () async {
+    final result = await LocalPostAnalysisService().analyze(
+      const PostAnalysisRequest(
+        sourcePostId: 'post-3',
+        url: 'https://www.tiktok.com/@x/video/1',
+      ),
+    );
+
+    expect(result.candidates, isEmpty);
+  });
 }

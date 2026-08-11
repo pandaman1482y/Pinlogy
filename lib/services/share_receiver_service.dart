@@ -262,7 +262,7 @@ class LocalShareReceiverService implements ShareReceiverService {
         PostAnalysisRequest(
           sourcePostId: post.id,
           url: post.url,
-          text: post.body,
+          text: _analysisText(post),
           imageUrls: post.imagePaths,
         ),
       );
@@ -323,7 +323,7 @@ class AnalysisRunner {
         PostAnalysisRequest(
           sourcePostId: post.id,
           url: post.url,
-          text: post.body,
+          text: _analysisText(post),
           imageUrls: post.imagePaths,
         ),
       );
@@ -346,6 +346,14 @@ class AnalysisRunner {
       );
     }
   }
+}
+
+String? _analysisText(SourcePost post) {
+  final parts = [post.body?.trim(), post.userMemo?.trim()]
+      .whereType<String>()
+      .where((value) => value.isNotEmpty)
+      .toList();
+  return parts.isEmpty ? null : parts.join('\n');
 }
 
 /// OS共有 → 受信箱保存 → UI通知 をまとめるコーディネータ。

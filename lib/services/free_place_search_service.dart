@@ -25,10 +25,18 @@ class FreePlaceSearchService implements PlaceSearchService {
   }) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
+    final area = nearAddress?.trim() ?? '';
+    final enrichedQuery = area.isEmpty || q.contains(area) ? q : '$q $area';
 
-    final results = await Future.wait([_searchGsi(q), _searchNominatim(q)]);
+    final results = await Future.wait([
+      _searchGsi(enrichedQuery),
+      _searchNominatim(enrichedQuery),
+    ]);
+    final merged = _merge(results[0], results[1]);
+    if (merged.isNotEmpty || enrichedQuery == q) return merged;
 
-    return _merge(results[0], results[1]);
+    final fallback = await Future.wait([_searchGsi(q), _searchNominatim(q)]);
+    return _merge(fallback[0], fallback[1]);
   }
 
   @override

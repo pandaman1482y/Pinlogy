@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/models.dart';
 import 'location_services.dart';
@@ -49,7 +50,7 @@ class LocalPostAnalysisService implements PostAnalysisService {
         .toList();
 
     if (candidates.isEmpty) {
-      final fallback = _fallbackName(parts, request.url);
+      final fallback = _fallbackName(parts);
       if (fallback != null) {
         candidates.add(
           ExtractionCandidate(
@@ -81,9 +82,34 @@ class LocalPostAnalysisService implements PostAnalysisService {
             defaultTargetPlatform != TargetPlatform.iOS)) {
       return '';
     }
-    final path = rawPath.startsWith('file://')
+    String? temporaryPath;
+    var path = rawPath.startsWith('file://')
         ? Uri.parse(rawPath).toFilePath()
         : rawPath;
+    final remote = Uri.tryParse(rawPath);
+    if (remote?.scheme == 'https' && _isAllowedPreviewHost(remote!.host)) {
+      try {
+        final response = await http
+            .get(remote, headers: const {'Accept': 'image/*'})
+            .timeout(const Duration(seconds: 8));
+        final contentType = response.headers['content-type'] ?? '';
+        if (response.statusCode != 200 ||
+            !_isAllowedPreviewHost(response.request?.url.host ?? '') ||
+            !contentType.startsWith('image/') ||
+            response.bodyBytes.isEmpty ||
+            response.bodyBytes.length > 2 * 1024 * 1024) {
+          return '';
+        }
+        final file = File(
+          '${Directory.systemTemp.path}/pinlogy_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
+        );
+        await file.writeAsBytes(response.bodyBytes, flush: true);
+        path = file.path;
+        temporaryPath = file.path;
+      } catch (_) {
+        return '';
+      }
+    }
     if (path.startsWith('local://') || !await File(path).exists()) return '';
     final recognizer = TextRecognizer(script: TextRecognitionScript.japanese);
     try {
@@ -94,7 +120,18 @@ class LocalPostAnalysisService implements PostAnalysisService {
       return '';
     } finally {
       await recognizer.close();
+      if (temporaryPath != null) {
+        try {
+          await File(temporaryPath).delete();
+        } catch (_) {}
+      }
     }
+  }
+
+  bool _isAllowedPreviewHost(String rawHost) {
+    final host = rawHost.toLowerCase();
+    return const ['tiktokcdn.com', 'tiktokcdn-us.com', 'muscdn.com', 'ytimg.com']
+        .any((domain) => host == domain || host.endsWith('.$domain'));
   }
 
   List<_CandidateDraft> _extract(_TextPart part) {
@@ -153,18 +190,21 @@ class LocalPostAnalysisService implements PostAnalysisService {
         value.startsWith('@')) {
       return false;
     }
+    if (RegExp(r'^(共有された|TikTok|Instagram|おすすめ|PR|広告)').hasMatch(value)) {
+      return false;
+    }
     if (_addressFrom(value) != null) return false;
     return RegExp(r'[ぁ-んァ-ヶ一-龠A-Za-z]').hasMatch(value);
   }
 
-  String? _fallbackName(List<_TextPart> parts, String? url) {
+  String? _fallbackName(List<_TextPart> parts) {
     for (final part in parts) {
       for (final line in part.text.split(RegExp(r'[\r\n]+'))) {
         final value = line.trim();
         if (_isName(value)) return value;
       }
     }
-    return url == null ? null : '共有された場所';
+    return null;
   }
 
   String _summarize(List<_TextPart> parts) {

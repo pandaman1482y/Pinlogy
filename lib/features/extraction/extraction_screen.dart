@@ -81,6 +81,14 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     super.didChangeDependencies();
     final controller = AppScope.of(context);
     final candidates = controller.candidatesForPost(widget.sourcePostId);
+    final identifiedCount = candidates
+        .where(controller.isIdentifiedPlaceCandidate)
+        .length;
+    final resultMessage = identifiedCount > 0
+        ? '$identifiedCount件の場所を特定しました。'
+        : candidates.isNotEmpty
+        ? '${candidates.length}件の候補がありますが、場所は未確定です。'
+        : '場所を特定できませんでした。';
     if (selected.isEmpty) {
       for (final c in candidates) {
         if (c.match != PlaceMatchConfidence.unresolved && !_requiresReview(c)) {
@@ -137,7 +145,8 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                 Expanded(
                   child: Text(
                     '1. 候補を確認  2. 正しい支店を検索  3. マップへ追加\n'
-                    '${candidates.length}件見つかりました。住所が違う・不明な場合は検索してください。',
+                    '$resultMessage'
+                    '住所が違う・不明な場合は検索してください。',
                     style: const TextStyle(
                       height: 1.45,
                       fontWeight: FontWeight.w600,
@@ -399,7 +408,12 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     ExtractionCandidate candidate,
   ) async {
     final queryController = TextEditingController(
-      text: candidate.name == '名称を確認してください' ? '' : candidate.name,
+      text: candidate.name == '名称を確認してください'
+          ? candidate.postAddress ?? candidate.address ?? ''
+          : [candidate.name, candidate.postAddress ?? candidate.address]
+                .whereType<String>()
+                .where((value) => value.trim().isNotEmpty)
+                .join(' '),
     );
     try {
       final query = await showDialog<String>(
@@ -440,7 +454,10 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
         ),
       );
       if (query == null || query.isEmpty || !context.mounted) return null;
-      final hits = await AppScope.read(context).placeSearch.searchByName(query);
+      final hits = await AppScope.read(context).placeSearch.searchByName(
+        query,
+        nearAddress: candidate.postAddress ?? candidate.address,
+      );
       if (!context.mounted) return null;
       if (hits.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
