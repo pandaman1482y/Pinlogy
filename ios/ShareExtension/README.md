@@ -5,7 +5,7 @@ App Group 経由で本体アプリの受信箱へ渡します。
 
 ## 実装済みファイル
 
-- `ShareViewController.swift` … 共有内容の収集・App Group 保存・本体起動
+- `ShareViewController.swift` … 共有内容の収集・App Groupへの確実な保存
 - `Info.plist` … テキスト / URL / 画像 / 動画の受け取り設定
 - `ShareExtension.entitlements` … App Group `group.com.pinlogy.shared`
 - `Base.lproj/MainInterface.storyboard`
@@ -30,8 +30,10 @@ App Group 経由で本体アプリの受信箱へ渡します。
 ```
 他アプリの共有シート
   → ShareExtension（このターゲット）
+  → 「Pinlogyに保存」をタップ
   → App Group UserDefaults に JSON 保存
-  → pinlogy://share で本体起動
+  → 共有元へ戻る
+  → 利用者がPinlogy本体を開く
   → AppDelegate が MethodChannel `com.pinlogy/share` へ渡す
   → Flutter ShareIntakeCoordinator が受信箱へ即保存
   → 「受信箱に保存しました」を表示
@@ -40,5 +42,6 @@ App Group 経由で本体アプリの受信箱へ渡します。
 ## 注意
 
 - Apple Developer アカウントと App Group 能力が必要です
+- iOSのShare Extensionは本体アプリの自動起動を保証しないため、保存後は利用者がPinlogyを開きます
 - ここまでのコードに有料APIキーは不要です
 - 解析は本体アプリ側でバックグラウンド実行します

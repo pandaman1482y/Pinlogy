@@ -26,7 +26,7 @@ import UIKit
       let controller = window?.rootViewController as? FlutterViewController
     else {
       if setupAttempts < 30 {
-        DispatchQueue.main.async { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
           self?.setupShareChannel()
         }
       }

@@ -36,7 +36,7 @@ class PlatformShareBridge {
     try {
       final initial = await _channel
           .invokeMethod<dynamic>('getInitialSharedMedia')
-          .timeout(const Duration(milliseconds: 300));
+          .timeout(const Duration(seconds: 3));
       await _dispatch(initial);
     } on TimeoutException {
       // テストや未配線環境では応答がないことがある
