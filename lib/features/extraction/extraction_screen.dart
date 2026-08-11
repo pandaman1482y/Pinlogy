@@ -81,14 +81,6 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     super.didChangeDependencies();
     final controller = AppScope.of(context);
     final candidates = controller.candidatesForPost(widget.sourcePostId);
-    final identifiedCount = candidates
-        .where(controller.isIdentifiedPlaceCandidate)
-        .length;
-    final resultMessage = identifiedCount > 0
-        ? '$identifiedCount件の場所を特定しました。'
-        : candidates.isNotEmpty
-        ? '${candidates.length}件の候補がありますが、場所は未確定です。'
-        : '場所を特定できませんでした。';
     if (selected.isEmpty) {
       for (final c in candidates) {
         if (c.match != PlaceMatchConfidence.unresolved && !_requiresReview(c)) {
@@ -107,6 +99,14 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     final candidates = controller.candidatesForPost(widget.sourcePostId);
     final maps = controller.hub.snapshot.maps;
     final analysisSource = _analysisSource(controller);
+    final identifiedCount = candidates
+        .where(controller.isIdentifiedPlaceCandidate)
+        .length;
+    final resultMessage = identifiedCount > 0
+        ? '$identifiedCount件の場所を特定しました。'
+        : candidates.isNotEmpty
+        ? '${candidates.length}件の候補がありますが、場所は未確定です。'
+        : '場所を特定できませんでした。';
 
     return Scaffold(
       appBar: AppBar(
