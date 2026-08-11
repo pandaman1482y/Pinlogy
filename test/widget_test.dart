@@ -193,6 +193,33 @@ void main() {
     expect(second.hub.snapshot.maps.any((m) => m.name == '永続化マップ'), isTrue);
   });
 
+  test('連続共有を順番どおり保留できる', () async {
+    SharedPreferences.setMockInitialValues({
+      'pinlogy_onboarding_v1_completed': true,
+      'ai_post_analysis_consent_decided_v1': true,
+      'ai_post_analysis_consent_v1': false,
+    });
+    final controller = PinlogyController(
+      store: InMemoryDataStore(),
+      analysisService: MockPostAnalysisService(),
+      seedIfEmpty: false,
+      enablePlatformShare: false,
+    );
+    await controller.initialize();
+    await controller.shareIntake.ingest(
+      const SharedContent(title: '1件目', text: '最初の共有'),
+    );
+    await controller.shareIntake.ingest(
+      const SharedContent(title: '2件目', text: '次の共有'),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final pending = controller.consumePendingSharedPosts();
+    expect(pending.map((post) => post.title), ['1件目', '2件目']);
+    expect(controller.consumePendingSharedPosts(), isEmpty);
+    controller.dispose();
+  });
+
   testWidgets('API失敗時も元投稿が受信箱に残る', (tester) async {
     final controller = await pumpApp(
       tester,

@@ -65,6 +65,12 @@ class PlatformShareBridge {
   }
 
   Future<void> _dispatch(dynamic raw) async {
+    if (raw is List) {
+      for (final item in raw) {
+        await _dispatch(item);
+      }
+      return;
+    }
     final content = SharedContent.tryParse(raw);
     if (content == null || content.isEmpty) return;
     final handler = onShared;

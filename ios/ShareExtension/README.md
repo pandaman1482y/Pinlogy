@@ -31,9 +31,9 @@ App Group 経由で本体アプリの受信箱へ渡します。
 他アプリの共有シート
   → ShareExtension（このターゲット）
   → 「Pinlogyに保存」をタップ
-  → App Group UserDefaults に JSON 保存
-  → 共有元へ戻る
-  → 利用者がPinlogy本体を開く
+  → App Group UserDefaults の永続キューに JSON 保存
+  → Pinlogy本体の起動を試行（iOSが許可しない場合は共有元へ戻る）
+  → 自動で開かなかった場合は利用者がPinlogy本体を開く
   → AppDelegate が MethodChannel `com.pinlogy/share` へ渡す
   → Flutter ShareIntakeCoordinator が受信箱へ即保存
   → 「受信箱に保存しました」を表示
@@ -42,6 +42,6 @@ App Group 経由で本体アプリの受信箱へ渡します。
 ## 注意
 
 - Apple Developer アカウントと App Group 能力が必要です
-- iOSのShare Extensionは本体アプリの自動起動を保証しないため、保存後は利用者がPinlogyを開きます
+- iOSのShare Extensionは本体アプリの自動起動を保証しません。失敗しても最大50件の共有キューに残り、次回起動時にまとめて取り込みます
 - ここまでのコードに有料APIキーは不要です
 - 解析は本体アプリ側でバックグラウンド実行します

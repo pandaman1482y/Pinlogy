@@ -6,6 +6,7 @@ import UIKit
   private let channelName = "com.pinlogy/share"
   private let appGroupId = "group.com.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
+  private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private var methodChannel: FlutterMethodChannel?
   private var setupAttempts = 0
   private var dartReady = false
@@ -46,7 +47,7 @@ import UIKit
       switch call.method {
       case "getInitialSharedMedia":
         self.dartReady = true
-        result(self.consumePendingShare())
+        result(self.consumePendingShares())
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -72,22 +73,32 @@ import UIKit
 
   private func dispatchPendingShareIfReady() {
     guard dartReady, let methodChannel else { return }
-    if let payload = consumePendingShare() {
-      methodChannel.invokeMethod("onShared", arguments: payload)
+    let payloads = consumePendingShares()
+    if !payloads.isEmpty {
+      methodChannel.invokeMethod("onShared", arguments: payloads)
     }
   }
 
-  private func consumePendingShare() -> [String: Any]? {
-    guard let defaults = UserDefaults(suiteName: appGroupId) else { return nil }
-    guard let data = defaults.data(forKey: pendingKey) else { return nil }
+  private func consumePendingShares() -> [[String: Any]] {
+    guard let defaults = UserDefaults(suiteName: appGroupId) else { return [] }
+    var payloads: [[String: Any]] = []
+    if
+      let data = defaults.data(forKey: pendingQueueKey),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let queue = object as? [[String: Any]]
+    {
+      payloads.append(contentsOf: queue)
+    }
+    if
+      let data = defaults.data(forKey: pendingKey),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let legacy = object as? [String: Any]
+    {
+      payloads.append(legacy)
+    }
+    defaults.removeObject(forKey: pendingQueueKey)
     defaults.removeObject(forKey: pendingKey)
     defaults.synchronize()
-    guard
-      let object = try? JSONSerialization.jsonObject(with: data),
-      let map = object as? [String: Any]
-    else {
-      return nil
-    }
-    return map
+    return payloads
   }
 }

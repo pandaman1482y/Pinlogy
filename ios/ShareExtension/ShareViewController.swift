@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 final class ShareViewController: UIViewController {
   private let appGroupId = "group.com.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
+  private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private let titleLabel = UILabel()
   private let messageLabel = UILabel()
   private let saveButton = UIButton(type: .system)
@@ -77,15 +78,18 @@ final class ShareViewController: UIViewController {
         }
         return
       }
+      let opened = await openHostApp()
       await MainActor.run {
         self.activityIndicator.stopAnimating()
-        self.titleLabel.text = "保存しました"
-        self.messageLabel.text = "Pinlogyを開くと、受信箱から続けられます。"
+        self.titleLabel.text = opened ? "Pinlogyを開きます" : "保存しました"
+        self.messageLabel.text = opened
+          ? "取り込みメモをPinlogyで入力できます。"
+          : "Pinlogyを開くと、受信箱から続けられます。"
         self.messageLabel.textColor = .secondaryLabel
         self.saveButton.isHidden = true
         self.cancelButton.isHidden = true
       }
-      try? await Task.sleep(nanoseconds: 700_000_000)
+      try? await Task.sleep(nanoseconds: opened ? 300_000_000 : 1_200_000_000)
       self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
   }
@@ -211,15 +215,45 @@ final class ShareViewController: UIViewController {
   }
 
   private func persist(_ payload: [String: Any]) -> Bool {
-    guard
-      let defaults = UserDefaults(suiteName: appGroupId),
-      let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
-    else {
+    guard let defaults = UserDefaults(suiteName: appGroupId) else { return false }
+    var queue: [[String: Any]] = []
+    if
+      let existing = defaults.data(forKey: pendingQueueKey),
+      let object = try? JSONSerialization.jsonObject(with: existing),
+      let savedQueue = object as? [[String: Any]]
+    {
+      queue = savedQueue
+    } else if
+      let legacy = defaults.data(forKey: pendingKey),
+      let object = try? JSONSerialization.jsonObject(with: legacy),
+      let savedPayload = object as? [String: Any]
+    {
+      queue.append(savedPayload)
+    }
+    queue.append(payload)
+    queue = Array(queue.suffix(50))
+    guard let data = try? JSONSerialization.data(withJSONObject: queue, options: []) else {
       return false
     }
-    defaults.set(data, forKey: pendingKey)
+    defaults.set(data, forKey: pendingQueueKey)
+    defaults.removeObject(forKey: pendingKey)
     defaults.synchronize()
-    return defaults.data(forKey: pendingKey) == data
+    return defaults.data(forKey: pendingQueueKey) == data
+  }
+
+  /// Share Extensionからの本体起動はiOSで保証されないため、成功時だけ遷移する。
+  /// 失敗しても共有データはキューに保存済みで、次回起動時に取り込める。
+  private func openHostApp() async -> Bool {
+    guard let url = URL(string: "pinlogy://share"), let extensionContext else {
+      return false
+    }
+    return await withCheckedContinuation { continuation in
+      DispatchQueue.main.async {
+        extensionContext.open(url) { opened in
+          continuation.resume(returning: opened)
+        }
+      }
+    }
   }
 
   private func guessService(_ raw: String) -> String {
