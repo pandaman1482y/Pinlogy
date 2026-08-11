@@ -90,10 +90,8 @@ class _HomeScreenState extends State<HomeScreen> {
       unawaited(_listenForMapShares());
       // 共有起動直後は投稿受信を優先し、チュートリアルとの二重表示を防ぐ。
       _onboardingTimer = Timer(const Duration(milliseconds: 800), () {
-        if (!mounted || controller.hub.snapshot.sourcePosts.isNotEmpty) {
-          return;
-        }
-        unawaited(showOnboardingIfNeeded(context));
+        if (!mounted || controller.hub.snapshot.sourcePosts.isNotEmpty) return;
+        unawaited(_showFirstRunGuidance());
       });
       // 個人の保存座標は送信せず、日本全体の共通タイルと接続だけ先に温める。
       unawaited(
@@ -133,10 +131,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _showFirstRunGuidance() async {
+    await showOnboardingIfNeeded(context);
+    if (!mounted) return;
+    await showAiAnalysisConsentIfNeeded(context);
+  }
+
   Future<void> _promptForSharedPost(SourcePost post) async {
     if (!mounted) return;
     _onboardingTimer?.cancel();
     setState(() => index = 1);
+    await showAiAnalysisConsentIfNeeded(context);
+    if (!mounted) return;
     final memoController = TextEditingController();
     String? memo;
     try {

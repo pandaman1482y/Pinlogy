@@ -23,6 +23,8 @@ Future<PinlogyController> _pumpResponsiveApp(
 
   SharedPreferences.setMockInitialValues({
     'pinlogy_onboarding_v1_completed': true,
+    'ai_post_analysis_consent_decided_v1': true,
+    'ai_post_analysis_consent_v1': false,
   });
   final controller = PinlogyController(
     store: InMemoryDataStore(),

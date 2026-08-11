@@ -25,6 +25,8 @@ Future<PinlogyController> pumpApp(
 }) async {
   SharedPreferences.setMockInitialValues({
     'pinlogy_onboarding_v1_completed': true,
+    'ai_post_analysis_consent_decided_v1': true,
+    'ai_post_analysis_consent_v1': false,
   });
   final controller = PinlogyController(
     store: InMemoryDataStore(),
@@ -171,6 +173,8 @@ void main() {
   test('ローカル保存後に再読み込みできる', () async {
     SharedPreferences.setMockInitialValues({
       'pinlogy_onboarding_v1_completed': true,
+      'ai_post_analysis_consent_decided_v1': true,
+      'ai_post_analysis_consent_v1': false,
     });
     final store = SharedPreferencesStore(prefsKey: 'test_pinlogy');
     final first = PinlogyController(

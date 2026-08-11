@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/ai_analysis_consent.dart';
+
 const _onboardingKey = 'pinlogy_onboarding_v1_completed';
 
 Future<void> showOnboardingIfNeeded(BuildContext context) async {
@@ -19,6 +21,41 @@ Future<void> showOnboardingIfNeeded(BuildContext context) async {
   } catch (_) {
     // チュートリアルの保存失敗でアプリ本体の起動を妨げない。
   }
+}
+
+/// 投稿内容をクラウドAIへ送る前に、一度だけ明示的な選択を求める。
+/// 選択後は設定画面で変更でき、起動のたびには表示しない。
+Future<bool> showAiAnalysisConsentIfNeeded(BuildContext context) async {
+  final consent = AiAnalysisConsent();
+  if (await consent.hasMadeChoice()) return consent.hasConsented();
+  if (!context.mounted) return false;
+
+  final enabled = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      icon: const Icon(Icons.auto_awesome_outlined),
+      title: const Text('AIで場所を見つけやすく'),
+      content: const Text(
+        '共有した投稿文と、端末で読み取った文字をAIで解析して、店名や住所の候補を高精度に探します。\n\n'
+        '画像ファイル、個人メモ、保存済みの位置情報はAIへ送りません。設定からいつでもOFFにできます。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('端末内のみで使う'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          icon: const Icon(Icons.auto_awesome_rounded),
+          label: const Text('AI解析を使う'),
+        ),
+      ],
+    ),
+  );
+  final selected = enabled ?? false;
+  await consent.setConsented(selected);
+  return selected;
 }
 
 class _OnboardingSheet extends StatefulWidget {
