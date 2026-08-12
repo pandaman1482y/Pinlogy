@@ -123,12 +123,14 @@ class LocalShareReceiverService implements ShareReceiverService {
     required this.analysis,
     required this.analysisService,
     this.autoAnalyze = true,
+    this.officialPreviewLoader,
   });
 
   final SourcePostRepository sourcePosts;
   final AnalysisRepository analysis;
   final PostAnalysisService analysisService;
   final bool autoAnalyze;
+  final Future<String?> Function(String sharedUrl)? officialPreviewLoader;
 
   bool _busy = false;
 
@@ -139,7 +141,7 @@ class LocalShareReceiverService implements ShareReceiverService {
     bool force = false,
   }) async {
     if ((!force && post.imagePaths.isNotEmpty) || post.url == null) return post;
-    final preview = await _officialPreviewFor(post.url!);
+    final preview = await _loadOfficialPreview(post.url!);
     if (preview == null) {
       throw StateError('この投稿から利用できる画像を取得できませんでした');
     }
@@ -172,7 +174,7 @@ class LocalShareReceiverService implements ShareReceiverService {
           (content.imagePaths.isNotEmpty ? '共有された画像' : null) ??
           '共有された投稿';
 
-      final post = await sourcePosts.create(
+      var post = await sourcePosts.create(
         SourcePost(
           url: content.url,
           service: service,
@@ -181,17 +183,23 @@ class LocalShareReceiverService implements ShareReceiverService {
           imagePaths: content.imagePaths,
         ),
       );
-      if (post.imagePaths.isEmpty && post.url != null) {
-        unawaited(_attachOfficialPreview(post));
-      }
       final job = await analysis.enqueue(post.id);
 
       if (autoAnalyze && analyze) {
-        if (waitForAnalysis) {
+        Future<void> analyzePreparedPost() async {
+          if (post.imagePaths.isEmpty && post.url != null) {
+            post = await _attachOfficialPreview(post);
+          }
           await _analyze(job, post);
-        } else {
-          unawaited(_analyze(job, post));
         }
+
+        if (waitForAnalysis) {
+          await analyzePreparedPost();
+        } else {
+          unawaited(analyzePreparedPost());
+        }
+      } else if (post.imagePaths.isEmpty && post.url != null) {
+        unawaited(_attachOfficialPreview(post));
       }
       return post;
     } finally {
@@ -199,17 +207,21 @@ class LocalShareReceiverService implements ShareReceiverService {
     }
   }
 
-  Future<void> _attachOfficialPreview(SourcePost post) async {
+  Future<SourcePost> _attachOfficialPreview(SourcePost post) async {
     try {
-      final preview = await _officialPreviewFor(post.url!);
-      if (preview == null) return;
-      await sourcePosts.update(
+      final preview = await _loadOfficialPreview(post.url!);
+      if (preview == null) return post;
+      return await sourcePosts.update(
         post.copyWith(imagePaths: [preview], updatedAt: DateTime.now()),
       );
     } catch (_) {
       // 画像は補助情報。失敗しても投稿保存と場所解析は継続する。
+      return post;
     }
   }
+
+  Future<String?> _loadOfficialPreview(String sharedUrl) =>
+      officialPreviewLoader?.call(sharedUrl) ?? _officialPreviewFor(sharedUrl);
 
   Future<String?> _officialPreviewFor(String sharedUrl) async {
     final source = Uri.tryParse(sharedUrl);
@@ -349,9 +361,19 @@ class AnalysisRunner {
 }
 
 String? _analysisText(SourcePost post) {
-  final parts = [post.body?.trim(), post.userMemo?.trim()]
+  final title = post.title?.trim();
+  final usefulTitle = title == null ||
+          title.isEmpty ||
+          title == '共有された投稿' ||
+          title == '共有された画像' ||
+          title.startsWith('http://') ||
+          title.startsWith('https://')
+      ? null
+      : title;
+  final seen = <String>{};
+  final parts = [usefulTitle, post.body?.trim(), post.userMemo?.trim()]
       .whereType<String>()
-      .where((value) => value.isNotEmpty)
+      .where((value) => value.isNotEmpty && seen.add(value))
       .toList();
   return parts.isEmpty ? null : parts.join('\n');
 }

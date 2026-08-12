@@ -32,6 +32,35 @@ void main() {
   });
 
   group('ShareIntakeCoordinator', () {
+    test('投稿タイトル・本文・サムネイルを揃えてから解析する', () async {
+      final hub = LocalRepositoryHub(InMemoryDataStore());
+      await hub.load(seedIfEmpty: false);
+      final capture = _CapturingAnalysis();
+      final receiver = LocalShareReceiverService(
+        sourcePosts: hub.sourcePosts,
+        analysis: hub.analysis,
+        analysisService: capture,
+        officialPreviewLoader: (_) async =>
+            'https://p16-sign.tiktokcdn.com/preview.jpeg',
+      );
+
+      final post = await receiver.receive(
+        const SharedContent(
+          url: 'https://www.tiktok.com/@shop/video/1',
+          title: 'カフェ・ピンロジー',
+          text: '大阪府八尾市本町1丁目1番1号',
+        ),
+        waitForAnalysis: true,
+      );
+
+      expect(post.imagePaths, [
+        'https://p16-sign.tiktokcdn.com/preview.jpeg',
+      ]);
+      expect(capture.request?.text, contains('カフェ・ピンロジー'));
+      expect(capture.request?.text, contains('大阪府八尾市本町1丁目1番1号'));
+      expect(capture.request?.imageUrls, post.imagePaths);
+    });
+
     test('共有を受信箱へ即保存し解析失敗でも残す', () async {
       final hub = LocalRepositoryHub(InMemoryDataStore());
       await hub.load(seedIfEmpty: false);
@@ -59,6 +88,19 @@ void main() {
       await intake.dispose();
     });
   });
+}
+
+class _CapturingAnalysis implements PostAnalysisService {
+  PostAnalysisRequest? request;
+
+  @override
+  Future<PostAnalysisResponse> analyze(PostAnalysisRequest request) async {
+    this.request = request;
+    return PostAnalysisResponse(
+      sourcePostId: request.sourcePostId,
+      candidates: const [],
+    );
+  }
 }
 
 class _FailingAnalysis implements PostAnalysisService {

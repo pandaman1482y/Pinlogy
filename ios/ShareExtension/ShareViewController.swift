@@ -121,17 +121,25 @@ final class ShareViewController: UIViewController {
     }
 
     for item in items {
+      if let attributedText = item.attributedContentText?.string
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+         !attributedText.isEmpty
+      {
+        texts.append(attributedText)
+      }
       guard let attachments = item.attachments else { continue }
       for provider in attachments {
         if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
           if let url = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
             urlString = url.absoluteString
           }
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
           if let text = try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String {
             texts.append(text)
           }
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
           if let saved = await saveImage(provider: provider) {
             imagePaths.append(saved)
           }
@@ -139,7 +147,11 @@ final class ShareViewController: UIViewController {
       }
     }
 
-    let joined = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    var seenTexts = Set<String>()
+    let joined = texts
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty && seenTexts.insert($0).inserted }
+      .joined(separator: "\n")
     if urlString == nil, let first = joined.split(whereSeparator: \.isWhitespace).first,
        first.hasPrefix("http") {
       urlString = String(first)
