@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -68,20 +69,34 @@ class AiPostAnalysisService implements PostAnalysisService {
             }),
           )
           .timeout(const Duration(seconds: 25));
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        return _asFallback(local, analysisSource: 'auth_fallback');
+      }
+      if (response.statusCode == 404) {
+        return _asFallback(local, analysisSource: 'function_missing_fallback');
+      }
       if (response.statusCode == 429) {
         return _asFallback(local, analysisSource: 'quota_fallback');
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        return _asFallback(local);
+        return _asFallback(local, analysisSource: 'server_fallback');
       }
       final decoded = jsonDecode(response.body);
-      if (decoded is! Map<String, dynamic>) return _asFallback(local);
+      if (decoded is! Map<String, dynamic>) {
+        return _asFallback(local, analysisSource: 'invalid_response_fallback');
+      }
       final result = PostAnalysisResponse.fromJson(decoded);
-      if (result.candidates.isEmpty) return _asFallback(local);
+      if (result.candidates.isEmpty) {
+        return _asFallback(local, analysisSource: 'ai_no_match');
+      }
       await _writeCache(cacheKey, result);
       return result;
+    } on TimeoutException {
+      return _asFallback(local, analysisSource: 'timeout_fallback');
+    } on SocketException {
+      return _asFallback(local, analysisSource: 'network_fallback');
     } catch (_) {
-      return _asFallback(local);
+      return _asFallback(local, analysisSource: 'invalid_response_fallback');
     }
   }
 

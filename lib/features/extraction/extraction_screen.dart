@@ -27,14 +27,21 @@ class _AnalysisSourceBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAi = source == 'ai' || source == 'ai_cache';
-    final isFallback = source == 'local_fallback' || source == 'quota_fallback';
+    final isFallback = source.endsWith('_fallback');
     final color = isFallback ? Colors.orange.shade50 : mintSoft;
     final icon = isAi ? Icons.auto_awesome_rounded : Icons.info_outline_rounded;
     final message = switch (source) {
       'ai' => 'AIで投稿内容と画像を解析しました',
       'ai_cache' => '保存済みのAI解析結果を再利用しました',
       'local_fallback' => 'AI通信に失敗したため、端末内の簡易解析結果を表示しています',
+      'auth_fallback' => 'AI認証に失敗しました。Supabaseのanon publicキーを確認してください',
+      'function_missing_fallback' => 'AI解析機能が見つかりません。analyze-postを再デプロイしてください',
       'quota_fallback' => '本日のAI取り込み上限に達したため、端末内の簡易解析結果を表示しています',
+      'server_fallback' => 'AI解析サーバーでエラーが発生しました。SupabaseのFunctionログを確認してください',
+      'invalid_response_fallback' => 'AI解析の応答を読み取れませんでした。Functionの設定を確認してください',
+      'timeout_fallback' => 'AI解析が時間内に完了しませんでした。もう一度解析してください',
+      'network_fallback' => 'AI解析サーバーへ接続できませんでした。通信状態を確認してください',
+      'ai_no_match' => 'AI解析は完了しましたが、この投稿から場所を特定できませんでした',
       _ => '解析結果を表示しています。住所とピン位置を確認してください',
     };
     return Semantics(
