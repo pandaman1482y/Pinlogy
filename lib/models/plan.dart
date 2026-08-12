@@ -8,6 +8,7 @@ class TripPlan {
     String? title,
     String? notes,
     this.startDate,
+    this.startTimeMinutes = 9 * 60,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = id ?? newId(),
@@ -22,6 +23,7 @@ class TripPlan {
   String title;
   String notes;
   DateTime? startDate;
+  int startTimeMinutes;
   DateTime createdAt;
   DateTime updatedAt;
 
@@ -30,6 +32,7 @@ class TripPlan {
     String? notes,
     DateTime? startDate,
     bool clearStartDate = false,
+    int? startTimeMinutes,
     DateTime? updatedAt,
   }) {
     return TripPlan(
@@ -37,6 +40,7 @@ class TripPlan {
       title: title ?? this.title,
       notes: notes ?? this.notes,
       startDate: clearStartDate ? null : (startDate ?? this.startDate),
+      startTimeMinutes: startTimeMinutes ?? this.startTimeMinutes,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -47,6 +51,7 @@ class TripPlan {
     'title': title,
     'notes': notes,
     'startDate': startDate?.toIso8601String(),
+    'startTimeMinutes': startTimeMinutes,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -69,6 +74,7 @@ class TripPlan {
       title: json['title'] as String?,
       notes: json['notes'] as String?,
       startDate: parseDate(json['startDate']),
+      startTimeMinutes: (json['startTimeMinutes'] as int?) ?? 9 * 60,
       createdAt: parseDate(json['createdAt']) ?? now,
       updatedAt: parseDate(json['updatedAt']) ?? now,
     );
@@ -88,6 +94,9 @@ class PlanStop {
     this.stayMinutes,
     this.transitToNext,
     this.transitMinutes,
+    this.transitBufferMinutes = 0,
+    this.reservationTimeMinutes,
+    this.arrivalDeadlineMinutes,
     this.note,
     DateTime? createdAt,
   }) : id = id ?? newId(),
@@ -102,6 +111,9 @@ class PlanStop {
   int? stayMinutes;
   TransitMode? transitToNext;
   int? transitMinutes;
+  int transitBufferMinutes;
+  int? reservationTimeMinutes;
+  int? arrivalDeadlineMinutes;
   String? note;
   DateTime createdAt;
 
@@ -119,6 +131,11 @@ class PlanStop {
     bool clearTransitToNext = false,
     int? transitMinutes,
     bool clearTransitMinutes = false,
+    int? transitBufferMinutes,
+    int? reservationTimeMinutes,
+    bool clearReservationTime = false,
+    int? arrivalDeadlineMinutes,
+    bool clearArrivalDeadline = false,
     String? note,
     bool clearNote = false,
   }) {
@@ -135,6 +152,13 @@ class PlanStop {
       transitMinutes: clearTransitMinutes
           ? null
           : (transitMinutes ?? this.transitMinutes),
+      transitBufferMinutes: transitBufferMinutes ?? this.transitBufferMinutes,
+      reservationTimeMinutes: clearReservationTime
+          ? null
+          : (reservationTimeMinutes ?? this.reservationTimeMinutes),
+      arrivalDeadlineMinutes: clearArrivalDeadline
+          ? null
+          : (arrivalDeadlineMinutes ?? this.arrivalDeadlineMinutes),
       note: clearNote ? null : (note ?? this.note),
       createdAt: createdAt,
     );
@@ -149,6 +173,9 @@ class PlanStop {
     'stayMinutes': stayMinutes,
     'transitToNext': transitToNext?.name,
     'transitMinutes': transitMinutes,
+    'transitBufferMinutes': transitBufferMinutes,
+    'reservationTimeMinutes': reservationTimeMinutes,
+    'arrivalDeadlineMinutes': arrivalDeadlineMinutes,
     'note': note,
     'createdAt': createdAt.toIso8601String(),
   };
@@ -183,6 +210,9 @@ class PlanStop {
       stayMinutes: json['stayMinutes'] as int?,
       transitToNext: TransitMode.fromName(json['transitToNext'] as String?),
       transitMinutes: json['transitMinutes'] as int?,
+      transitBufferMinutes: (json['transitBufferMinutes'] as int?) ?? 0,
+      reservationTimeMinutes: json['reservationTimeMinutes'] as int?,
+      arrivalDeadlineMinutes: json['arrivalDeadlineMinutes'] as int?,
       note: json['note'] as String?,
       createdAt: parseDate(json['createdAt']),
     );

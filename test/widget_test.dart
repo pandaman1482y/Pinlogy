@@ -4,12 +4,14 @@ import 'package:pinlogy/app/app.dart';
 import 'package:pinlogy/app/app_scope.dart';
 import 'package:pinlogy/app/pinlogy_controller.dart';
 import 'package:pinlogy/features/maps/maps_tab.dart';
+import 'package:pinlogy/features/plans/plan_detail_page.dart';
 import 'package:pinlogy/models/models.dart';
 import 'package:pinlogy/repositories/local_data_store.dart';
 import 'package:pinlogy/services/device_location_service.dart';
 import 'package:pinlogy/services/location_services.dart';
 import 'package:pinlogy/services/share_receiver_service.dart';
 import 'package:pinlogy/widgets/sheet_layout.dart';
+import 'package:pinlogy/widgets/place_map_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FailingAnalysisService implements PostAnalysisService {
@@ -364,6 +366,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('無題のプラン'), findsOneWidget);
     expect(find.text('まだ行程がない'), findsOneWidget);
+  });
+
+  testWidgets('場所追加後にプランマップを生成できる', (tester) async {
+    final controller = await pumpApp(tester);
+    final plan = await controller.plans.create(TripPlan(title: '大阪旅行'));
+    final places = controller.hub.snapshot.places.take(2).toList();
+    for (var i = 0; i < places.length; i++) {
+      await controller.plans.addStop(
+        PlanStop(
+          planId: plan.id,
+          placeId: places[i].id,
+          sortOrder: i,
+        ),
+      );
+    }
+
+    await tester.pumpWidget(
+      AppScope(
+        controller: controller,
+        child: MaterialApp(home: PlanDetailPage(planId: plan.id)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('プランマップ'), findsOneWidget);
+
+    await tester.tap(find.text('プランマップ'));
+    await tester.pumpAndSettle();
+    expect(find.text('大阪旅行の地図'), findsOneWidget);
+    expect(find.byType(PlaceMapView), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+  });
+
+  test('プランの開始時刻を保存・復元できる', () {
+    final plan = TripPlan(title: '朝のプラン', startTimeMinutes: 8 * 60 + 30);
+    final restored = TripPlan.fromJson(plan.toJson());
+
+    expect(restored.startTimeMinutes, 510);
+  });
+
+  test('区間の余裕・予約・到着期限を保存・復元できる', () {
+    final stop = PlanStop(
+      planId: 'plan-1',
+      placeId: 'place-1',
+      transitBufferMinutes: 15,
+      reservationTimeMinutes: 12 * 60,
+      arrivalDeadlineMinutes: 11 * 60 + 50,
+    );
+    final restored = PlanStop.fromJson(stop.toJson());
+
+    expect(restored.transitBufferMinutes, 15);
+    expect(restored.reservationTimeMinutes, 720);
+    expect(restored.arrivalDeadlineMinutes, 710);
   });
 
   testWidgets('マップを複製し旅行日程を自動作成できる', (tester) async {

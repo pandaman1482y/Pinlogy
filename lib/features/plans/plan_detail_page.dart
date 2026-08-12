@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/directions_service.dart';
+import '../../services/in_app_route_service.dart';
+import '../../services/route_privacy_consent.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/feedback.dart';
+import '../../widgets/place_map_view.dart';
 import '../../widgets/sheet_layout.dart';
 
 class PlanDetailPage extends StatelessWidget {
@@ -63,6 +68,17 @@ class PlanDetailPage extends StatelessWidget {
         appBar: AppBar(
           title: Text(plan.title),
           actions: [
+            if (stops.isNotEmpty)
+              IconButton(
+                tooltip: 'プランマップを表示',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PlanMapPage(planId: planId),
+                  ),
+                ),
+                icon: const Icon(Icons.map_outlined),
+              ),
             IconButton(
               tooltip: '日を追加',
               onPressed: () => _addDay(context, plan!),
@@ -146,6 +162,16 @@ class PlanDetailPage extends StatelessWidget {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 120),
                 children: [
+                  _PlanMapCard(
+                    stopCount: stops.length,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PlanMapPage(planId: planId),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   if (plan.notes.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),
@@ -179,6 +205,7 @@ class PlanDetailPage extends StatelessWidget {
                     _DayTimeline(
                       planId: planId,
                       day: day,
+                      startTimeMinutes: plan.startTimeMinutes,
                       stops: stops
                           .where((s) => _sameDay(s.dayDate, day))
                           .toList(),
@@ -238,13 +265,14 @@ class PlanDetailPage extends StatelessWidget {
   static Future<void> _editPlan(BuildContext context, TripPlan plan) async {
     final titleController = TextEditingController(text: plan.title);
     final notesController = TextEditingController(text: plan.notes);
+    var startTimeMinutes = plan.startTimeMinutes;
     try {
       final ok = await showModalBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        builder: (ctx) {
-          return Padding(
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) => Padding(
             padding: EdgeInsets.fromLTRB(
               22,
               22,
@@ -271,6 +299,27 @@ class PlanDetailPage extends StatelessWidget {
                     decoration: const InputDecoration(hintText: 'メモ'),
                     maxLines: 3,
                   ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.schedule_rounded),
+                    label: Text(
+                      '1日の開始時刻  ${_timeLabel(startTimeMinutes)}',
+                    ),
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay(
+                          hour: startTimeMinutes ~/ 60,
+                          minute: startTimeMinutes % 60,
+                        ),
+                      );
+                      if (picked != null) {
+                        setSheetState(() {
+                          startTimeMinutes = picked.hour * 60 + picked.minute;
+                        });
+                      }
+                    },
+                  ),
                   const SizedBox(height: 18),
                   FilledButton(
                     onPressed: () {
@@ -282,8 +331,8 @@ class PlanDetailPage extends StatelessWidget {
                 ],
               ),
             ),
-          );
-        },
+          ),
+        ),
       );
       final title = titleController.text.trim();
       final notes = notesController.text.trim();
@@ -292,12 +341,22 @@ class PlanDetailPage extends StatelessWidget {
         context,
         () => AppScope.read(
           context,
-        ).plans.update(plan.copyWith(title: title, notes: notes)),
+        ).plans.update(
+          plan.copyWith(
+            title: title,
+            notes: notes,
+            startTimeMinutes: startTimeMinutes,
+          ),
+        ),
       );
     } finally {
       disposeAfterFrame([titleController, notesController]);
     }
   }
+
+  static String _timeLabel(int minutes) =>
+      '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+      '${(minutes % 60).toString().padLeft(2, '0')}';
 
   static Future<void> _addStop(
     BuildContext context,
@@ -544,6 +603,636 @@ class PlanDetailPage extends StatelessWidget {
   }
 }
 
+class _PlanMapCard extends StatelessWidget {
+  const _PlanMapCard({required this.stopCount, required this.onTap});
+
+  final int stopCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: mintSoft,
+    borderRadius: BorderRadius.circular(20),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: mint,
+              foregroundColor: mossDeep,
+              child: Icon(Icons.map_outlined),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'プランマップ',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  Text('$stopCount件の場所を地図で確認'),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// プランの行程から常に最新の地図を生成する画面。
+class PlanMapPage extends StatefulWidget {
+  const PlanMapPage({super.key, required this.planId});
+
+  final String planId;
+
+  @override
+  State<PlanMapPage> createState() => _PlanMapPageState();
+}
+
+class _PlanMapPageState extends State<PlanMapPage> {
+  final MapController _mapController = MapController();
+  DateTime? _selectedDay;
+  bool _showAllDays = true;
+  final Map<String, InAppRoute> _routesByStopId = {};
+  bool _loadingRoutes = false;
+  String? _routeNotice;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadRoutes());
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = AppScope.of(context);
+    final plan = controller.hub.snapshot.plans
+        .where((item) => item.id == widget.planId)
+        .firstOrNull;
+    final allStops = controller.hub.snapshot.planStops
+        .where((stop) => stop.planId == widget.planId)
+        .toList()
+      ..sort((a, b) {
+        final day = PlanDetailPage._compareNullableDay(a.dayDate, b.dayDate);
+        return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
+      });
+    final days = <DateTime?>[];
+    for (final stop in allStops) {
+      if (!days.any((day) => PlanDetailPage._sameDay(day, stop.dayDate))) {
+        days.add(stop.dayDate);
+      }
+    }
+    final visibleStops = _showAllDays
+        ? allStops
+        : allStops
+              .where(
+                (stop) => PlanDetailPage._sameDay(stop.dayDate, _selectedDay),
+              )
+              .toList();
+    final placeById = {
+      for (final place in controller.hub.snapshot.places) place.id: place,
+    };
+    final places = visibleStops
+        .map((stop) => placeById[stop.placeId])
+        .whereType<Place>()
+        .toList();
+    final nextPlace = places.where((place) => !place.isVisited).firstOrNull ??
+        places.firstOrNull;
+    final markerLabels = <String, String>{};
+    for (var i = 0; i < places.length; i++) {
+      markerLabels[places[i].id] = '${i + 1}';
+    }
+    final routeLines = <Polyline>[];
+    for (var i = 0; i < visibleStops.length - 1; i++) {
+      final route = _routesByStopId[visibleStops[i].id];
+      final from = placeById[visibleStops[i].placeId];
+      final to = placeById[visibleStops[i + 1].placeId];
+      final sameDay = _sameRouteDay(visibleStops[i], visibleStops[i + 1]);
+      final points = !sameDay
+          ? const <LatLng>[]
+          : route?.points ??
+          (from?.latitude != null &&
+                  from?.longitude != null &&
+                  to?.latitude != null &&
+                  to?.longitude != null
+              ? [
+                  LatLng(from!.latitude!, from.longitude!),
+                  LatLng(to!.latitude!, to.longitude!),
+                ]
+              : const <LatLng>[]);
+      if (points.length >= 2) {
+        routeLines.add(
+          Polyline(
+            points: points,
+            strokeWidth: route == null ? 4 : 6,
+            color: route == null
+                ? _routeColor(visibleStops[i].transitToNext)
+                    .withValues(alpha: .58)
+                : _routeColor(visibleStops[i].transitToNext),
+            pattern: route == null
+                ? const StrokePattern.dotted()
+                : const StrokePattern.solid(),
+          ),
+        );
+      }
+    }
+
+    return PinlogyBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(plan == null ? 'プランマップ' : '${plan.title}の地図'),
+          actions: [
+            IconButton(
+              tooltip: '区間経路を更新',
+              onPressed: _loadingRoutes ? null : _loadRoutes,
+              icon: _loadingRoutes
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync_rounded),
+            ),
+            if (places.length >= 2)
+              IconButton(
+                tooltip: '外部マップを設定して開く',
+                icon: const Icon(Icons.route_rounded),
+                onPressed: () => _openExternalOptions(places),
+              ),
+          ],
+        ),
+        body: places.isEmpty
+            ? const EmptyState(
+                icon: Icons.map_outlined,
+                title: '地図に表示できる場所がありません',
+                message: 'プランへ場所を追加すると、自動で地図が生成されます。',
+              )
+            : Column(
+                children: [
+                  if (days.length > 1)
+                    SizedBox(
+                      height: 54,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 7,
+                        ),
+                        children: [
+                          ChoiceChip(
+                            label: const Text('全日程'),
+                            selected: _showAllDays,
+                            onSelected: (_) => setState(() {
+                              _showAllDays = true;
+                              _selectedDay = null;
+                            }),
+                          ),
+                          const SizedBox(width: 8),
+                          for (final day in days) ...[
+                            ChoiceChip(
+                              label: Text(_dayLabel(day)),
+                              selected: !_showAllDays &&
+                                  PlanDetailPage._sameDay(_selectedDay, day),
+                              onSelected: (_) => setState(() {
+                                _showAllDays = false;
+                                _selectedDay = day;
+                              }),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                        ],
+                      ),
+                    ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        PlaceMapView(
+                          key: ValueKey(
+                            '${_showAllDays ? 'all' : _selectedDay}:'
+                            '${places.map((place) => place.id).join(',')}',
+                          ),
+                          places: places,
+                          mapController: _mapController,
+                          mapId: 'plan:${widget.planId}',
+                          routePolylines: routeLines,
+                          markerLabels: markerLabels,
+                          clusterMarkers: false,
+                          focusPlaceId: nextPlace?.id,
+                        ),
+                        if (_routeNotice != null)
+                          Positioned(
+                            top: 12,
+                            left: 14,
+                            right: 14,
+                            child: Material(
+                              color: Colors.white.withValues(alpha: .94),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Text(
+                                  _routeNotice!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          left: 14,
+                          right: 14,
+                          bottom: 14,
+                          child: _PlanOrderBar(
+                            stops: visibleStops,
+                            placeById: placeById,
+                            routesByStopId: _routesByStopId,
+                          ),
+                        ),
+                        if (nextPlace != null)
+                          Positioned(
+                            right: 14,
+                            bottom: 142,
+                            child: FloatingActionButton.extended(
+                              heroTag: 'plan-next-${widget.planId}',
+                              onPressed: () => _openNextPlace(nextPlace),
+                              icon: const Icon(Icons.navigation_rounded),
+                              label: const Text('次の場所へ'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  String _dayLabel(DateTime? day) => day == null
+      ? '日付未定'
+      : '${day.month}/${day.day}';
+
+  Future<void> _loadRoutes() async {
+    if (!mounted) return;
+    final controller = AppScope.read(context);
+    if (!controller.inAppRoutes.isConfigured) {
+      setState(() => _routeNotice = '点線は概略経路です。経路API設定後は道路に沿って表示します。');
+      return;
+    }
+    var allowed = await RoutePrivacyConsent().hasConsented();
+    if (!allowed && mounted) {
+      allowed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('区間経路を取得'),
+              content: const Text(
+                '道路に沿った経路と所要時間を計算するため、各地点の座標を経路サービスへ送信します。',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('概略表示を使う'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('同意して取得'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (allowed) await RoutePrivacyConsent().grant();
+    }
+    if (!allowed || !mounted) return;
+    setState(() {
+      _loadingRoutes = true;
+      _routeNotice = null;
+    });
+    final snapshot = controller.hub.snapshot;
+    final stops = snapshot.planStops
+        .where((stop) => stop.planId == widget.planId)
+        .toList()
+      ..sort((a, b) {
+        final day = PlanDetailPage._compareNullableDay(a.dayDate, b.dayDate);
+        return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
+      });
+    final places = {for (final place in snapshot.places) place.id: place};
+    var failures = 0;
+    var approximate = 0;
+    for (var i = 0; i < stops.length - 1; i++) {
+      final from = places[stops[i].placeId];
+      final to = places[stops[i + 1].placeId];
+      if (from?.latitude == null ||
+          from?.longitude == null ||
+          to?.latitude == null ||
+          to?.longitude == null ||
+          !_sameRouteDay(stops[i], stops[i + 1])) {
+        continue;
+      }
+      final mode = _routeMode(stops[i].transitToNext);
+      if (mode == null) {
+        approximate++;
+        continue;
+      }
+      try {
+        final route = await controller.inAppRoutes.route(
+          origin: LatLng(from!.latitude!, from.longitude!),
+          destination: LatLng(to!.latitude!, to.longitude!),
+          mode: mode,
+        );
+        _routesByStopId[stops[i].id] = route;
+        final estimatedMinutes = (route.durationSeconds / 60).ceil();
+        if (stops[i].transitMinutes != estimatedMinutes) {
+          await controller.plans.updateStop(
+            stops[i].copyWith(transitMinutes: estimatedMinutes),
+          );
+        }
+      } catch (_) {
+        failures++;
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _loadingRoutes = false;
+        final unresolved = failures + approximate;
+        _routeNotice = unresolved == 0
+            ? null
+            : '$unresolved区間は概略経路で表示しています。公共交通は外部マップで確認できます。';
+      });
+    }
+  }
+
+  bool _sameRouteDay(PlanStop a, PlanStop b) =>
+      PlanDetailPage._sameDay(a.dayDate, b.dayDate);
+
+  RouteTravelMode? _routeMode(TransitMode? mode) => switch (mode) {
+    TransitMode.walk => RouteTravelMode.walking,
+    TransitMode.bike => RouteTravelMode.cycling,
+    TransitMode.car || null => RouteTravelMode.driving,
+    TransitMode.train || TransitMode.bus || TransitMode.other => null,
+  };
+
+  Color _routeColor(TransitMode? mode) => switch (mode) {
+    TransitMode.walk => const Color(0xFF32A06A),
+    TransitMode.train => const Color(0xFF7656C9),
+    TransitMode.bus => const Color(0xFFE08B31),
+    TransitMode.bike => const Color(0xFF20A4B8),
+    TransitMode.car => const Color(0xFF3977D5),
+    TransitMode.other || null => const Color(0xFF6B7771),
+  };
+
+  Future<void> _openNextPlace(Place place) async {
+    final opened = await AppScope.read(context).directions.openDirections(place);
+    if (!opened && mounted) showInfoSnackBar(context, '次の場所を外部マップで開けませんでした');
+  }
+
+  Future<void> _openExternalOptions(List<Place> places) async {
+    var app = DirectionsApp.googleMaps;
+    var mode = 'driving';
+    var startAtFirst = true;
+    final open = await showModalBottomSheet<bool>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('外部マップの設定', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 12),
+              SegmentedButton<DirectionsApp>(
+                segments: const [
+                  ButtonSegment(value: DirectionsApp.googleMaps, label: Text('Google Maps')),
+                  ButtonSegment(value: DirectionsApp.appleMaps, label: Text('Apple Maps')),
+                ],
+                selected: {app},
+                onSelectionChanged: (value) => setModalState(() => app = value.first),
+              ),
+              if (app == DirectionsApp.appleMaps)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Apple Mapsではプランの出発地と最終目的地を開きます。区間ごとの案内は区間詳細から開けます。',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: mode,
+                decoration: const InputDecoration(labelText: '移動手段'),
+                items: const [
+                  DropdownMenuItem(value: 'driving', child: Text('車')),
+                  DropdownMenuItem(value: 'walking', child: Text('徒歩')),
+                  DropdownMenuItem(value: 'bicycling', child: Text('自転車')),
+                  DropdownMenuItem(value: 'transit', child: Text('公共交通')),
+                ],
+                onChanged: (value) => setModalState(() => mode = value ?? mode),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('最初の場所から案内を開始'),
+                subtitle: const Text('OFFの場合は現在地から開始します'),
+                value: startAtFirst,
+                onChanged: (value) => setModalState(() => startAtFirst = value),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.navigation_rounded),
+                label: const Text('外部マップで開く'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (open != true || !mounted) return;
+    final opened = await AppScope.read(context).directions.openMultiStopDirections(
+      places,
+      travelMode: mode,
+      preferred: app,
+      startAtFirstPlace: startAtFirst,
+    );
+    if (!opened && mounted) showInfoSnackBar(context, '外部マップを開けませんでした');
+  }
+}
+
+class _PlanOrderBar extends StatelessWidget {
+  const _PlanOrderBar({required this.stops, required this.placeById, required this.routesByStopId});
+
+  final List<PlanStop> stops;
+  final Map<String, Place> placeById;
+  final Map<String, InAppRoute> routesByStopId;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(maxHeight: 120),
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .94),
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: const [
+        BoxShadow(color: Color(0x22000000), blurRadius: 14, offset: Offset(0, 5)),
+      ],
+    ),
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      itemCount: stops.length,
+      separatorBuilder: (_, __) => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 6),
+        child: Icon(Icons.arrow_forward_rounded, size: 17, color: moss),
+      ),
+      itemBuilder: (context, index) {
+        final place = placeById[stops[index].placeId];
+        final nextPlace = index < stops.length - 1
+            ? placeById[stops[index + 1].placeId]
+            : null;
+        final route = routesByStopId[stops[index].id];
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: index >= stops.length - 1
+              ? null
+              : () => _showSegment(
+                  context,
+                  stops[index],
+                  place,
+                  nextPlace,
+                  route,
+                ),
+          child: SizedBox(
+            width: 104,
+            child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: mossDeep,
+                foregroundColor: Colors.white,
+                child: Text('${index + 1}'),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                place?.name ?? '削除された場所',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+              if (index < stops.length - 1)
+                Text(
+                  route == null
+                      ? '${stops[index].transitToNext?.label ?? '移動'} ${stops[index].transitMinutes ?? '--'}分'
+                      : '${stops[index].transitToNext?.label ?? '移動'} 約${(route.durationSeconds / 60).ceil()}分',
+                  style: TextStyle(fontSize: 10, color: ink.withValues(alpha: .55)),
+                ),
+            ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  static Future<void> _showSegment(
+    BuildContext context,
+    PlanStop stop,
+    Place? place,
+    Place? nextPlace,
+    InAppRoute? route,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (ctx) => Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${place?.name ?? 'この場所'}から次の場所へ',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            route == null
+                ? '${stop.transitToNext?.label ?? '移動'}・予定 ${stop.transitMinutes ?? '--'}分'
+                : '${stop.transitToNext?.label ?? '移動'}・約${(route.durationSeconds / 60).ceil()}分・${(route.distanceMeters / 1000).toStringAsFixed(1)}km',
+          ),
+          if (route?.steps.isNotEmpty == true) ...[
+            const SizedBox(height: 14),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: route!.steps.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, index) {
+                  final step = route.steps[index];
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 13,
+                      child: Text('${index + 1}', style: const TextStyle(fontSize: 11)),
+                    ),
+                    title: Text(step.instruction),
+                    trailing: Text('${step.distanceMeters.round()}m'),
+                  );
+                },
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            const Text('実経路を取得できない区間は、予定時間と概略線で表示します。'),
+          ],
+          if (place != null && nextPlace != null) ...[
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () async {
+                final opened = await AppScope.read(context)
+                    .directions
+                    .openMultiStopDirections(
+                      [place, nextPlace],
+                      travelMode: _externalMode(stop.transitToNext),
+                      startAtFirstPlace: true,
+                    );
+                if (!opened && context.mounted) {
+                  showInfoSnackBar(context, 'この区間を外部マップで開けませんでした');
+                }
+              },
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: const Text('この区間を外部マップで開く'),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  static String _externalMode(TransitMode? mode) => switch (mode) {
+    TransitMode.walk => 'walking',
+    TransitMode.bike => 'bicycling',
+    TransitMode.train || TransitMode.bus => 'transit',
+    _ => 'driving',
+  };
+}
+
 class _DayHeader extends StatelessWidget {
   const _DayHeader({
     required this.day,
@@ -629,11 +1318,13 @@ class _DayTimeline extends StatelessWidget {
     required this.planId,
     required this.day,
     required this.stops,
+    required this.startTimeMinutes,
   });
 
   final String planId;
   final DateTime? day;
   final List<PlanStop> stops;
+  final int startTimeMinutes;
 
   @override
   Widget build(BuildContext context) {
@@ -677,6 +1368,23 @@ class _DayTimeline extends StatelessWidget {
       },
       itemBuilder: (context, index) {
         final stop = stops[index];
+        var arrivalMinutes = startTimeMinutes;
+        for (var i = 0; i < index; i++) {
+          final serviceStart = stops[i].reservationTimeMinutes == null
+              ? arrivalMinutes
+              : arrivalMinutes < stops[i].reservationTimeMinutes!
+              ? stops[i].reservationTimeMinutes!
+              : arrivalMinutes;
+          arrivalMinutes = serviceStart + (stops[i].stayMinutes ?? 0);
+          arrivalMinutes += stops[i].transitMinutes ?? 0;
+          arrivalMinutes += stops[i].transitBufferMinutes;
+        }
+        final serviceStart = stop.reservationTimeMinutes == null
+            ? arrivalMinutes
+            : arrivalMinutes < stop.reservationTimeMinutes!
+            ? stop.reservationTimeMinutes!
+            : arrivalMinutes;
+        final departureMinutes = serviceStart + (stop.stayMinutes ?? 0);
         final place = placeById[stop.placeId];
         final isLast = index == stops.length - 1;
         return _StopBlock(
@@ -685,6 +1393,9 @@ class _DayTimeline extends StatelessWidget {
           stop: stop,
           place: place,
           showTransit: !isLast,
+          arrivalMinutes: arrivalMinutes,
+          departureMinutes: departureMinutes,
+          day: day,
           onEdit: () => _editStop(context, stop, place),
           onRemove: () => runGuardedAction(
             context,
@@ -702,6 +1413,9 @@ class _DayTimeline extends StatelessWidget {
   ) async {
     var stay = stop.stayMinutes ?? 60;
     var transitMinutes = stop.transitMinutes ?? 15;
+    var bufferMinutes = stop.transitBufferMinutes;
+    var reservationMinutes = stop.reservationTimeMinutes;
+    var deadlineMinutes = stop.arrivalDeadlineMinutes;
     var mode = stop.transitToNext ?? TransitMode.walk;
     final noteController = TextEditingController(text: stop.note ?? '');
 
@@ -784,6 +1498,88 @@ class _DayTimeline extends StatelessWidget {
                               setModalState(() => transitMinutes = v.round()),
                         ),
                         Text('$transitMinutes分', textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        Text(
+                          '乗換・駐車などの余裕時間',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: ink.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        Slider(
+                          value: bufferMinutes.toDouble().clamp(0, 60),
+                          min: 0,
+                          max: 60,
+                          divisions: 12,
+                          label: '$bufferMinutes分',
+                          onChanged: (value) => setModalState(
+                            () => bufferMinutes = value.round(),
+                          ),
+                        ),
+                        Text('$bufferMinutes分', textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.event_available_rounded),
+                                label: Text(
+                                  reservationMinutes == null
+                                      ? '予約時刻'
+                                      : '予約 ${_minuteLabel(reservationMinutes!)}',
+                                ),
+                                onPressed: () async {
+                                  final value = await _pickMinutes(
+                                    context,
+                                    reservationMinutes,
+                                  );
+                                  if (value != null) {
+                                    setModalState(() => reservationMinutes = value);
+                                  }
+                                },
+                              ),
+                            ),
+                            if (reservationMinutes != null)
+                              IconButton(
+                                tooltip: '予約時刻を解除',
+                                onPressed: () => setModalState(
+                                  () => reservationMinutes = null,
+                                ),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.alarm_rounded),
+                                label: Text(
+                                  deadlineMinutes == null
+                                      ? '到着期限'
+                                      : '${_minuteLabel(deadlineMinutes!)}までに到着',
+                                ),
+                                onPressed: () async {
+                                  final value = await _pickMinutes(
+                                    context,
+                                    deadlineMinutes,
+                                  );
+                                  if (value != null) {
+                                    setModalState(() => deadlineMinutes = value);
+                                  }
+                                },
+                              ),
+                            ),
+                            if (deadlineMinutes != null)
+                              IconButton(
+                                tooltip: '到着期限を解除',
+                                onPressed: () => setModalState(
+                                  () => deadlineMinutes = null,
+                                ),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: noteController,
@@ -812,6 +1608,11 @@ class _DayTimeline extends StatelessWidget {
             stayMinutes: stay,
             transitToNext: mode,
             transitMinutes: transitMinutes,
+            transitBufferMinutes: bufferMinutes,
+            reservationTimeMinutes: reservationMinutes,
+            clearReservationTime: reservationMinutes == null,
+            arrivalDeadlineMinutes: deadlineMinutes,
+            clearArrivalDeadline: deadlineMinutes == null,
             note: note.isEmpty ? null : note,
             clearNote: note.isEmpty,
           ),
@@ -821,6 +1622,24 @@ class _DayTimeline extends StatelessWidget {
       disposeAfterFrame([noteController]);
     }
   }
+
+  static Future<int?> _pickMinutes(
+    BuildContext context,
+    int? initial,
+  ) async {
+    final value = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: (initial ?? 9 * 60) ~/ 60,
+        minute: (initial ?? 9 * 60) % 60,
+      ),
+    );
+    return value == null ? null : value.hour * 60 + value.minute;
+  }
+
+  static String _minuteLabel(int value) =>
+      '${(value ~/ 60).toString().padLeft(2, '0')}:'
+      '${(value % 60).toString().padLeft(2, '0')}';
 }
 
 class _StopBlock extends StatelessWidget {
@@ -830,6 +1649,9 @@ class _StopBlock extends StatelessWidget {
     required this.stop,
     required this.place,
     required this.showTransit,
+    required this.arrivalMinutes,
+    required this.departureMinutes,
+    required this.day,
     required this.onEdit,
     required this.onRemove,
   });
@@ -838,11 +1660,15 @@ class _StopBlock extends StatelessWidget {
   final PlanStop stop;
   final Place? place;
   final bool showTransit;
+  final int arrivalMinutes;
+  final int departureMinutes;
+  final DateTime? day;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
+    final warnings = _warnings();
     return Column(
       children: [
         Material(
@@ -915,10 +1741,27 @@ class _StopBlock extends StatelessWidget {
                           spacing: 8,
                           runSpacing: 6,
                           children: [
+                            _MetaChip(
+                              icon: Icons.access_time_filled_rounded,
+                              label:
+                                  '${_clock(arrivalMinutes)}着 → '
+                                  '${_clock(departureMinutes)}発',
+                            ),
                             if (stop.stayMinutes != null)
                               _MetaChip(
                                 icon: Icons.schedule_rounded,
                                 label: '滞在 ${stop.stayMinutes}分',
+                              ),
+                            if (stop.reservationTimeMinutes != null)
+                              _MetaChip(
+                                icon: Icons.event_available_rounded,
+                                label:
+                                    '予約 ${_clock(stop.reservationTimeMinutes!)}',
+                              ),
+                            if (stop.transitBufferMinutes > 0)
+                              _MetaChip(
+                                icon: Icons.more_time_rounded,
+                                label: '移動余裕 ${stop.transitBufferMinutes}分',
                               ),
                             if (stop.note != null && stop.note!.isNotEmpty)
                               _MetaChip(
@@ -927,6 +1770,39 @@ class _StopBlock extends StatelessWidget {
                               ),
                           ],
                         ),
+                        for (final warning in warnings) ...[
+                          const SizedBox(height: 7),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFE9D5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 17,
+                                  color: Color(0xFF9A571F),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    warning,
+                                    style: const TextStyle(
+                                      color: Color(0xFF7D461B),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -963,6 +1839,8 @@ class _StopBlock extends StatelessWidget {
                   [
                     stop.transitToNext?.label ?? '移動',
                     if (stop.transitMinutes != null) '${stop.transitMinutes}分',
+                    if (stop.transitBufferMinutes > 0)
+                      '余裕+${stop.transitBufferMinutes}分',
                   ].join(' · '),
                   style: TextStyle(
                     color: mossDeep.withValues(alpha: 0.85),
@@ -975,6 +1853,47 @@ class _StopBlock extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  static String _clock(int rawMinutes) {
+    final minutes = rawMinutes % (24 * 60);
+    return '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+        '${(minutes % 60).toString().padLeft(2, '0')}';
+  }
+
+  List<String> _warnings() {
+    final result = <String>[];
+    if (stop.reservationTimeMinutes != null &&
+        arrivalMinutes > stop.reservationTimeMinutes!) {
+      result.add('予約時刻に${arrivalMinutes - stop.reservationTimeMinutes!}分遅れる予定です');
+    }
+    if (stop.arrivalDeadlineMinutes != null &&
+        arrivalMinutes > stop.arrivalDeadlineMinutes!) {
+      result.add('到着期限を${arrivalMinutes - stop.arrivalDeadlineMinutes!}分超えます');
+    }
+    if (place != null && day != null) {
+      if (place!.closedWeekdays.contains(day!.weekday)) {
+        result.add('定休日として登録されています');
+      }
+      final opening = place!.openingTimeMinutes;
+      final closing = place!.closingTimeMinutes;
+      if (opening != null && closing != null && opening != closing) {
+        final arrival = arrivalMinutes % (24 * 60);
+        final departure = departureMinutes % (24 * 60);
+        final arrivalInside = opening < closing
+            ? arrival >= opening && arrival < closing
+            : arrival >= opening || arrival < closing;
+        final departureInside = opening < closing
+            ? departure > opening && departure <= closing
+            : departure > opening || departure <= closing;
+        if (!arrivalInside) {
+          result.add('到着予定が営業時間 ${_clock(opening)}〜${_clock(closing)} の外です');
+        } else if (!departureInside) {
+          result.add('退店予定が閉店 ${_clock(closing)} を過ぎます');
+        }
+      }
+    }
+    return result;
   }
 
   static IconData _transitIcon(TransitMode? mode) {

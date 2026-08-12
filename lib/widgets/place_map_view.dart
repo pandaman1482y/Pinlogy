@@ -26,6 +26,9 @@ class PlaceMapView extends StatefulWidget {
     this.userLocation,
     this.locating = false,
     this.focusPlaceId,
+    this.routePolylines = const [],
+    this.markerLabels = const {},
+    this.clusterMarkers = true,
   });
 
   final List<Place> places;
@@ -39,6 +42,9 @@ class PlaceMapView extends StatefulWidget {
   final LatLng? userLocation;
   final bool locating;
   final String? focusPlaceId;
+  final List<Polyline> routePolylines;
+  final Map<String, String> markerLabels;
+  final bool clusterMarkers;
 
   static const japanOverview = LatLng(36.4, 138.0);
   static const focusZoom = 16.5;
@@ -139,7 +145,15 @@ class _PlaceMapViewState extends State<PlaceMapView> {
         : null;
     final stores = _style == MapTileStyle.stores;
     final controller = AppScope.of(context);
-    final markerGroups = _groupMarkers(places, _zoom);
+    final markerGroups = widget.clusterMarkers
+        ? _groupMarkers(places, _zoom)
+        : [
+            for (var i = 0; i < places.length; i++)
+              _MarkerGroup(
+                places: [places[i]],
+                center: PlaceMapView.pointFor(places[i], index: i),
+              ),
+          ];
     Place? selectedPlace;
     for (final place in places) {
       if (place.id == _selectedPlaceId) {
@@ -187,6 +201,8 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                   });
                 },
               ),
+              if (widget.routePolylines.isNotEmpty)
+                PolylineLayer(polylines: widget.routePolylines),
               MarkerLayer(
                 markers: [
                   if (widget.userLocation != null)
@@ -249,6 +265,8 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                           focused:
                               group.places.first.id == widget.focusPlaceId ||
                               group.places.first.id == _selectedPlaceId,
+                          markerLabel:
+                              widget.markerLabels[group.places.first.id],
                           onTap: () {
                             _selectPlace(group.places.first, places);
                           },
@@ -798,6 +816,7 @@ class _AppleStylePin extends StatelessWidget {
     required this.imagePath,
     required this.visited,
     required this.focused,
+    this.markerLabel,
     required this.onTap,
   });
 
@@ -805,6 +824,7 @@ class _AppleStylePin extends StatelessWidget {
   final String? imagePath;
   final bool visited;
   final bool focused;
+  final String? markerLabel;
   final VoidCallback onTap;
 
   @override
@@ -850,7 +870,21 @@ class _AppleStylePin extends StatelessWidget {
                 ],
               ),
               clipBehavior: Clip.antiAlias,
-              child: imagePath == null
+              child: markerLabel != null
+                  ? ColoredBox(
+                      color: pinStyle.color,
+                      child: Center(
+                        child: Text(
+                          markerLabel!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    )
+                  : imagePath == null
                   ? ColoredBox(
                       color: pinStyle.color,
                       child: Center(

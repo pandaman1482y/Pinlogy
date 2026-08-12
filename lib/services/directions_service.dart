@@ -43,11 +43,29 @@ class DirectionsService {
   Future<bool> openMultiStopDirections(
     List<Place> places, {
     String travelMode = 'driving',
+    DirectionsApp preferred = DirectionsApp.googleMaps,
+    bool startAtFirstPlace = false,
   }) async {
     final located = places.where(_hasLocation).take(maxExternalStops).toList();
     if (located.isEmpty) return false;
     if (located.length == 1) {
-      return openDirections(located.first, preferred: DirectionsApp.googleMaps);
+      return openDirections(located.first, preferred: preferred);
+    }
+
+    if (preferred == DirectionsApp.appleMaps) {
+      final parameters = <String, String>{
+        'daddr': _locationValue(located.last),
+        'dirflg': switch (travelMode) {
+          'walking' => 'w',
+          'transit' => 'r',
+          _ => 'd',
+        },
+        if (startAtFirstPlace) 'saddr': _locationValue(located.first),
+      };
+      return launchUrl(
+        Uri.https('maps.apple.com', '/', parameters),
+        mode: LaunchMode.externalApplication,
+      );
     }
 
     final parameters = <String, String>{
@@ -56,8 +74,13 @@ class DirectionsService {
       'travelmode': travelMode,
       'dir_action': 'navigate',
     };
+    if (startAtFirstPlace) {
+      parameters['origin'] = _locationValue(located.first);
+    }
+    final waypointStart = startAtFirstPlace ? 1 : 0;
     final waypoints = located
-        .take(located.length - 1)
+        .skip(waypointStart)
+        .take(located.length - waypointStart - 1)
         .map(_locationValue)
         .join('|');
     if (waypoints.isNotEmpty) parameters['waypoints'] = waypoints;

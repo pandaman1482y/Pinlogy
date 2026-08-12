@@ -347,6 +347,7 @@ class CloudSyncService {
                         ?.toIso8601String()
                         .split('T')
                         .first,
+                    'start_time_minutes': plan.startTimeMinutes,
                     'created_at': plan.createdAt.toUtc().toIso8601String(),
                     'updated_at': plan.updatedAt.toUtc().toIso8601String(),
                   },
@@ -372,6 +373,9 @@ class CloudSyncService {
                     'stay_minutes': stop.stayMinutes,
                     'transit_to_next': stop.transitToNext?.name,
                     'transit_minutes': stop.transitMinutes,
+                    'transit_buffer_minutes': stop.transitBufferMinutes,
+                    'reservation_time_minutes': stop.reservationTimeMinutes,
+                    'arrival_deadline_minutes': stop.arrivalDeadlineMinutes,
                     'note': stop.note,
                     'created_at': stop.createdAt.toUtc().toIso8601String(),
                   },
@@ -495,6 +499,7 @@ class CloudSyncService {
               startDate: row['start_date'] == null
                   ? null
                   : DateTime.parse(row['start_date'] as String),
+              startTimeMinutes: row['start_time_minutes'] as int? ?? 9 * 60,
               createdAt: DateTime.parse(row['created_at'] as String),
               updatedAt: DateTime.parse(row['updated_at'] as String),
             ),
@@ -515,6 +520,12 @@ class CloudSyncService {
                 row['transit_to_next'] as String?,
               ),
               transitMinutes: row['transit_minutes'] as int?,
+              transitBufferMinutes:
+                  row['transit_buffer_minutes'] as int? ?? 0,
+              reservationTimeMinutes:
+                  row['reservation_time_minutes'] as int?,
+              arrivalDeadlineMinutes:
+                  row['arrival_deadline_minutes'] as int?,
               note: row['note'] as String?,
               createdAt: DateTime.parse(row['created_at'] as String),
             ),
