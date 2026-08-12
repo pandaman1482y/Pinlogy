@@ -410,12 +410,18 @@ void main() {
     final stop = PlanStop(
       planId: 'plan-1',
       placeId: 'place-1',
+      transitToNext: TransitMode.taxi,
+      transitMinutes: 25,
+      transitTimeIsManual: true,
       transitBufferMinutes: 15,
       reservationTimeMinutes: 12 * 60,
       arrivalDeadlineMinutes: 11 * 60 + 50,
     );
     final restored = PlanStop.fromJson(stop.toJson());
 
+    expect(restored.transitToNext, TransitMode.taxi);
+    expect(restored.transitMinutes, 25);
+    expect(restored.transitTimeIsManual, isTrue);
     expect(restored.transitBufferMinutes, 15);
     expect(restored.reservationTimeMinutes, 720);
     expect(restored.arrivalDeadlineMinutes, 710);

@@ -101,6 +101,7 @@ enum TransitMode {
   walk,
   train,
   car,
+  taxi,
   bus,
   bike,
   other;
@@ -109,6 +110,7 @@ enum TransitMode {
     TransitMode.walk => '徒歩',
     TransitMode.train => '電車',
     TransitMode.car => '車',
+    TransitMode.taxi => 'タクシー',
     TransitMode.bus => 'バス',
     TransitMode.bike => '自転車',
     TransitMode.other => 'その他',

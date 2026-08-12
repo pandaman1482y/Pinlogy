@@ -373,6 +373,7 @@ class CloudSyncService {
                     'stay_minutes': stop.stayMinutes,
                     'transit_to_next': stop.transitToNext?.name,
                     'transit_minutes': stop.transitMinutes,
+                    'transit_time_is_manual': stop.transitTimeIsManual,
                     'transit_buffer_minutes': stop.transitBufferMinutes,
                     'reservation_time_minutes': stop.reservationTimeMinutes,
                     'arrival_deadline_minutes': stop.arrivalDeadlineMinutes,
@@ -520,6 +521,8 @@ class CloudSyncService {
                 row['transit_to_next'] as String?,
               ),
               transitMinutes: row['transit_minutes'] as int?,
+              transitTimeIsManual:
+                  row['transit_time_is_manual'] as bool? ?? false,
               transitBufferMinutes:
                   row['transit_buffer_minutes'] as int? ?? 0,
               reservationTimeMinutes:

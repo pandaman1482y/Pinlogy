@@ -955,9 +955,13 @@ class _PlanMapPageState extends State<PlanMapPage> {
         );
         _routesByStopId[stops[i].id] = route;
         final estimatedMinutes = (route.durationSeconds / 60).ceil();
-        if (stops[i].transitMinutes != estimatedMinutes) {
+        if (!stops[i].transitTimeIsManual &&
+            stops[i].transitMinutes != estimatedMinutes) {
           await controller.plans.updateStop(
-            stops[i].copyWith(transitMinutes: estimatedMinutes),
+            stops[i].copyWith(
+              transitMinutes: estimatedMinutes,
+              transitTimeIsManual: false,
+            ),
           );
         }
       } catch (_) {
@@ -981,7 +985,7 @@ class _PlanMapPageState extends State<PlanMapPage> {
   RouteTravelMode? _routeMode(TransitMode? mode) => switch (mode) {
     TransitMode.walk => RouteTravelMode.walking,
     TransitMode.bike => RouteTravelMode.cycling,
-    TransitMode.car || null => RouteTravelMode.driving,
+    TransitMode.car || TransitMode.taxi || null => RouteTravelMode.driving,
     TransitMode.train || TransitMode.bus || TransitMode.other => null,
   };
 
@@ -991,6 +995,7 @@ class _PlanMapPageState extends State<PlanMapPage> {
     TransitMode.bus => const Color(0xFFE08B31),
     TransitMode.bike => const Color(0xFF20A4B8),
     TransitMode.car => const Color(0xFF3977D5),
+    TransitMode.taxi => const Color(0xFFF2B134),
     TransitMode.other || null => const Color(0xFF6B7771),
   };
 
@@ -1136,7 +1141,7 @@ class _PlanOrderBar extends StatelessWidget {
               ),
               if (index < stops.length - 1)
                 Text(
-                  route == null
+                  stops[index].transitTimeIsManual || route == null
                       ? '${stops[index].transitToNext?.label ?? '移動'} ${stops[index].transitMinutes ?? '--'}分'
                       : '${stops[index].transitToNext?.label ?? '移動'} 約${(route.durationSeconds / 60).ceil()}分',
                   style: TextStyle(fontSize: 10, color: ink.withValues(alpha: .55)),
@@ -1155,13 +1160,27 @@ class _PlanOrderBar extends StatelessWidget {
     Place? place,
     Place? nextPlace,
     InAppRoute? route,
-  ) => showModalBottomSheet<void>(
-    context: context,
-    useSafeArea: true,
-    showDragHandle: true,
-    builder: (ctx) => Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-      child: Column(
+  ) async {
+    var mode = stop.transitToNext ?? TransitMode.walk;
+    var minutes = stop.transitMinutes ??
+        (route == null ? 15 : (route.durationSeconds / 60).ceil());
+    final minutesController = TextEditingController(text: '$minutes');
+    try {
+      final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1172,8 +1191,55 @@ class _PlanOrderBar extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             route == null
-                ? '${stop.transitToNext?.label ?? '移動'}・予定 ${stop.transitMinutes ?? '--'}分'
-                : '${stop.transitToNext?.label ?? '移動'}・約${(route.durationSeconds / 60).ceil()}分・${(route.distanceMeters / 1000).toStringAsFixed(1)}km',
+                ? '移動手段と予定所要時間を編集できます'
+                : '経路の目安 約${(route.durationSeconds / 60).ceil()}分・${(route.distanceMeters / 1000).toStringAsFixed(1)}km',
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<TransitMode>(
+            initialValue: mode,
+            decoration: const InputDecoration(
+              labelText: '移動手段',
+              prefixIcon: Icon(Icons.commute_rounded),
+            ),
+            items: [
+              for (final value in TransitMode.values)
+                DropdownMenuItem(value: value, child: Text(value.label)),
+            ],
+            onChanged: (value) {
+              if (value != null) setModalState(() => mode = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: minutesController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '所要時間',
+                    suffixText: '分',
+                    prefixIcon: Icon(Icons.schedule_rounded),
+                  ),
+                  onChanged: (value) {
+                    final parsed = int.tryParse(value);
+                    if (parsed != null) {
+                      minutes = parsed.clamp(1, 1440).toInt();
+                    }
+                  },
+                ),
+              ),
+              if (route != null) ...[
+                const SizedBox(width: 10),
+                TextButton(
+                  onPressed: () => setModalState(() {
+                    minutes = (route.durationSeconds / 60).ceil();
+                    minutesController.text = '$minutes';
+                  }),
+                  child: const Text('経路時間を使う'),
+                ),
+              ],
+            ],
           ),
           if (route?.steps.isNotEmpty == true) ...[
             const SizedBox(height: 14),
@@ -1209,7 +1275,7 @@ class _PlanOrderBar extends StatelessWidget {
                     .directions
                     .openMultiStopDirections(
                       [place, nextPlace],
-                      travelMode: _externalMode(stop.transitToNext),
+                      travelMode: _externalMode(mode),
                       startAtFirstPlace: true,
                     );
                 if (!opened && context.mounted) {
@@ -1220,10 +1286,34 @@ class _PlanOrderBar extends StatelessWidget {
               label: const Text('この区間を外部マップで開く'),
             ),
           ],
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('移動内容を保存'),
+          ),
         ],
       ),
-    ),
-  );
+          ),
+        ),
+      ),
+      );
+      if (saved == true && context.mounted) {
+        await runGuardedAction(
+          context,
+          () => AppScope.read(context).plans.updateStop(
+            stop.copyWith(
+              transitToNext: mode,
+              transitMinutes: minutes,
+              transitTimeIsManual: true,
+            ),
+          ),
+        );
+      }
+    } finally {
+      disposeAfterFrame([minutesController]);
+    }
+  }
 
   static String _externalMode(TransitMode? mode) => switch (mode) {
     TransitMode.walk => 'walking',
@@ -1387,6 +1477,7 @@ class _DayTimeline extends StatelessWidget {
         final departureMinutes = serviceStart + (stop.stayMinutes ?? 0);
         final place = placeById[stop.placeId];
         final isLast = index == stops.length - 1;
+        final nextPlace = isLast ? null : placeById[stops[index + 1].placeId];
         return _StopBlock(
           key: ValueKey(stop.id),
           index: index,
@@ -1397,6 +1488,15 @@ class _DayTimeline extends StatelessWidget {
           departureMinutes: departureMinutes,
           day: day,
           onEdit: () => _editStop(context, stop, place),
+          onEditTransit: isLast
+              ? null
+              : () => _PlanOrderBar._showSegment(
+                  context,
+                  stop,
+                  place,
+                  nextPlace,
+                  null,
+                ),
           onRemove: () => runGuardedAction(
             context,
             () => AppScope.read(context).plans.removeStop(stop.id),
@@ -1608,6 +1708,7 @@ class _DayTimeline extends StatelessWidget {
             stayMinutes: stay,
             transitToNext: mode,
             transitMinutes: transitMinutes,
+            transitTimeIsManual: true,
             transitBufferMinutes: bufferMinutes,
             reservationTimeMinutes: reservationMinutes,
             clearReservationTime: reservationMinutes == null,
@@ -1653,6 +1754,7 @@ class _StopBlock extends StatelessWidget {
     required this.departureMinutes,
     required this.day,
     required this.onEdit,
+    this.onEditTransit,
     required this.onRemove,
   });
 
@@ -1664,6 +1766,7 @@ class _StopBlock extends StatelessWidget {
   final int departureMinutes;
   final DateTime? day;
   final VoidCallback onEdit;
+  final VoidCallback? onEditTransit;
   final VoidCallback onRemove;
 
   @override
@@ -1819,9 +1922,12 @@ class _StopBlock extends StatelessWidget {
           ),
         ),
         if (showTransit)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 28),
-            child: Row(
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onEditTransit,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 28),
+              child: Row(
               children: [
                 Container(
                   width: 2,
@@ -1835,20 +1941,28 @@ class _StopBlock extends StatelessWidget {
                   color: mossDeep.withValues(alpha: 0.75),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  [
-                    stop.transitToNext?.label ?? '移動',
-                    if (stop.transitMinutes != null) '${stop.transitMinutes}分',
-                    if (stop.transitBufferMinutes > 0)
-                      '余裕+${stop.transitBufferMinutes}分',
-                  ].join(' · '),
-                  style: TextStyle(
-                    color: mossDeep.withValues(alpha: 0.85),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                Expanded(
+                  child: Text(
+                    [
+                      stop.transitToNext?.label ?? '移動',
+                      if (stop.transitMinutes != null) '${stop.transitMinutes}分',
+                      if (stop.transitBufferMinutes > 0)
+                        '余裕+${stop.transitBufferMinutes}分',
+                    ].join(' · '),
+                    style: TextStyle(
+                      color: mossDeep.withValues(alpha: 0.85),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
+                Icon(
+                  Icons.edit_rounded,
+                  size: 16,
+                  color: mossDeep.withValues(alpha: 0.55),
+                ),
               ],
+            ),
             ),
           ),
       ],
@@ -1901,6 +2015,7 @@ class _StopBlock extends StatelessWidget {
       TransitMode.walk => Icons.directions_walk_rounded,
       TransitMode.train => Icons.train_rounded,
       TransitMode.car => Icons.directions_car_rounded,
+      TransitMode.taxi => Icons.local_taxi_rounded,
       TransitMode.bus => Icons.directions_bus_rounded,
       TransitMode.bike => Icons.pedal_bike_rounded,
       TransitMode.other || null => Icons.timeline_rounded,

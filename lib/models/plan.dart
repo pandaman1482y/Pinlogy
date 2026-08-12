@@ -94,6 +94,7 @@ class PlanStop {
     this.stayMinutes,
     this.transitToNext,
     this.transitMinutes,
+    this.transitTimeIsManual = false,
     this.transitBufferMinutes = 0,
     this.reservationTimeMinutes,
     this.arrivalDeadlineMinutes,
@@ -111,6 +112,7 @@ class PlanStop {
   int? stayMinutes;
   TransitMode? transitToNext;
   int? transitMinutes;
+  bool transitTimeIsManual;
   int transitBufferMinutes;
   int? reservationTimeMinutes;
   int? arrivalDeadlineMinutes;
@@ -131,6 +133,7 @@ class PlanStop {
     bool clearTransitToNext = false,
     int? transitMinutes,
     bool clearTransitMinutes = false,
+    bool? transitTimeIsManual,
     int? transitBufferMinutes,
     int? reservationTimeMinutes,
     bool clearReservationTime = false,
@@ -152,6 +155,8 @@ class PlanStop {
       transitMinutes: clearTransitMinutes
           ? null
           : (transitMinutes ?? this.transitMinutes),
+      transitTimeIsManual:
+          transitTimeIsManual ?? this.transitTimeIsManual,
       transitBufferMinutes: transitBufferMinutes ?? this.transitBufferMinutes,
       reservationTimeMinutes: clearReservationTime
           ? null
@@ -173,6 +178,7 @@ class PlanStop {
     'stayMinutes': stayMinutes,
     'transitToNext': transitToNext?.name,
     'transitMinutes': transitMinutes,
+    'transitTimeIsManual': transitTimeIsManual,
     'transitBufferMinutes': transitBufferMinutes,
     'reservationTimeMinutes': reservationTimeMinutes,
     'arrivalDeadlineMinutes': arrivalDeadlineMinutes,
@@ -210,6 +216,7 @@ class PlanStop {
       stayMinutes: json['stayMinutes'] as int?,
       transitToNext: TransitMode.fromName(json['transitToNext'] as String?),
       transitMinutes: json['transitMinutes'] as int?,
+      transitTimeIsManual: json['transitTimeIsManual'] as bool? ?? false,
       transitBufferMinutes: (json['transitBufferMinutes'] as int?) ?? 0,
       reservationTimeMinutes: json['reservationTimeMinutes'] as int?,
       arrivalDeadlineMinutes: json['arrivalDeadlineMinutes'] as int?,
