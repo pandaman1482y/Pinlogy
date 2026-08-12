@@ -9,6 +9,7 @@ import 'package:pinlogy/repositories/local_data_store.dart';
 import 'package:pinlogy/services/device_location_service.dart';
 import 'package:pinlogy/services/location_services.dart';
 import 'package:pinlogy/services/share_receiver_service.dart';
+import 'package:pinlogy/widgets/sheet_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FailingAnalysisService implements PostAnalysisService {
@@ -49,8 +50,108 @@ void main() {
   testWidgets('アプリが起動しマップ一覧が表示される', (tester) async {
     await pumpApp(tester);
     expect(find.text('Pinlogy'), findsOneWidget);
+    expect(find.text('SNSから追加'), findsOneWidget);
+    expect(find.text('手動で追加'), findsOneWidget);
     expect(find.text('ごはん屋'), findsOneWidget);
     expect(find.text('北海道旅行'), findsOneWidget);
+  });
+
+  testWidgets('無料プランで使える機能が確認できる', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('マイページ'));
+    await tester.pumpAndSettle();
+    expect(find.text('無料プラン'), findsOneWidget);
+    expect(find.textContaining('手動追加'), findsOneWidget);
+    expect(find.textContaining('AI取り込みは1日10回'), findsOneWidget);
+  });
+
+  testWidgets('狭い画面では追加方法が縦並びになり表示が崩れない', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpApp(tester);
+    final snsPosition = tester.getTopLeft(find.text('SNSから追加'));
+    final manualPosition = tester.getTopLeft(find.text('手動で追加'));
+
+    expect(manualPosition.dy, greaterThan(snsPosition.dy));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('手動追加画面は最初からキーボードを開かない', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('手動で追加'));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == '店名・住所',
+      ),
+    );
+    expect(field.autofocus, isFalse);
+    expect(find.text('メモなしでも場所を検索します。'), findsNothing);
+  });
+
+  testWidgets('キーボード表示中のシート高が表示領域を超えない', (tester) async {
+    double? height;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(390, 844),
+            viewInsets: EdgeInsets.only(bottom: 500),
+          ),
+          child: Builder(
+            builder: (context) {
+              height = modalSheetHeight(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(height, lessThanOrEqualTo(344));
+  });
+
+  test('AI解析の場所カテゴリと料理ジャンルを読み込める', () {
+    final response = PostAnalysisResponse.fromJson({
+      'source_post_id': 'post-1',
+      'candidates': [
+        {
+          'name': 'テストラーメン',
+          'category': '飲食店',
+          'genres': ['ラーメン'],
+        },
+      ],
+    });
+
+    expect(response.candidates.single.category, '飲食店');
+    expect(response.candidates.single.genres, ['ラーメン']);
+  });
+
+  testWidgets('AI解析のカテゴリと料理ジャンルを場所へ保存できる', (tester) async {
+    final controller = await pumpApp(tester);
+    final map = controller.hub.snapshot.maps.first;
+    final places = await controller.addCandidatesToMap(
+      candidates: [
+        ExtractionCandidate(
+          name: 'カテゴリーテスト店',
+          address: '大阪府大阪市',
+          category: '飲食店',
+          genres: const ['焼肉', '韓国料理'],
+        ),
+      ],
+      mapId: map.id,
+      sourcePostId: 'post-kyoto-5',
+    );
+    final tags = await controller.tags.tagsForPlace(places.single.id);
+
+    expect(places.single.category, '飲食店');
+    expect(tags.map((tag) => tag.name), containsAll(['焼肉', '韓国料理']));
   });
 
   testWidgets('マップを作成できる', (tester) async {

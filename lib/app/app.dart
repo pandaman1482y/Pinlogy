@@ -230,7 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 16),
                     TextField(
                       controller: memoController,
-                      autofocus: true,
+                      autofocus: false,
                       minLines: 3,
                       maxLines: 6,
                       decoration: const InputDecoration(
@@ -340,7 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('本日のAI取り込みは終了しました'),
           content: const Text(
             '1日10回のAI取り込み上限に達しました。\n\n'
-            '明日になると自動で再開します。それまでも端末内の簡易解析、手動登録、地図検索、ピン追加はご利用いただけます。',
+            '明日になると自動で再開します。無料の手動追加・場所検索・ピン保存は引き続き利用できます。ホームの「手動で追加」から続けられます。',
           ),
           actions: [
             FilledButton(

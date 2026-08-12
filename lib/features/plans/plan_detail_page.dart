@@ -314,7 +314,31 @@ class PlanDetailPage extends StatelessWidget {
       return;
     }
 
+    final tagEntries = await Future.wait(
+      places.map(
+        (place) async => MapEntry(
+          place.id,
+          (await controller.tags.tagsForPlace(place.id))
+              .map((tag) => tag.name)
+              .toList(),
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    final tagsByPlace = Map<String, List<String>>.fromEntries(tagEntries);
+    final genres = places
+        .expand((place) => [
+          if (place.category?.trim().isNotEmpty == true) place.category!.trim(),
+          ...(tagsByPlace[place.id] ?? const <String>[]),
+        ])
+        .where((label) => !_broadPlaceCategories.contains(label))
+        .toSet()
+        .toList()
+      ..sort();
+
     String query = '';
+    String scope = 'all';
+    String? genre;
     final selected = await showModalBottomSheet<Place>(
       context: context,
       isScrollControlled: true,
@@ -324,10 +348,29 @@ class PlanDetailPage extends StatelessWidget {
           builder: (context, setModalState) {
             final filtered = places
                 .where(
-                  (p) =>
-                      query.isEmpty ||
-                      p.name.contains(query) ||
-                      (p.address?.contains(query) ?? false),
+                  (p) {
+                    final labels = <String>[
+                      if (p.category != null) p.category!,
+                      ...(tagsByPlace[p.id] ?? const <String>[]),
+                    ];
+                    final matchesQuery = query.isEmpty ||
+                        p.name.toLowerCase().contains(query.toLowerCase()) ||
+                        (p.address?.toLowerCase().contains(
+                              query.toLowerCase(),
+                            ) ??
+                            false) ||
+                        labels.any(
+                          (label) => label.toLowerCase().contains(
+                            query.toLowerCase(),
+                          ),
+                        );
+                    final isFood = _isFoodPlace(p, labels);
+                    final matchesScope = scope == 'all' ||
+                        (scope == 'food' && isFood) ||
+                        (scope == 'spot' && !isFood);
+                    final matchesGenre = genre == null || labels.contains(genre);
+                    return matchesQuery && matchesScope && matchesGenre;
+                  },
                 )
                 .toList();
             return SizedBox(
@@ -343,31 +386,90 @@ class PlanDetailPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     TextField(
-                      autofocus: true,
+                      autofocus: false,
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
                         hintText: '店名・住所',
                       ),
                       onChanged: (v) => setModalState(() => query = v),
                     ),
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final option in const [
+                            ('all', 'すべて'),
+                            ('food', 'グルメ'),
+                            ('spot', '観光・おでかけ'),
+                          ]) ...[
+                            FilterChip(
+                              label: Text(option.$2),
+                              selected: scope == option.$1,
+                              onSelected: (_) => setModalState(() {
+                                scope = option.$1;
+                                genre = null;
+                              }),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (genres.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            FilterChip(
+                              label: const Text('種類すべて'),
+                              selected: genre == null,
+                              onSelected: (_) =>
+                                  setModalState(() => genre = null),
+                            ),
+                            const SizedBox(width: 8),
+                            for (final label in genres) ...[
+                              FilterChip(
+                                label: Text(label),
+                                selected: genre == label,
+                                onSelected: (_) =>
+                                    setModalState(() => genre = label),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Expanded(
-                      child: ListView.separated(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('条件に合う場所がありません'))
+                          : ListView.separated(
                         itemCount: filtered.length,
                         separatorBuilder: (context, index) =>
                             const Divider(height: 1),
                         itemBuilder: (context, i) {
                           final place = filtered[i];
+                          final labels = <String>[
+                            if (place.category?.isNotEmpty == true) place.category!,
+                            ...(tagsByPlace[place.id] ?? const <String>[]),
+                          ];
+                          final detail = [
+                            if (labels.isNotEmpty) labels.join('・'),
+                            if (place.address?.isNotEmpty == true) place.address!,
+                          ].join('\n');
                           return ListTile(
                             title: Text(
                               place.name,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            subtitle: place.address == null
+                            subtitle: detail.isEmpty
                                 ? null
                                 : Text(
-                                    place.address!,
+                                    detail,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -396,6 +498,21 @@ class PlanDetailPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static const _broadPlaceCategories = {
+    '飲食店',
+    '観光・レジャー',
+    '宿泊',
+    '買い物',
+    'その他',
+  };
+
+  static bool _isFoodPlace(Place place, List<String> labels) {
+    final text = '${place.name} ${labels.join(' ')}';
+    return RegExp(
+      r'飲食|グルメ|カフェ|喫茶|コーヒー|スイーツ|菓子|ラーメン|つけ麺|寿司|鮨|焼肉|居酒屋|和食|洋食|イタリアン|中華|カレー|パン|レストラン|食堂|うどん|そば',
+    ).hasMatch(text);
   }
 
   Future<void> _openDayInExternalNavigation(

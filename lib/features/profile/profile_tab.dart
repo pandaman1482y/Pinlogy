@@ -41,6 +41,27 @@ class ProfileTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: mintSoft,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: moss.withValues(alpha: .12)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.check_circle_rounded, color: moss),
+                      SizedBox(width: 8),
+                      Text('無料プラン', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    ]),
+                    SizedBox(height: 8),
+                    Text('マップ・手動追加・場所検索・ピン保存・旅行プランは無料で使えます。AI取り込みは1日10回までです。'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               _MenuCard(
                 icon: Icons.bookmark_outline_rounded,
                 title: '保存した場所',

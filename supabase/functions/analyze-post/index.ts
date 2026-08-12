@@ -45,7 +45,7 @@ Deno.serve(async (request) => {
         max_output_tokens: 2500,
         tools: [{ type: "web_search" }],
         instructions:
-          "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL、shared_pageから抽出してください。Web検索で実在性と正式住所を確認し、同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は地図でピン表示できるよう、店舗入口または建物中心の緯度latitudeと経度longitudeをWeb上の地図・公式情報で確認して数値で返してください。住所や座標が不明・矛盾・推測の場合はneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にします。保存理由は投稿中の表現だけから42文字以内で要約してください。",
+          "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL、shared_pageから抽出してください。Web検索で実在性と正式住所を確認し、同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は地図でピン表示できるよう、店舗入口または建物中心の緯度latitudeと経度longitudeをWeb上の地図・公式情報で確認して数値で返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれかにし、genresは料理や施設の具体的な種類（例：ラーメン、カフェ、焼肉、神社）を最大3件返してください。住所や座標が不明・矛盾・推測の場合はneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にします。保存理由は投稿中の表現だけから42文字以内で要約してください。",
         input: [{ role: "user", content }],
         text: { verbosity: "low", format: placeSchema },
       }),
@@ -85,11 +85,13 @@ const placeSchema = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "address", "reason", "evidenceSummary", "confidencePercent", "match", "postAddress", "latitude", "longitude"],
+          required: ["name", "address", "reason", "category", "genres", "evidenceSummary", "confidencePercent", "match", "postAddress", "latitude", "longitude"],
           properties: {
             name: { type: "string" },
             address: { type: ["string", "null"] },
             reason: { type: ["string", "null"] },
+            category: { type: "string", enum: ["飲食店", "観光・レジャー", "宿泊", "買い物", "その他"] },
+            genres: { type: "array", maxItems: 3, items: { type: "string" } },
             evidenceSummary: { type: ["string", "null"] },
             confidencePercent: { type: "integer", minimum: 0, maximum: 100 },
             match: { type: "string", enum: ["high", "needsReview", "unresolved"] },

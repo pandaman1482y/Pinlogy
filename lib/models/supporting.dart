@@ -74,6 +74,8 @@ class ExtractionCandidate {
     required this.name,
     this.address,
     this.reason,
+    this.category,
+    this.genres = const [],
     this.evidenceSummary,
     this.confidencePercent,
     this.match = PlaceMatchConfidence.high,
@@ -94,6 +96,8 @@ class ExtractionCandidate {
   final String name;
   final String? address;
   final String? reason;
+  final String? category;
+  final List<String> genres;
   final String? evidenceSummary;
   final int? confidencePercent;
   final PlaceMatchConfidence match;
@@ -114,6 +118,8 @@ class ExtractionCandidate {
     'name': name,
     'address': address,
     'reason': reason,
+    'category': category,
+    'genres': genres,
     'evidenceSummary': evidenceSummary,
     'confidencePercent': confidencePercent,
     'match': match.name,
@@ -136,6 +142,10 @@ class ExtractionCandidate {
         name: json['name'] as String,
         address: json['address'] as String?,
         reason: json['reason'] as String?,
+        category: json['category'] as String?,
+        genres: ((json['genres'] as List?) ?? const [])
+            .whereType<String>()
+            .toList(),
         evidenceSummary: json['evidenceSummary'] as String?,
         confidencePercent: json['confidencePercent'] as int?,
         match: PlaceMatchConfidence.fromName(json['match'] as String?),

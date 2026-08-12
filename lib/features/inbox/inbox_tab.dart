@@ -58,6 +58,8 @@ class _InboxTabState extends State<InboxTab> {
           candidate.address ?? '',
           candidate.postAddress ?? '',
           candidate.reason ?? '',
+          candidate.category ?? '',
+          ...candidate.genres,
         ],
         for (final place in linkedPlaces) ...[
           place.name,
@@ -76,6 +78,11 @@ class _InboxTabState extends State<InboxTab> {
       areas.addAll(detectedAreas);
 
       final detectedCategories = <String>{
+        for (final candidate in candidates) ...[
+          if ((candidate.category ?? '').trim().isNotEmpty)
+            candidate.category!.trim(),
+          ...candidate.genres,
+        ],
         for (final place in linkedPlaces)
           if ((place.category ?? '').trim().isNotEmpty) place.category!.trim(),
         ..._categoriesFrom(combined),

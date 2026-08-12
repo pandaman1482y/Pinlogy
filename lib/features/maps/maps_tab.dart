@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
+import '../../services/location_services.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/place_map_view.dart';
@@ -50,6 +51,49 @@ class MapsTab extends StatelessWidget {
             hintText: '場所やマップを探す',
             onTap: () => _openCrossSearch(context),
           ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: useSingleColumn
+              ? Column(
+                  children: [
+                    _AddMethodCard(
+                      icon: Icons.ios_share_rounded,
+                      title: 'SNSから追加',
+                      subtitle: '投稿を共有するだけ',
+                      onTap: () => _showShareGuide(context),
+                    ),
+                    const SizedBox(height: 10),
+                    _AddMethodCard(
+                      icon: Icons.add_location_alt_outlined,
+                      title: '手動で追加',
+                      subtitle: '店名・住所から検索',
+                      onTap: () => _showManualAdd(context),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: _AddMethodCard(
+                        icon: Icons.ios_share_rounded,
+                        title: 'SNSから追加',
+                        subtitle: '投稿を共有するだけ',
+                        onTap: () => _showShareGuide(context),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _AddMethodCard(
+                        icon: Icons.add_location_alt_outlined,
+                        title: '手動で追加',
+                        subtitle: '店名・住所から検索',
+                        onTap: () => _showManualAdd(context),
+                      ),
+                    ),
+                  ],
+                ),
         ),
         const SizedBox(height: 14),
         Expanded(
@@ -226,6 +270,190 @@ class MapsTab extends StatelessWidget {
       _createMapSheetOpen = false;
     }
   }
+
+  static Future<void> _showShareGuide(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('SNSから追加', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            const Text('TikTokやInstagramで投稿の「共有」を押し、Pinlogyを選んでください。メモなしでも場所を検索します。'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(16)),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_outline_rounded, color: moss),
+                  SizedBox(width: 10),
+                  Expanded(child: Text('無料プランでも利用できます。AI上限後は端末内解析と手動追加を使えます。')),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('わかりました')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Future<void> _showManualAdd(BuildContext context) async {
+    final controller = AppScope.read(context);
+    if (controller.hub.snapshot.maps.isEmpty) {
+      await _showCreateMap(context);
+      if (!context.mounted || controller.hub.snapshot.maps.isEmpty) return;
+    }
+    final queryController = TextEditingController();
+    try {
+      final query = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.add_location_alt_outlined),
+          title: const Text('場所を手動で追加'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('店名だけで見つからない場合は、駅名や住所も一緒に入力してください。'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: queryController,
+                autofocus: false,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(labelText: '店名・住所', hintText: '例：喫茶ソワレ 京都'),
+                onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, queryController.text.trim()), child: const Text('検索')),
+          ],
+        ),
+      );
+      if (query == null || query.isEmpty || !context.mounted) return;
+      final hits = await runGuarded(
+        context,
+        () => controller.placeSearch.searchByName(query),
+      );
+      if (!context.mounted) return;
+      if (hits == null) return;
+      if (hits.isEmpty) {
+        showInfoSnackBar(context, '場所が見つかりませんでした。住所や地域を追加して再検索してください');
+        return;
+      }
+      final hit = await showModalBottomSheet<PlaceSearchHit>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (sheetContext) => SizedBox(
+          height: modalSheetHeight(sheetContext),
+          child: Column(
+            children: [
+              const ListTile(
+                title: Text('追加する場所を選択', style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('無料の場所検索を利用しています'),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  children: hits.map((item) => ListTile(
+                    leading: const Icon(Icons.place_outlined),
+                    title: Text(item.name),
+                    subtitle: Text(item.address ?? '住所情報なし'),
+                    onTap: () => Navigator.pop(sheetContext, item),
+                  )).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (hit == null || !context.mounted) return;
+      final map = await _selectDestinationMap(context, controller.hub.snapshot.maps);
+      if (map == null || !context.mounted) return;
+      final created = await runGuarded(
+        context,
+        () => controller.places.create(
+          Place(name: hit.name, address: hit.address, latitude: hit.latitude, longitude: hit.longitude, evidenceSummary: '手動検索から追加'),
+          mapIds: [map.id],
+        ),
+      );
+      if (created != null && context.mounted) {
+        showInfoSnackBar(context, '「${hit.name}」を「${map.name}」に追加しました');
+      }
+    } finally {
+      disposeAfterFrame([queryController]);
+    }
+  }
+
+  static Future<PinMap?> _selectDestinationMap(
+    BuildContext context,
+    List<PinMap> maps,
+  ) async {
+    if (maps.length == 1) return maps.first;
+    return showModalBottomSheet<PinMap>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          const ListTile(
+            title: Text('保存先のマップを選択', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+          ...maps.map((map) => ListTile(
+            leading: Text(map.icon, style: const TextStyle(fontSize: 24)),
+            title: Text(map.name),
+            subtitle: map.description.isEmpty ? null : Text(map.description),
+            onTap: () => Navigator.pop(sheetContext, map),
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddMethodCard extends StatelessWidget {
+  const _AddMethodCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white.withValues(alpha: .82),
+    borderRadius: BorderRadius.circular(18),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(13),
+        child: Row(children: [
+          CircleAvatar(backgroundColor: mint, foregroundColor: mossDeep, child: Icon(icon, size: 20)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, maxLines: 1, style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+          ])),
+        ]),
+      ),
+    ),
+  );
 }
 
 class _RecentPlaceTile extends StatelessWidget {

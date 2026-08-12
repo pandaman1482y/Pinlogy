@@ -377,6 +377,7 @@ class PinlogyController extends ChangeNotifier {
               Place(
                 name: c.name,
                 address: c.address,
+                category: c.category,
                 saveReason: c.reason,
                 evidenceSummary: c.evidenceSummary,
                 confidencePercent: c.confidencePercent,
@@ -391,6 +392,16 @@ class PinlogyController extends ChangeNotifier {
               ),
               mapIds: [mapId],
             );
+            if (c.genres.isNotEmpty) {
+              final currentTags = await tags.tagsForPlace(place.id);
+              await tags.setPlaceTags(
+                placeId: place.id,
+                tagNames: {
+                  ...currentTags.map((tag) => tag.name),
+                  ...c.genres,
+                }.toList(),
+              );
+            }
             await sourcePosts.linkPlace(
               placeId: place.id,
               sourcePostId: sourcePostId,

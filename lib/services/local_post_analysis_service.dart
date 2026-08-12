@@ -35,6 +35,8 @@ class LocalPostAnalysisService implements PostAnalysisService {
           (draft) => ExtractionCandidate(
             name: draft.name,
             address: draft.address,
+            category: _categoryFor('${draft.name} ${parts.map((p) => p.text).join(' ')}'),
+            genres: _genresFor('${draft.name} ${parts.map((p) => p.text).join(' ')}'),
             postAddress: draft.address,
             reason: shortReason,
             evidenceSummary: draft.address == null
@@ -55,6 +57,8 @@ class LocalPostAnalysisService implements PostAnalysisService {
         candidates.add(
           ExtractionCandidate(
             name: fallback,
+            category: _categoryFor('${fallback} ${parts.map((p) => p.text).join(' ')}'),
+            genres: _genresFor('${fallback} ${parts.map((p) => p.text).join(' ')}'),
             reason: shortReason,
             evidenceSummary: '住所を特定できなかったため確認が必要です',
             confidencePercent: 40,
@@ -74,6 +78,38 @@ class LocalPostAnalysisService implements PostAnalysisService {
       candidates: candidates,
       evidenceText: parts.map((part) => part.text).join('\n\n'),
     );
+  }
+
+  String? _categoryFor(String text) {
+    if (_genresFor(text).isNotEmpty) return '飲食店';
+    if (RegExp(r'ホテル|旅館|宿泊|民宿').hasMatch(text)) return '宿泊';
+    if (RegExp(r'神社|寺|公園|美術館|博物館|展望|水族館|動物園|観光').hasMatch(text)) {
+      return '観光・レジャー';
+    }
+    if (RegExp(r'ショップ|雑貨|百貨店|ショッピング|市場').hasMatch(text)) return '買い物';
+    return null;
+  }
+
+  List<String> _genresFor(String text) {
+    const genres = <String, List<String>>{
+      'カフェ': ['カフェ', '喫茶', 'コーヒー', '珈琲'],
+      'スイーツ': ['スイーツ', 'ケーキ', 'パフェ', 'クレープ', '和菓子'],
+      'ラーメン': ['ラーメン', '中華そば', 'つけ麺'],
+      '寿司': ['寿司', '鮨', 'すし'],
+      '焼肉': ['焼肉', 'ホルモン'],
+      '居酒屋': ['居酒屋', '酒場'],
+      '和食': ['和食', '懐石', '割烹', '定食', 'うどん', 'そば'],
+      '洋食': ['洋食', 'オムライス', 'ハンバーグ'],
+      'イタリアン': ['イタリアン', 'パスタ', 'ピザ'],
+      '中華': ['中華', '餃子', '麻婆'],
+      'カレー': ['カレー'],
+      'パン': ['パン', 'ベーカリー'],
+    };
+    return genres.entries
+        .where((entry) => entry.value.any(text.contains))
+        .map((entry) => entry.key)
+        .take(3)
+        .toList();
   }
 
   Future<String> _readImage(String rawPath) async {
