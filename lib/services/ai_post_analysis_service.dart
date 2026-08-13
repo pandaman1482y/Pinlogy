@@ -86,7 +86,7 @@ class AiPostAnalysisService implements PostAnalysisService {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
       final result = PostAnalysisResponse.fromJson(decoded);
-      if (result.candidates.isEmpty) {
+      if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
       }
       await _writeCache(cacheKey, result);

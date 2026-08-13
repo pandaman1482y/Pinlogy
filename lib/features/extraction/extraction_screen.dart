@@ -26,12 +26,14 @@ class _AnalysisSourceBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAi = source == 'ai' || source == 'ai_cache';
+    final isAi = source.startsWith('ai');
     final isFallback = source.endsWith('_fallback');
     final color = isFallback ? Colors.orange.shade50 : mintSoft;
     final icon = isAi ? Icons.auto_awesome_rounded : Icons.info_outline_rounded;
     final message = switch (source) {
       'ai' => 'AIで投稿内容と画像を解析しました',
+      'ai_tiktok_photos' => 'TikTokの投稿文と写真を取得してAI解析しました',
+      'ai_tiktok_text_only' => 'TikTokから写真を取得できなかったため、取得できた投稿情報だけをAI解析しました',
       'ai_cache' => '保存済みのAI解析結果を再利用しました',
       'local_fallback' => 'AI通信に失敗したため、端末内の簡易解析結果を表示しています',
       'auth_fallback' => 'AI認証に失敗しました。Supabaseのanon publicキーを確認してください',
@@ -109,11 +111,12 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     final identifiedCount = candidates
         .where(controller.isIdentifiedPlaceCandidate)
         .length;
+    final rawSummary = _rawSummary(controller);
     final resultMessage = identifiedCount > 0
         ? '$identifiedCount件の場所を特定しました。'
         : candidates.isNotEmpty
         ? '${candidates.length}件の候補がありますが、場所は未確定です。'
-        : '場所を特定できませんでした。';
+        : rawSummary ?? '場所を特定できませんでした。';
 
     return Scaffold(
       appBar: AppBar(
@@ -295,6 +298,19 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
       return value['analysis_source'] as String? ?? 'unknown';
     } catch (_) {
       return 'unknown';
+    }
+  }
+
+  String? _rawSummary(dynamic controller) {
+    final job = controller.jobForPost(widget.sourcePostId);
+    final raw = job?.resultJson;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw) as Map<String, dynamic>;
+      final summary = value['raw_summary']?.toString().trim();
+      return summary == null || summary.isEmpty ? null : summary;
+    } catch (_) {
+      return null;
     }
   }
 
