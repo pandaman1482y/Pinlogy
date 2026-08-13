@@ -41,10 +41,13 @@ Deno.serve(async (request) => {
     }
     // TikTok写真投稿は共有拡張へ画像本体を渡さないことがある。
     // 公開ページ内に掲載された写真URLだけを同じ1回の解析へ追加する。
-    for (const image of (sharedPage?.image_urls ?? []).slice(
-      0,
-      Math.max(0, 5 - suppliedImages.length),
-    )) {
+    const fetchedTikTokImages = await fetchTikTokImages(
+      (sharedPage?.image_urls ?? []).slice(
+        0,
+        Math.max(0, 5 - suppliedImages.length),
+      ),
+    );
+    for (const image of fetchedTikTokImages) {
       content.push({ type: "input_image", image_url: image, detail: "high" });
     }
 
@@ -79,7 +82,7 @@ Deno.serve(async (request) => {
       source_post_id: sourcePostId,
       ...JSON.parse(output.text),
       analysis_source: sharedPage?.is_photo_post === true
-        ? (sharedPage.image_urls.length > 0
+        ? (fetchedTikTokImages.length > 0
           ? "ai_tiktok_photos"
           : "ai_tiktok_text_only")
         : "ai",
@@ -87,8 +90,10 @@ Deno.serve(async (request) => {
         ? null
         : {
           is_photo_post: sharedPage.is_photo_post,
-          photo_access: sharedPage.photo_access,
-          image_count: sharedPage.image_urls.length,
+          photo_access: fetchedTikTokImages.length > 0
+            ? "available"
+            : sharedPage.photo_access,
+          image_count: fetchedTikTokImages.length,
         },
     });
   } catch (error) {
@@ -328,6 +333,52 @@ function isAllowedTikTokImage(rawUrl: string) {
   } catch {
     return false;
   }
+}
+
+/// 期限付きCDN URLをOpenAIに直接渡すと403や形式判定で全解析が失敗するため、
+/// Function側で検証・取得し、安全なdata URLへ変換する。
+async function fetchTikTokImages(urls: string[]) {
+  const results = await Promise.all(urls.slice(0, 5).map(async (rawUrl) => {
+    if (!isAllowedTikTokImage(rawUrl)) return null;
+    try {
+      const response = await fetch(rawUrl, {
+        redirect: "error",
+        headers: {
+          "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+          "Referer": "https://www.tiktok.com/",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      const type = (response.headers.get("content-type") ?? "")
+        .split(";")[0]
+        .toLowerCase();
+      const length = Number(response.headers.get("content-length") ?? "0");
+      if (!response.ok ||
+        !["image/jpeg", "image/png", "image/webp"].includes(type) ||
+        length > 2 * 1024 * 1024) {
+        console.warn("tiktok_image_rejected", response.status, type, length);
+        return null;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length === 0 || bytes.length > 2 * 1024 * 1024) return null;
+      return `data:${type};base64,${bytesToBase64(bytes)}`;
+    } catch (error) {
+      console.warn("tiktok_image_fetch_failed", String(error));
+      return null;
+    }
+  }));
+  return results.filter((value): value is string => value != null);
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function decodeHtml(value: string) {
