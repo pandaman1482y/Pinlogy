@@ -715,7 +715,6 @@ class _InboxFilterMenu extends StatelessWidget {
   const _InboxFilterMenu({
     required this.label,
     required this.icon,
-    this.thumbnailPath,
     required this.selected,
     required this.values,
     required this.onSelected,
@@ -723,7 +722,6 @@ class _InboxFilterMenu extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final String? thumbnailPath;
   final bool selected;
   final List<String> values;
   final ValueChanged<String?> onSelected;
