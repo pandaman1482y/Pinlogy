@@ -185,7 +185,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   Future<List<String>> _readImages(List<String> paths) async {
     final encoded = <String>[];
-    for (final rawPath in paths.take(3)) {
+    for (final rawPath in paths.take(5)) {
       try {
         final remote = Uri.tryParse(rawPath);
         if (remote?.scheme == 'https' && _isAllowedPreviewHost(remote!.host)) {

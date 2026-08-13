@@ -3,17 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/location_services.dart';
+import '../../services/share_receiver_service.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/feedback.dart';
 import '../../widgets/place_map_view.dart';
 import '../../widgets/sheet_layout.dart';
 import '../../widgets/source_post_tile.dart';
 import '../places/place_details_sheet.dart';
+import '../onboarding/onboarding_sheet.dart';
 import '../plans/plan_detail_page.dart';
 
 class MapsTab extends StatelessWidget {
@@ -315,6 +318,7 @@ class MapsTab extends StatelessWidget {
       if (!context.mounted || controller.hub.snapshot.maps.isEmpty) return;
     }
     final queryController = TextEditingController();
+    var screenshotRequested = false;
     try {
       final query = await showDialog<String>(
         context: context,
@@ -334,6 +338,31 @@ class MapsTab extends StatelessWidget {
                 decoration: const InputDecoration(labelText: '店名・住所', hintText: '例：喫茶ソワレ 京都'),
                 onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
               ),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('または')),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    screenshotRequested = true;
+                    Navigator.pop(dialogContext);
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: const Text('AIでスクショから追加（最大5枚）'),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '投稿の途中にあるお店は、その画像や動画の場面をスクショしてください。',
+                style: TextStyle(fontSize: 12),
+              ),
             ],
           ),
           actions: [
@@ -342,6 +371,10 @@ class MapsTab extends StatelessWidget {
           ],
         ),
       );
+      if (screenshotRequested && context.mounted) {
+        await _showScreenshotAiAdd(context);
+        return;
+      }
       if (query == null || query.isEmpty || !context.mounted) return;
       final hits = await runGuarded(
         context,
@@ -396,6 +429,66 @@ class MapsTab extends StatelessWidget {
       }
     } finally {
       disposeAfterFrame([queryController]);
+    }
+  }
+
+  static Future<void> _showScreenshotAiAdd(BuildContext context) async {
+    final aiEnabled = await showAiAnalysisConsentIfNeeded(context);
+    if (!context.mounted) return;
+    final images = await ImagePicker().pickMultiImage(imageQuality: 88, limit: 5);
+    if (images.isEmpty || !context.mounted) return;
+
+    final hintController = TextEditingController();
+    try {
+      final hint = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.auto_awesome_outlined),
+          title: Text('${images.length}枚のスクショを解析'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('店名・住所・料理名など、画像内のヒントをまとめて探します。入力なしでも解析できます。'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: hintController,
+                autofocus: false,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: '補足（任意）',
+                  hintText: '例：7枚目に紹介されていた大阪のお店',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, hintController.text.trim()),
+              child: const Text('解析する'),
+            ),
+          ],
+        ),
+      );
+      if (hint == null || !context.mounted) return;
+      await AppScope.read(context).shareIntake.ingest(
+        SharedContent(
+          service: 'スクリーンショット',
+          title: 'AIスクショから追加',
+          text: hint,
+          imagePaths: images.map((image) => image.path).toList(),
+        ),
+      );
+      if (!context.mounted) return;
+      showInfoSnackBar(
+        context,
+        aiEnabled
+            ? '${images.length}枚を受信箱に追加し、AI解析を開始しました'
+            : '${images.length}枚を受信箱に追加し、端末内解析を開始しました',
+      );
+    } finally {
+      disposeAfterFrame([hintController]);
     }
   }
 

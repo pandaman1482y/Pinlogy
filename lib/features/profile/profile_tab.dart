@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../onboarding/onboarding_sheet.dart';
 import '../plans/plans_tab.dart';
 import '../saved/saved_tab.dart';
 import '../settings/cloud_sync_page.dart';
@@ -73,6 +74,12 @@ class ProfileTab extends StatelessWidget {
                 title: '旅行プラン',
                 subtitle: '行きたい場所を日程にまとめる',
                 onTap: () => _open(context, const _PlansPage()),
+              ),
+              _MenuCard(
+                icon: Icons.help_outline_rounded,
+                title: '使い方・チュートリアル',
+                subtitle: 'SNS共有・スクショ追加・複数店舗の選び方',
+                onTap: () => _open(context, const PinlogyHowToPage()),
               ),
               _MenuCard(
                 icon: Icons.cloud_outlined,

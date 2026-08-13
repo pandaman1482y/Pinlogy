@@ -113,7 +113,7 @@ function validImages(value: unknown) {
     .filter((item): item is string =>
       typeof item === "string" && /^data:image\/(jpeg|png|webp);base64,/i.test(item)
     )
-    .slice(0, 3);
+    .slice(0, 5);
 }
 
 function isAllowedSocialUrl(url: URL) {
