@@ -836,19 +836,19 @@ class _InboxCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: mint.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: thumbnailPath == null
-                        ? Icon(icon, color: mossDeep)
-                        : PlacePhoto(
-                            path: thumbnailPath!,
-                            fit: BoxFit.cover,
-                            fallback: Icon(icon, color: mossDeep),
-                          ),
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: mint.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: thumbnailPath == null
+                          ? Icon(icon, color: mossDeep)
+                          : PlacePhoto(
+                              path: thumbnailPath!,
+                              fit: BoxFit.cover,
+                              fallback: Icon(icon, color: mossDeep),
+                            ),
                     ),
                   ),
                   if (unread)
