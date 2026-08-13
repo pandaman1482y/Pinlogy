@@ -775,6 +775,7 @@ class _InboxCard extends StatelessWidget {
     required this.selected,
     required this.unread,
     required this.icon,
+    this.thumbnailPath,
     required this.source,
     required this.title,
     this.memo,
@@ -790,6 +791,7 @@ class _InboxCard extends StatelessWidget {
   final bool selected;
   final bool unread;
   final IconData icon;
+  final String? thumbnailPath;
   final String source;
   final String title;
   final String? memo;
