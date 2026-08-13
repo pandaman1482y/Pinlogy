@@ -35,8 +35,12 @@ class LocalPostAnalysisService implements PostAnalysisService {
           (draft) => ExtractionCandidate(
             name: draft.name,
             address: draft.address,
-            category: _categoryFor('${draft.name} ${parts.map((p) => p.text).join(' ')}'),
-            genres: _genresFor('${draft.name} ${parts.map((p) => p.text).join(' ')}'),
+            category: _categoryFor(
+              '${draft.name} ${parts.map((p) => p.text).join(' ')}',
+            ),
+            genres: _genresFor(
+              '${draft.name} ${parts.map((p) => p.text).join(' ')}',
+            ),
             postAddress: draft.address,
             reason: shortReason,
             evidenceSummary: draft.address == null
@@ -57,8 +61,12 @@ class LocalPostAnalysisService implements PostAnalysisService {
         candidates.add(
           ExtractionCandidate(
             name: fallback,
-            category: _categoryFor('${fallback} ${parts.map((p) => p.text).join(' ')}'),
-            genres: _genresFor('${fallback} ${parts.map((p) => p.text).join(' ')}'),
+            category: _categoryFor(
+              '${fallback} ${parts.map((p) => p.text).join(' ')}',
+            ),
+            genres: _genresFor(
+              '${fallback} ${parts.map((p) => p.text).join(' ')}',
+            ),
             reason: shortReason,
             evidenceSummary: '住所を特定できなかったため確認が必要です',
             confidencePercent: 40,
@@ -166,8 +174,12 @@ class LocalPostAnalysisService implements PostAnalysisService {
 
   bool _isAllowedPreviewHost(String rawHost) {
     final host = rawHost.toLowerCase();
-    return const ['tiktokcdn.com', 'tiktokcdn-us.com', 'muscdn.com', 'ytimg.com']
-        .any((domain) => host == domain || host.endsWith('.$domain'));
+    return const [
+      'tiktokcdn.com',
+      'tiktokcdn-us.com',
+      'muscdn.com',
+      'ytimg.com',
+    ].any((domain) => host == domain || host.endsWith('.$domain'));
   }
 
   List<_CandidateDraft> _extract(_TextPart part) {

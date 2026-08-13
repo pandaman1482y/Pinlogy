@@ -362,7 +362,8 @@ class AnalysisRunner {
 
 String? _analysisText(SourcePost post) {
   final title = post.title?.trim();
-  final usefulTitle = title == null ||
+  final usefulTitle =
+      title == null ||
           title.isEmpty ||
           title == '共有された投稿' ||
           title == '共有された画像' ||

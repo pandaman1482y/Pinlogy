@@ -269,10 +269,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
     messenger.showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 2),
-        content: Text(message),
-      ),
+      SnackBar(duration: const Duration(seconds: 2), content: Text(message)),
     );
   }
 
@@ -378,12 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
           bottom: false,
           child: IndexedStack(
             index: index,
-            children: const [
-              MapsTab(),
-              InboxTab(),
-              PlansTab(),
-              ProfileTab(),
-            ],
+            children: const [MapsTab(), InboxTab(), PlansTab(), ProfileTab()],
           ),
         ),
         bottomNavigationBar: PinlogyPillNav(

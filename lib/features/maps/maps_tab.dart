@@ -285,13 +285,21 @@ class MapsTab extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('SNSから追加', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            const Text(
+              'SNSから追加',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 10),
-            const Text('TikTokやInstagramで投稿の「共有」を押し、Pinlogyを選んでください。メモなしでも場所を検索します。'),
+            const Text(
+              'TikTokやInstagramで投稿の「共有」を押し、Pinlogyを選んでください。メモなしでも場所を検索します。',
+            ),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(16)),
+              decoration: BoxDecoration(
+                color: mintSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: const Row(
                 children: [
                   Icon(Icons.check_circle_outline_rounded, color: moss),
@@ -303,7 +311,10 @@ class MapsTab extends StatelessWidget {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('わかりました')),
+              child: FilledButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('わかりました'),
+              ),
             ),
           ],
         ),
@@ -335,14 +346,21 @@ class MapsTab extends StatelessWidget {
                 controller: queryController,
                 autofocus: false,
                 textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(labelText: '店名・住所', hintText: '例：喫茶ソワレ 京都'),
-                onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+                decoration: const InputDecoration(
+                  labelText: '店名・住所',
+                  hintText: '例：喫茶ソワレ 京都',
+                ),
+                onSubmitted: (value) =>
+                    Navigator.pop(dialogContext, value.trim()),
               ),
               const SizedBox(height: 16),
               const Row(
                 children: [
                   Expanded(child: Divider()),
-                  Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('または')),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text('または'),
+                  ),
                   Expanded(child: Divider()),
                 ],
               ),
@@ -366,8 +384,15 @@ class MapsTab extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, queryController.text.trim()), child: const Text('検索')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, queryController.text.trim()),
+              child: const Text('検索'),
+            ),
           ],
         ),
       );
@@ -396,18 +421,25 @@ class MapsTab extends StatelessWidget {
           child: Column(
             children: [
               const ListTile(
-                title: Text('追加する場所を選択', style: TextStyle(fontWeight: FontWeight.w800)),
+                title: Text(
+                  '追加する場所を選択',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
                 subtitle: Text('無料の場所検索を利用しています'),
               ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 24),
-                  children: hits.map((item) => ListTile(
-                    leading: const Icon(Icons.place_outlined),
-                    title: Text(item.name),
-                    subtitle: Text(item.address ?? '住所情報なし'),
-                    onTap: () => Navigator.pop(sheetContext, item),
-                  )).toList(),
+                  children: hits
+                      .map(
+                        (item) => ListTile(
+                          leading: const Icon(Icons.place_outlined),
+                          title: Text(item.name),
+                          subtitle: Text(item.address ?? '住所情報なし'),
+                          onTap: () => Navigator.pop(sheetContext, item),
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
             ],
@@ -415,12 +447,21 @@ class MapsTab extends StatelessWidget {
         ),
       );
       if (hit == null || !context.mounted) return;
-      final map = await _selectDestinationMap(context, controller.hub.snapshot.maps);
+      final map = await _selectDestinationMap(
+        context,
+        controller.hub.snapshot.maps,
+      );
       if (map == null || !context.mounted) return;
       final created = await runGuarded(
         context,
         () => controller.places.create(
-          Place(name: hit.name, address: hit.address, latitude: hit.latitude, longitude: hit.longitude, evidenceSummary: '手動検索から追加'),
+          Place(
+            name: hit.name,
+            address: hit.address,
+            latitude: hit.latitude,
+            longitude: hit.longitude,
+            evidenceSummary: '手動検索から追加',
+          ),
           mapIds: [map.id],
         ),
       );
@@ -435,7 +476,10 @@ class MapsTab extends StatelessWidget {
   static Future<void> _showScreenshotAiAdd(BuildContext context) async {
     final aiEnabled = await showAiAnalysisConsentIfNeeded(context);
     if (!context.mounted) return;
-    final images = await ImagePicker().pickMultiImage(imageQuality: 88, limit: 5);
+    final images = await ImagePicker().pickMultiImage(
+      imageQuality: 88,
+      limit: 5,
+    );
     if (images.isEmpty || !context.mounted) return;
 
     final hintController = TextEditingController();
@@ -463,9 +507,13 @@ class MapsTab extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, hintController.text.trim()),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, hintController.text.trim()),
               child: const Text('解析する'),
             ),
           ],
@@ -506,14 +554,19 @@ class MapsTab extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           const ListTile(
-            title: Text('保存先のマップを選択', style: TextStyle(fontWeight: FontWeight.w800)),
+            title: Text(
+              '保存先のマップを選択',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
           ),
-          ...maps.map((map) => ListTile(
-            leading: Text(map.icon, style: const TextStyle(fontSize: 24)),
-            title: Text(map.name),
-            subtitle: map.description.isEmpty ? null : Text(map.description),
-            onTap: () => Navigator.pop(sheetContext, map),
-          )),
+          ...maps.map(
+            (map) => ListTile(
+              leading: Text(map.icon, style: const TextStyle(fontSize: 24)),
+              title: Text(map.name),
+              subtitle: map.description.isEmpty ? null : Text(map.description),
+              onTap: () => Navigator.pop(sheetContext, map),
+            ),
+          ),
         ],
       ),
     );
@@ -521,7 +574,12 @@ class MapsTab extends StatelessWidget {
 }
 
 class _AddMethodCard extends StatelessWidget {
-  const _AddMethodCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _AddMethodCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
   final IconData icon;
   final String title;
   final String subtitle;
@@ -536,14 +594,34 @@ class _AddMethodCard extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.all(13),
-        child: Row(children: [
-          CircleAvatar(backgroundColor: mint, foregroundColor: mossDeep, child: Icon(icon, size: 20)),
-          const SizedBox(width: 10),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, maxLines: 1, style: const TextStyle(fontWeight: FontWeight.w800)),
-            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
-          ])),
-        ]),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: mint,
+              foregroundColor: mossDeep,
+              child: Icon(icon, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );

@@ -151,7 +151,9 @@ class PinlogyController extends ChangeNotifier {
   }
 
   SourcePost? consumePendingSharedPost() {
-    return _pendingSharedPosts.isEmpty ? null : _pendingSharedPosts.removeFirst();
+    return _pendingSharedPosts.isEmpty
+        ? null
+        : _pendingSharedPosts.removeFirst();
   }
 
   List<SourcePost> consumePendingSharedPosts() {
@@ -176,10 +178,7 @@ class PinlogyController extends ChangeNotifier {
     final trimmedMemo = memo?.trim() ?? '';
     if (trimmedMemo.isNotEmpty) {
       await sourcePosts.update(
-        currentPost.copyWith(
-          userMemo: trimmedMemo,
-          updatedAt: DateTime.now(),
-        ),
+        currentPost.copyWith(userMemo: trimmedMemo, updatedAt: DateTime.now()),
       );
     }
     final job = await analysis.getBySourcePostId(post.id);
@@ -347,10 +346,10 @@ class PinlogyController extends ChangeNotifier {
 
   bool isIdentifiedPlaceCandidate(ExtractionCandidate candidate) {
     final name = candidate.name.trim();
-    final meaningfulName = name.isNotEmpty &&
-        name != '共有された場所' &&
-        name != '名称を確認してください';
-    final hasLocation = candidate.address?.trim().isNotEmpty == true ||
+    final meaningfulName =
+        name.isNotEmpty && name != '共有された場所' && name != '名称を確認してください';
+    final hasLocation =
+        candidate.address?.trim().isNotEmpty == true ||
         (candidate.latitude != null && candidate.longitude != null);
     return meaningfulName &&
         candidate.match != PlaceMatchConfidence.unresolved &&

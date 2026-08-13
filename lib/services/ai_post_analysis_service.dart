@@ -233,7 +233,11 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   bool _isAllowedPreviewHost(String rawHost) {
     final host = rawHost.toLowerCase();
-    return const ['tiktokcdn.com', 'tiktokcdn-us.com', 'muscdn.com', 'ytimg.com']
-        .any((domain) => host == domain || host.endsWith('.$domain'));
+    return const [
+      'tiktokcdn.com',
+      'tiktokcdn-us.com',
+      'muscdn.com',
+      'ytimg.com',
+    ].any((domain) => host == domain || host.endsWith('.$domain'));
   }
 }

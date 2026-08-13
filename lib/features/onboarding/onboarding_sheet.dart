@@ -37,13 +37,15 @@ class PinlogyHowToPage extends StatelessWidget {
           number: '1',
           icon: Icons.ios_share_rounded,
           title: 'SNSの投稿を共有',
-          body: 'TikTokやInstagramの共有先でPinlogyを選びます。投稿文、共有画像、動画サムネイルから店名や住所のヒントを探します。',
+          body:
+              'TikTokやInstagramの共有先でPinlogyを選びます。投稿文、共有画像、動画サムネイルから店名や住所のヒントを探します。',
         ),
         _HowToCard(
           number: '2',
           icon: Icons.fact_check_outlined,
           title: '候補を確認して保存',
-          body: '1つの投稿に複数のお店がある場合は、見つかった候補から追加したいお店を選べます。候補はまとめて解析するため、1店ずつ解析し直す必要はありません。',
+          body:
+              '1つの投稿に複数のお店がある場合は、見つかった候補から追加したいお店を選べます。候補はまとめて解析するため、1店ずつ解析し直す必要はありません。',
         ),
         _HowToCard(
           number: '3',
@@ -55,13 +57,15 @@ class PinlogyHowToPage extends StatelessWidget {
           number: '4',
           icon: Icons.filter_7_rounded,
           title: '10枚中7枚目のお店を追加したい場合',
-          body: '追加したいお店が写っている7枚目をスクリーンショットして選んでください。「7枚目のお店」などの短いヒントを添えると、ほかの候補と区別しやすくなります。画像番号の入力は必須ではありません。',
+          body:
+              '追加したいお店が写っている7枚目をスクリーンショットして選んでください。「7枚目のお店」などの短いヒントを添えると、ほかの候補と区別しやすくなります。画像番号の入力は必須ではありません。',
         ),
         _HowToCard(
           number: '5',
           icon: Icons.video_camera_back_outlined,
           title: '動画の途中にだけヒントがある場合',
-          body: '共有だけでは動画の全場面を取得できない場合があります。店名、住所、メニューが表示された場面をスクリーンショットして追加してください。',
+          body:
+              '共有だけでは動画の全場面を取得できない場合があります。店名、住所、メニューが表示された場面をスクリーンショットして追加してください。',
         ),
         _HowToCard(
           number: '6',
@@ -115,7 +119,13 @@ class _HowToCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Text(body, style: const TextStyle(height: 1.5)),
               ],

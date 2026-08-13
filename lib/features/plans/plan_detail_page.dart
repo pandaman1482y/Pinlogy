@@ -302,9 +302,7 @@ class PlanDetailPage extends StatelessWidget {
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.schedule_rounded),
-                    label: Text(
-                      '1日の開始時刻  ${_timeLabel(startTimeMinutes)}',
-                    ),
+                    label: Text('1日の開始時刻  ${_timeLabel(startTimeMinutes)}'),
                     onPressed: () async {
                       final picked = await showTimePicker(
                         context: ctx,
@@ -339,9 +337,7 @@ class PlanDetailPage extends StatelessWidget {
       if (ok != true || !context.mounted) return;
       await runGuardedAction(
         context,
-        () => AppScope.read(
-          context,
-        ).plans.update(
+        () => AppScope.read(context).plans.update(
           plan.copyWith(
             title: title,
             notes: notes,
@@ -377,23 +373,27 @@ class PlanDetailPage extends StatelessWidget {
       places.map(
         (place) async => MapEntry(
           place.id,
-          (await controller.tags.tagsForPlace(place.id))
-              .map((tag) => tag.name)
-              .toList(),
+          (await controller.tags.tagsForPlace(
+            place.id,
+          )).map((tag) => tag.name).toList(),
         ),
       ),
     );
     if (!context.mounted) return;
     final tagsByPlace = Map<String, List<String>>.fromEntries(tagEntries);
-    final genres = places
-        .expand((place) => [
-          if (place.category?.trim().isNotEmpty == true) place.category!.trim(),
-          ...(tagsByPlace[place.id] ?? const <String>[]),
-        ])
-        .where((label) => !_broadPlaceCategories.contains(label))
-        .toSet()
-        .toList()
-      ..sort();
+    final genres =
+        places
+            .expand(
+              (place) => [
+                if (place.category?.trim().isNotEmpty == true)
+                  place.category!.trim(),
+                ...(tagsByPlace[place.id] ?? const <String>[]),
+              ],
+            )
+            .where((label) => !_broadPlaceCategories.contains(label))
+            .toSet()
+            .toList()
+          ..sort();
 
     String query = '';
     String scope = 'all';
@@ -405,33 +405,28 @@ class PlanDetailPage extends StatelessWidget {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final filtered = places
-                .where(
-                  (p) {
-                    final labels = <String>[
-                      if (p.category != null) p.category!,
-                      ...(tagsByPlace[p.id] ?? const <String>[]),
-                    ];
-                    final matchesQuery = query.isEmpty ||
-                        p.name.toLowerCase().contains(query.toLowerCase()) ||
-                        (p.address?.toLowerCase().contains(
-                              query.toLowerCase(),
-                            ) ??
-                            false) ||
-                        labels.any(
-                          (label) => label.toLowerCase().contains(
-                            query.toLowerCase(),
-                          ),
-                        );
-                    final isFood = _isFoodPlace(p, labels);
-                    final matchesScope = scope == 'all' ||
-                        (scope == 'food' && isFood) ||
-                        (scope == 'spot' && !isFood);
-                    final matchesGenre = genre == null || labels.contains(genre);
-                    return matchesQuery && matchesScope && matchesGenre;
-                  },
-                )
-                .toList();
+            final filtered = places.where((p) {
+              final labels = <String>[
+                if (p.category != null) p.category!,
+                ...(tagsByPlace[p.id] ?? const <String>[]),
+              ];
+              final matchesQuery =
+                  query.isEmpty ||
+                  p.name.toLowerCase().contains(query.toLowerCase()) ||
+                  (p.address?.toLowerCase().contains(query.toLowerCase()) ??
+                      false) ||
+                  labels.any(
+                    (label) =>
+                        label.toLowerCase().contains(query.toLowerCase()),
+                  );
+              final isFood = _isFoodPlace(p, labels);
+              final matchesScope =
+                  scope == 'all' ||
+                  (scope == 'food' && isFood) ||
+                  (scope == 'spot' && !isFood);
+              final matchesGenre = genre == null || labels.contains(genre);
+              return matchesQuery && matchesScope && matchesGenre;
+            }).toList();
             return SizedBox(
               height: modalSheetHeight(context),
               child: Padding(
@@ -506,36 +501,39 @@ class PlanDetailPage extends StatelessWidget {
                       child: filtered.isEmpty
                           ? const Center(child: Text('条件に合う場所がありません'))
                           : ListView.separated(
-                        itemCount: filtered.length,
-                        separatorBuilder: (context, index) =>
-                            const Divider(height: 1),
-                        itemBuilder: (context, i) {
-                          final place = filtered[i];
-                          final labels = <String>[
-                            if (place.category?.isNotEmpty == true) place.category!,
-                            ...(tagsByPlace[place.id] ?? const <String>[]),
-                          ];
-                          final detail = [
-                            if (labels.isNotEmpty) labels.join('・'),
-                            if (place.address?.isNotEmpty == true) place.address!,
-                          ].join('\n');
-                          return ListTile(
-                            title: Text(
-                              place.name,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: detail.isEmpty
-                                ? null
-                                : Text(
-                                    detail,
+                              itemCount: filtered.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, i) {
+                                final place = filtered[i];
+                                final labels = <String>[
+                                  if (place.category?.isNotEmpty == true)
+                                    place.category!,
+                                  ...(tagsByPlace[place.id] ??
+                                      const <String>[]),
+                                ];
+                                final detail = [
+                                  if (labels.isNotEmpty) labels.join('・'),
+                                  if (place.address?.isNotEmpty == true)
+                                    place.address!,
+                                ].join('\n');
+                                return ListTile(
+                                  title: Text(
+                                    place.name,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            onTap: () => Navigator.pop(ctx, place),
-                          );
-                        },
-                      ),
+                                  subtitle: detail.isEmpty
+                                      ? null
+                                      : Text(
+                                          detail,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                  onTap: () => Navigator.pop(ctx, place),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
@@ -559,13 +557,7 @@ class PlanDetailPage extends StatelessWidget {
     );
   }
 
-  static const _broadPlaceCategories = {
-    '飲食店',
-    '観光・レジャー',
-    '宿泊',
-    '買い物',
-    'その他',
-  };
+  static const _broadPlaceCategories = {'飲食店', '観光・レジャー', '宿泊', '買い物', 'その他'};
 
   static bool _isFoodPlace(Place place, List<String> labels) {
     final text = '${place.name} ${labels.join(' ')}';
@@ -682,13 +674,17 @@ class _PlanMapPageState extends State<PlanMapPage> {
     final plan = controller.hub.snapshot.plans
         .where((item) => item.id == widget.planId)
         .firstOrNull;
-    final allStops = controller.hub.snapshot.planStops
-        .where((stop) => stop.planId == widget.planId)
-        .toList()
-      ..sort((a, b) {
-        final day = PlanDetailPage._compareNullableDay(a.dayDate, b.dayDate);
-        return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
-      });
+    final allStops =
+        controller.hub.snapshot.planStops
+            .where((stop) => stop.planId == widget.planId)
+            .toList()
+          ..sort((a, b) {
+            final day = PlanDetailPage._compareNullableDay(
+              a.dayDate,
+              b.dayDate,
+            );
+            return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
+          });
     final days = <DateTime?>[];
     for (final stop in allStops) {
       if (!days.any((day) => PlanDetailPage._sameDay(day, stop.dayDate))) {
@@ -709,7 +705,8 @@ class _PlanMapPageState extends State<PlanMapPage> {
         .map((stop) => placeById[stop.placeId])
         .whereType<Place>()
         .toList();
-    final nextPlace = places.where((place) => !place.isVisited).firstOrNull ??
+    final nextPlace =
+        places.where((place) => !place.isVisited).firstOrNull ??
         places.firstOrNull;
     final markerLabels = <String, String>{};
     for (var i = 0; i < places.length; i++) {
@@ -724,23 +721,24 @@ class _PlanMapPageState extends State<PlanMapPage> {
       final points = !sameDay
           ? const <LatLng>[]
           : route?.points ??
-          (from?.latitude != null &&
-                  from?.longitude != null &&
-                  to?.latitude != null &&
-                  to?.longitude != null
-              ? [
-                  LatLng(from!.latitude!, from.longitude!),
-                  LatLng(to!.latitude!, to.longitude!),
-                ]
-              : const <LatLng>[]);
+                (from?.latitude != null &&
+                        from?.longitude != null &&
+                        to?.latitude != null &&
+                        to?.longitude != null
+                    ? [
+                        LatLng(from!.latitude!, from.longitude!),
+                        LatLng(to!.latitude!, to.longitude!),
+                      ]
+                    : const <LatLng>[]);
       if (points.length >= 2) {
         routeLines.add(
           Polyline(
             points: points,
             strokeWidth: route == null ? 4 : 6,
             color: route == null
-                ? _routeColor(visibleStops[i].transitToNext)
-                    .withValues(alpha: .58)
+                ? _routeColor(
+                    visibleStops[i].transitToNext,
+                  ).withValues(alpha: .58)
                 : _routeColor(visibleStops[i].transitToNext),
             pattern: route == null
                 ? const StrokePattern.dotted()
@@ -804,7 +802,8 @@ class _PlanMapPageState extends State<PlanMapPage> {
                           for (final day in days) ...[
                             ChoiceChip(
                               label: Text(_dayLabel(day)),
-                              selected: !_showAllDays &&
+                              selected:
+                                  !_showAllDays &&
                                   PlanDetailPage._sameDay(_selectedDay, day),
                               onSelected: (_) => setState(() {
                                 _showAllDays = false;
@@ -880,9 +879,8 @@ class _PlanMapPageState extends State<PlanMapPage> {
     );
   }
 
-  String _dayLabel(DateTime? day) => day == null
-      ? '日付未定'
-      : '${day.month}/${day.day}';
+  String _dayLabel(DateTime? day) =>
+      day == null ? '日付未定' : '${day.month}/${day.day}';
 
   Future<void> _loadRoutes() async {
     if (!mounted) return;
@@ -893,14 +891,13 @@ class _PlanMapPageState extends State<PlanMapPage> {
     }
     var allowed = await RoutePrivacyConsent().hasConsented();
     if (!allowed && mounted) {
-      allowed = await showDialog<bool>(
+      allowed =
+          await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
               icon: const Icon(Icons.privacy_tip_outlined),
               title: const Text('区間経路を取得'),
-              content: const Text(
-                '道路に沿った経路と所要時間を計算するため、各地点の座標を経路サービスへ送信します。',
-              ),
+              content: const Text('道路に沿った経路と所要時間を計算するため、各地点の座標を経路サービスへ送信します。'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -922,13 +919,17 @@ class _PlanMapPageState extends State<PlanMapPage> {
       _routeNotice = null;
     });
     final snapshot = controller.hub.snapshot;
-    final stops = snapshot.planStops
-        .where((stop) => stop.planId == widget.planId)
-        .toList()
-      ..sort((a, b) {
-        final day = PlanDetailPage._compareNullableDay(a.dayDate, b.dayDate);
-        return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
-      });
+    final stops =
+        snapshot.planStops
+            .where((stop) => stop.planId == widget.planId)
+            .toList()
+          ..sort((a, b) {
+            final day = PlanDetailPage._compareNullableDay(
+              a.dayDate,
+              b.dayDate,
+            );
+            return day != 0 ? day : a.sortOrder.compareTo(b.sortOrder);
+          });
     final places = {for (final place in snapshot.places) place.id: place};
     var failures = 0;
     var approximate = 0;
@@ -1000,7 +1001,9 @@ class _PlanMapPageState extends State<PlanMapPage> {
   };
 
   Future<void> _openNextPlace(Place place) async {
-    final opened = await AppScope.read(context).directions.openDirections(place);
+    final opened = await AppScope.read(
+      context,
+    ).directions.openDirections(place);
     if (!opened && mounted) showInfoSnackBar(context, '次の場所を外部マップで開けませんでした');
   }
 
@@ -1019,15 +1022,25 @@ class _PlanMapPageState extends State<PlanMapPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('外部マップの設定', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+              const Text(
+                '外部マップの設定',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 12),
               SegmentedButton<DirectionsApp>(
                 segments: const [
-                  ButtonSegment(value: DirectionsApp.googleMaps, label: Text('Google Maps')),
-                  ButtonSegment(value: DirectionsApp.appleMaps, label: Text('Apple Maps')),
+                  ButtonSegment(
+                    value: DirectionsApp.googleMaps,
+                    label: Text('Google Maps'),
+                  ),
+                  ButtonSegment(
+                    value: DirectionsApp.appleMaps,
+                    label: Text('Apple Maps'),
+                  ),
                 ],
                 selected: {app},
-                onSelectionChanged: (value) => setModalState(() => app = value.first),
+                onSelectionChanged: (value) =>
+                    setModalState(() => app = value.first),
               ),
               if (app == DirectionsApp.appleMaps)
                 const Padding(
@@ -1067,18 +1080,23 @@ class _PlanMapPageState extends State<PlanMapPage> {
       ),
     );
     if (open != true || !mounted) return;
-    final opened = await AppScope.read(context).directions.openMultiStopDirections(
-      places,
-      travelMode: mode,
-      preferred: app,
-      startAtFirstPlace: startAtFirst,
-    );
+    final opened = await AppScope.read(context).directions
+        .openMultiStopDirections(
+          places,
+          travelMode: mode,
+          preferred: app,
+          startAtFirstPlace: startAtFirst,
+        );
     if (!opened && mounted) showInfoSnackBar(context, '外部マップを開けませんでした');
   }
 }
 
 class _PlanOrderBar extends StatelessWidget {
-  const _PlanOrderBar({required this.stops, required this.placeById, required this.routesByStopId});
+  const _PlanOrderBar({
+    required this.stops,
+    required this.placeById,
+    required this.routesByStopId,
+  });
 
   final List<PlanStop> stops;
   final Map<String, Place> placeById;
@@ -1092,7 +1110,11 @@ class _PlanOrderBar extends StatelessWidget {
       color: Colors.white.withValues(alpha: .94),
       borderRadius: BorderRadius.circular(18),
       boxShadow: const [
-        BoxShadow(color: Color(0x22000000), blurRadius: 14, offset: Offset(0, 5)),
+        BoxShadow(
+          color: Color(0x22000000),
+          blurRadius: 14,
+          offset: Offset(0, 5),
+        ),
       ],
     ),
     child: ListView.separated(
@@ -1123,30 +1145,36 @@ class _PlanOrderBar extends StatelessWidget {
           child: SizedBox(
             width: 104,
             child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 15,
-                backgroundColor: mossDeep,
-                foregroundColor: Colors.white,
-                child: Text('${index + 1}'),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                place?.name ?? '削除された場所',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-              if (index < stops.length - 1)
-                Text(
-                  stops[index].transitTimeIsManual || route == null
-                      ? '${stops[index].transitToNext?.label ?? '移動'} ${stops[index].transitMinutes ?? '--'}分'
-                      : '${stops[index].transitToNext?.label ?? '移動'} 約${(route.durationSeconds / 60).ceil()}分',
-                  style: TextStyle(fontSize: 10, color: ink.withValues(alpha: .55)),
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 15,
+                  backgroundColor: mossDeep,
+                  foregroundColor: Colors.white,
+                  child: Text('${index + 1}'),
                 ),
-            ],
+                const SizedBox(height: 5),
+                Text(
+                  place?.name ?? '削除された場所',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (index < stops.length - 1)
+                  Text(
+                    stops[index].transitTimeIsManual || route == null
+                        ? '${stops[index].transitToNext?.label ?? '移動'} ${stops[index].transitMinutes ?? '--'}分'
+                        : '${stops[index].transitToNext?.label ?? '移動'} 約${(route.durationSeconds / 60).ceil()}分',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: ink.withValues(alpha: .55),
+                    ),
+                  ),
+              ],
             ),
           ),
         );
@@ -1162,141 +1190,150 @@ class _PlanOrderBar extends StatelessWidget {
     InAppRoute? route,
   ) async {
     var mode = stop.transitToNext ?? TransitMode.walk;
-    var minutes = stop.transitMinutes ??
+    var minutes =
+        stop.transitMinutes ??
         (route == null ? 15 : (route.durationSeconds / 60).ceil());
     final minutesController = TextEditingController(text: '$minutes');
     try {
       final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            4,
-            20,
-            MediaQuery.viewInsetsOf(context).bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '${place?.name ?? 'この場所'}から次の場所へ',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            route == null
-                ? '移動手段と予定所要時間を編集できます'
-                : '経路の目安 約${(route.durationSeconds / 60).ceil()}分・${(route.distanceMeters / 1000).toStringAsFixed(1)}km',
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<TransitMode>(
-            initialValue: mode,
-            decoration: const InputDecoration(
-              labelText: '移動手段',
-              prefixIcon: Icon(Icons.commute_rounded),
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (ctx) => StatefulBuilder(
+          builder: (context, setModalState) => Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              MediaQuery.viewInsetsOf(context).bottom + 24,
             ),
-            items: [
-              for (final value in TransitMode.values)
-                DropdownMenuItem(value: value, child: Text(value.label)),
-            ],
-            onChanged: (value) {
-              if (value != null) setModalState(() => mode = value);
-            },
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: minutesController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: '所要時間',
-                    suffixText: '分',
-                    prefixIcon: Icon(Icons.schedule_rounded),
-                  ),
-                  onChanged: (value) {
-                    final parsed = int.tryParse(value);
-                    if (parsed != null) {
-                      minutes = parsed.clamp(1, 1440).toInt();
-                    }
-                  },
-                ),
-              ),
-              if (route != null) ...[
-                const SizedBox(width: 10),
-                TextButton(
-                  onPressed: () => setModalState(() {
-                    minutes = (route.durationSeconds / 60).ceil();
-                    minutesController.text = '$minutes';
-                  }),
-                  child: const Text('経路時間を使う'),
-                ),
-              ],
-            ],
-          ),
-          if (route?.steps.isNotEmpty == true) ...[
-            const SizedBox(height: 14),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280),
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: route!.steps.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (_, index) {
-                  final step = route.steps[index];
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 13,
-                      child: Text('${index + 1}', style: const TextStyle(fontSize: 11)),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${place?.name ?? 'この場所'}から次の場所へ',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
                     ),
-                    title: Text(step.instruction),
-                    trailing: Text('${step.distanceMeters.round()}m'),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    route == null
+                        ? '移動手段と予定所要時間を編集できます'
+                        : '経路の目安 約${(route.durationSeconds / 60).ceil()}分・${(route.distanceMeters / 1000).toStringAsFixed(1)}km',
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<TransitMode>(
+                    initialValue: mode,
+                    decoration: const InputDecoration(
+                      labelText: '移動手段',
+                      prefixIcon: Icon(Icons.commute_rounded),
+                    ),
+                    items: [
+                      for (final value in TransitMode.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setModalState(() => mode = value);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: minutesController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '所要時間',
+                            suffixText: '分',
+                            prefixIcon: Icon(Icons.schedule_rounded),
+                          ),
+                          onChanged: (value) {
+                            final parsed = int.tryParse(value);
+                            if (parsed != null) {
+                              minutes = parsed.clamp(1, 1440).toInt();
+                            }
+                          },
+                        ),
+                      ),
+                      if (route != null) ...[
+                        const SizedBox(width: 10),
+                        TextButton(
+                          onPressed: () => setModalState(() {
+                            minutes = (route.durationSeconds / 60).ceil();
+                            minutesController.text = '$minutes';
+                          }),
+                          child: const Text('経路時間を使う'),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (route?.steps.isNotEmpty == true) ...[
+                    const SizedBox(height: 14),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: route!.steps.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final step = route.steps[index];
+                          return ListTile(
+                            dense: true,
+                            leading: CircleAvatar(
+                              radius: 13,
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                            title: Text(step.instruction),
+                            trailing: Text('${step.distanceMeters.round()}m'),
+                          );
+                        },
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 12),
+                    const Text('実経路を取得できない区間は、予定時間と概略線で表示します。'),
+                  ],
+                  if (place != null && nextPlace != null) ...[
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final opened = await AppScope.read(context).directions
+                            .openMultiStopDirections(
+                              [place, nextPlace],
+                              travelMode: _externalMode(mode),
+                              startAtFirstPlace: true,
+                            );
+                        if (!opened && context.mounted) {
+                          showInfoSnackBar(context, 'この区間を外部マップで開けませんでした');
+                        }
+                      },
+                      icon: const Icon(Icons.open_in_new_rounded),
+                      label: const Text('この区間を外部マップで開く'),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    icon: const Icon(Icons.save_rounded),
+                    label: const Text('移動内容を保存'),
+                  ),
+                ],
               ),
             ),
-          ] else ...[
-            const SizedBox(height: 12),
-            const Text('実経路を取得できない区間は、予定時間と概略線で表示します。'),
-          ],
-          if (place != null && nextPlace != null) ...[
-            const SizedBox(height: 14),
-            FilledButton.icon(
-              onPressed: () async {
-                final opened = await AppScope.read(context)
-                    .directions
-                    .openMultiStopDirections(
-                      [place, nextPlace],
-                      travelMode: _externalMode(mode),
-                      startAtFirstPlace: true,
-                    );
-                if (!opened && context.mounted) {
-                  showInfoSnackBar(context, 'この区間を外部マップで開けませんでした');
-                }
-              },
-              icon: const Icon(Icons.open_in_new_rounded),
-              label: const Text('この区間を外部マップで開く'),
-            ),
-          ],
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(ctx, true),
-            icon: const Icon(Icons.save_rounded),
-            label: const Text('移動内容を保存'),
-          ),
-        ],
-      ),
           ),
         ),
-      ),
       );
       if (saved == true && context.mounted) {
         await runGuardedAction(
@@ -1634,7 +1671,9 @@ class _DayTimeline extends StatelessWidget {
                                     reservationMinutes,
                                   );
                                   if (value != null) {
-                                    setModalState(() => reservationMinutes = value);
+                                    setModalState(
+                                      () => reservationMinutes = value,
+                                    );
                                   }
                                 },
                               ),
@@ -1665,7 +1704,9 @@ class _DayTimeline extends StatelessWidget {
                                     deadlineMinutes,
                                   );
                                   if (value != null) {
-                                    setModalState(() => deadlineMinutes = value);
+                                    setModalState(
+                                      () => deadlineMinutes = value,
+                                    );
                                   }
                                 },
                               ),
@@ -1673,9 +1714,8 @@ class _DayTimeline extends StatelessWidget {
                             if (deadlineMinutes != null)
                               IconButton(
                                 tooltip: '到着期限を解除',
-                                onPressed: () => setModalState(
-                                  () => deadlineMinutes = null,
-                                ),
+                                onPressed: () =>
+                                    setModalState(() => deadlineMinutes = null),
                                 icon: const Icon(Icons.close_rounded),
                               ),
                           ],
@@ -1724,10 +1764,7 @@ class _DayTimeline extends StatelessWidget {
     }
   }
 
-  static Future<int?> _pickMinutes(
-    BuildContext context,
-    int? initial,
-  ) async {
+  static Future<int?> _pickMinutes(BuildContext context, int? initial) async {
     final value = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(
@@ -1928,41 +1965,42 @@ class _StopBlock extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 28),
               child: Row(
-              children: [
-                Container(
-                  width: 2,
-                  height: 28,
-                  color: moss.withValues(alpha: 0.35),
-                ),
-                const SizedBox(width: 14),
-                Icon(
-                  _transitIcon(stop.transitToNext),
-                  size: 16,
-                  color: mossDeep.withValues(alpha: 0.75),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    [
-                      stop.transitToNext?.label ?? '移動',
-                      if (stop.transitMinutes != null) '${stop.transitMinutes}分',
-                      if (stop.transitBufferMinutes > 0)
-                        '余裕+${stop.transitBufferMinutes}分',
-                    ].join(' · '),
-                    style: TextStyle(
-                      color: mossDeep.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
+                children: [
+                  Container(
+                    width: 2,
+                    height: 28,
+                    color: moss.withValues(alpha: 0.35),
+                  ),
+                  const SizedBox(width: 14),
+                  Icon(
+                    _transitIcon(stop.transitToNext),
+                    size: 16,
+                    color: mossDeep.withValues(alpha: 0.75),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      [
+                        stop.transitToNext?.label ?? '移動',
+                        if (stop.transitMinutes != null)
+                          '${stop.transitMinutes}分',
+                        if (stop.transitBufferMinutes > 0)
+                          '余裕+${stop.transitBufferMinutes}分',
+                      ].join(' · '),
+                      style: TextStyle(
+                        color: mossDeep.withValues(alpha: 0.85),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                ),
-                Icon(
-                  Icons.edit_rounded,
-                  size: 16,
-                  color: mossDeep.withValues(alpha: 0.55),
-                ),
-              ],
-            ),
+                  Icon(
+                    Icons.edit_rounded,
+                    size: 16,
+                    color: mossDeep.withValues(alpha: 0.55),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -1979,7 +2017,9 @@ class _StopBlock extends StatelessWidget {
     final result = <String>[];
     if (stop.reservationTimeMinutes != null &&
         arrivalMinutes > stop.reservationTimeMinutes!) {
-      result.add('予約時刻に${arrivalMinutes - stop.reservationTimeMinutes!}分遅れる予定です');
+      result.add(
+        '予約時刻に${arrivalMinutes - stop.reservationTimeMinutes!}分遅れる予定です',
+      );
     }
     if (stop.arrivalDeadlineMinutes != null &&
         arrivalMinutes > stop.arrivalDeadlineMinutes!) {

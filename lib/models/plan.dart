@@ -155,8 +155,7 @@ class PlanStop {
       transitMinutes: clearTransitMinutes
           ? null
           : (transitMinutes ?? this.transitMinutes),
-      transitTimeIsManual:
-          transitTimeIsManual ?? this.transitTimeIsManual,
+      transitTimeIsManual: transitTimeIsManual ?? this.transitTimeIsManual,
       transitBufferMinutes: transitBufferMinutes ?? this.transitBufferMinutes,
       reservationTimeMinutes: clearReservationTime
           ? null

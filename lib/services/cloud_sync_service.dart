@@ -523,12 +523,9 @@ class CloudSyncService {
               transitMinutes: row['transit_minutes'] as int?,
               transitTimeIsManual:
                   row['transit_time_is_manual'] as bool? ?? false,
-              transitBufferMinutes:
-                  row['transit_buffer_minutes'] as int? ?? 0,
-              reservationTimeMinutes:
-                  row['reservation_time_minutes'] as int?,
-              arrivalDeadlineMinutes:
-                  row['arrival_deadline_minutes'] as int?,
+              transitBufferMinutes: row['transit_buffer_minutes'] as int? ?? 0,
+              reservationTimeMinutes: row['reservation_time_minutes'] as int?,
+              arrivalDeadlineMinutes: row['arrival_deadline_minutes'] as int?,
               note: row['note'] as String?,
               createdAt: DateTime.parse(row['created_at'] as String),
             ),

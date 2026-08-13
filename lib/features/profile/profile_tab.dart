@@ -52,11 +52,19 @@ class ProfileTab extends StatelessWidget {
                 child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      Icon(Icons.check_circle_rounded, color: moss),
-                      SizedBox(width: 8),
-                      Text('無料プラン', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-                    ]),
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle_rounded, color: moss),
+                        SizedBox(width: 8),
+                        Text(
+                          '無料プラン',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
                     SizedBox(height: 8),
                     Text('マップ・手動追加・場所検索・ピン保存・旅行プランは無料で使えます。AI取り込みは1日10回までです。'),
                   ],
