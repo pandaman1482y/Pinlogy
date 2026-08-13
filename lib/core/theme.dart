@@ -266,7 +266,8 @@ class PinlogyPillNav extends StatelessWidget {
             children: [
               _item(0, Icons.terrain_rounded, 'マップ'),
               _item(1, Icons.inbox_rounded, '受信箱', badge: inboxBadge),
-              _item(2, Icons.person_outline_rounded, 'マイページ'),
+              _item(2, Icons.route_rounded, 'プラン'),
+              _item(3, Icons.person_outline_rounded, 'マイページ'),
             ],
           ),
         ),

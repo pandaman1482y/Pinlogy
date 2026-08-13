@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/source_link_service.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/place_photo.dart';
 import '../extraction/extraction_screen.dart';
 
 class InboxTab extends StatefulWidget {
@@ -296,6 +297,7 @@ class _InboxTabState extends State<InboxTab> {
                         selected: _selectedPostIds.contains(post.id),
                         unread: controller.isInboxPostUnread(post.id),
                         icon: _iconFor(post.service),
+                        thumbnailPath: post.imagePaths.firstOrNull,
                         source: post.service ?? 'その他',
                         title: resolvedTitle,
                         memo: post.userMemo,
@@ -713,6 +715,7 @@ class _InboxFilterMenu extends StatelessWidget {
   const _InboxFilterMenu({
     required this.label,
     required this.icon,
+    this.thumbnailPath,
     required this.selected,
     required this.values,
     required this.onSelected,
@@ -720,6 +723,7 @@ class _InboxFilterMenu extends StatelessWidget {
 
   final String label;
   final IconData icon;
+  final String? thumbnailPath;
   final bool selected;
   final List<String> values;
   final ValueChanged<String?> onSelected;
@@ -827,14 +831,23 @@ class _InboxCard extends StatelessWidget {
               Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Container(
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
                       color: mint.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Icon(icon, color: mossDeep),
+                    child: thumbnailPath == null
+                        ? Icon(icon, color: mossDeep)
+                        : PlacePhoto(
+                            path: thumbnailPath!,
+                            fit: BoxFit.cover,
+                            fallback: Icon(icon, color: mossDeep),
+                          ),
+                    ),
                   ),
                   if (unread)
                     Positioned(

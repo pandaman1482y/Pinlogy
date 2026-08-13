@@ -25,11 +25,13 @@ Deno.serve(async (request) => {
 
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
-      text: JSON.stringify({
-        ...input,
-        image_data_urls: undefined,
-        shared_page: sharedPage,
-      }),
+      text: [
+        `投稿文:\n${String(input.text ?? "")}`,
+        `端末OCR:\n${String(input.ocr_text ?? "")}`,
+        `共有URL:\n${String(input.url ?? "")}`,
+        `URLから取得した投稿情報:\n${JSON.stringify(sharedPage ?? {})}`,
+        `端末候補:\n${JSON.stringify(input.local_candidates ?? [])}`,
+      ].join("\n\n"),
     }];
     for (const image of validImages(input.image_data_urls)) {
       content.push({ type: "input_image", image_url: image, detail: "high" });
@@ -45,7 +47,7 @@ Deno.serve(async (request) => {
         max_output_tokens: 2500,
         tools: [{ type: "web_search" }],
         instructions:
-          "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL、shared_pageから抽出してください。Web検索で実在性と正式住所を確認し、同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は地図でピン表示できるよう、店舗入口または建物中心の緯度latitudeと経度longitudeをWeb上の地図・公式情報で確認して数値で返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれかにし、genresは料理や施設の具体的な種類（例：ラーメン、カフェ、焼肉、神社）を最大3件返してください。住所や座標が不明・矛盾・推測の場合はneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にします。保存理由は投稿中の表現だけから42文字以内で要約してください。",
+          "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれか、genresは具体的な種類を最大3件とします。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。",
         input: [{ role: "user", content }],
         text: { verbosity: "low", format: placeSchema },
       }),

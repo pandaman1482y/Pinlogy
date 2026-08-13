@@ -178,11 +178,12 @@ final class ShareViewController: UIViewController {
       let item = try await provider.loadItem(forTypeIdentifier: UTType.image.identifier)
       let data: Data?
       if let url = item as? URL {
-        data = try Data(contentsOf: url)
+        let original = try Data(contentsOf: url)
+        data = UIImage(data: original).flatMap(encodedAnalysisImage) ?? original
       } else if let image = item as? UIImage {
-        data = image.jpegData(compressionQuality: 0.9)
+        data = encodedAnalysisImage(image)
       } else if let raw = item as? Data {
-        data = raw
+        data = UIImage(data: raw).flatMap(encodedAnalysisImage) ?? raw
       } else {
         data = nil
       }
@@ -191,6 +192,29 @@ final class ShareViewController: UIViewController {
     } catch {
       return nil
     }
+  }
+
+  /// AI画像解析から大きな投稿画像が黙って除外されないサイズにする。
+  private func encodedAnalysisImage(_ image: UIImage) -> Data? {
+    let maxDimension: CGFloat = 1600
+    let longest = max(image.size.width, image.size.height)
+    let scale = longest > maxDimension ? maxDimension / longest : 1
+    let size = CGSize(
+      width: max(1, floor(image.size.width * scale)),
+      height: max(1, floor(image.size.height * scale))
+    )
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let resized = renderer.image { _ in
+      image.draw(in: CGRect(origin: .zero, size: size))
+    }
+    for quality in [0.82, 0.68, 0.54, 0.42] {
+      if let data = resized.jpegData(compressionQuality: quality),
+         data.count <= 2 * 1024 * 1024
+      {
+        return data
+      }
+    }
+    return resized.jpegData(compressionQuality: 0.32)
   }
 
   private func saveFile(provider: NSItemProvider, typeId: String, ext: String) async -> String? {

@@ -8,6 +8,7 @@ import '../core/theme.dart';
 import '../features/inbox/inbox_tab.dart';
 import '../features/maps/maps_tab.dart';
 import '../features/onboarding/onboarding_sheet.dart';
+import '../features/plans/plans_tab.dart';
 import '../features/profile/profile_tab.dart';
 import '../features/settings/cloud_sync_page.dart';
 import '../models/models.dart';
@@ -377,7 +378,12 @@ class _HomeScreenState extends State<HomeScreen> {
           bottom: false,
           child: IndexedStack(
             index: index,
-            children: const [MapsTab(), InboxTab(), ProfileTab()],
+            children: const [
+              MapsTab(),
+              InboxTab(),
+              PlansTab(),
+              ProfileTab(),
+            ],
           ),
         ),
         bottomNavigationBar: PinlogyPillNav(
