@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/geocoding_privacy_consent.dart';
 import '../../services/location_services.dart';
+import '../../widgets/post_category_editor.dart';
 import '../../widgets/sheet_layout.dart';
 import '../maps/maps_tab.dart';
 
@@ -84,6 +85,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
   final resolved = <String, ExtractionCandidate>{};
   String? mapId;
   bool submitting = false;
+  bool retrying = false;
 
   @override
   void didChangeDependencies() {
@@ -105,6 +107,9 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
+    final post = controller.hub.snapshot.sourcePosts
+        .where((item) => item.id == widget.sourcePostId)
+        .firstOrNull;
     final candidates = controller.candidatesForPost(widget.sourcePostId);
     final maps = controller.hub.snapshot.maps;
     final analysisSource = _analysisSource(controller);
@@ -168,6 +173,66 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
           ),
           const SizedBox(height: 10),
           _AnalysisSourceBanner(source: analysisSource),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .62),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'カテゴリ',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: post == null
+                          ? null
+                          : () => _editCategories(context, post),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('編集'),
+                    ),
+                  ],
+                ),
+                if (controller
+                    .categoriesForPost(widget.sourcePostId)
+                    .isNotEmpty)
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 6,
+                    children: [
+                      for (final category
+                          in controller.categoriesForPost(widget.sourcePostId))
+                        Chip(label: Text(category)),
+                    ],
+                  )
+                else
+                  const Text('まだ設定されていません'),
+              ],
+            ),
+          ),
+          if (controller.isRetryableAnalysis(widget.sourcePostId)) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: retrying ? null : () => _retryAnalysis(context),
+                icon: retrying
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded),
+                label: Text(retrying ? '再解析中…' : '再度解析する'),
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           const Text(
             '追加する場所',
@@ -312,6 +377,48 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _retryAnalysis(BuildContext context) async {
+    final controller = AppScope.read(context);
+    final job = controller.jobForPost(widget.sourcePostId);
+    if (job == null) return;
+    setState(() => retrying = true);
+    await controller.analysis.retry(job.id);
+    await controller.analysisRunner.runJob(job.id);
+    if (!mounted) return;
+    setState(() {
+      retrying = false;
+      selected.clear();
+      reviewed.clear();
+      resolved.clear();
+    });
+    final failedAgain = controller.isRetryableAnalysis(widget.sourcePostId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failedAgain ? '解析を完了できませんでした。通信状態を確認してください' : '再解析が完了しました',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editCategories(
+    BuildContext context,
+    SourcePost post,
+  ) async {
+    final result = await showPostCategoryEditor(
+      context,
+      initialCategories: AppScope.read(context).categoriesForPost(post.id),
+    );
+    if (result == null || !mounted) return;
+    await AppScope.read(context).sourcePosts.update(
+      post.copyWith(
+        userCategories: result,
+        userCategoriesSet: true,
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   Future<void> _submit(BuildContext context) async {

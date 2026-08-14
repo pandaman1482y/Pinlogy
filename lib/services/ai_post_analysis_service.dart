@@ -87,10 +87,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
-      final previewImagePath = await _savePreviewImage(
+      var previewImagePath = await _savePreviewImage(
         request.sourcePostId,
         decoded,
       );
+      previewImagePath ??= await fetchTikTokPhotoPreview(request);
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
         'preview_image_path': previewImagePath,
@@ -105,7 +106,56 @@ class AiPostAnalysisService implements PostAnalysisService {
     } on SocketException {
       return _asFallback(local, analysisSource: 'network_fallback');
     } catch (_) {
-      return _asFallback(local, analysisSource: 'invalid_response_fallback');
+      return _fallbackWithPreview(
+        local,
+        request,
+        'invalid_response_fallback',
+      );
+    }
+  }
+
+  Future<PostAnalysisResponse> _fallbackWithPreview(
+    PostAnalysisResponse local,
+    PostAnalysisRequest request,
+    String analysisSource,
+  ) async {
+    final preview = await fetchTikTokPhotoPreview(request);
+    return _asFallback(
+      local,
+      analysisSource: analysisSource,
+      previewImagePath: preview,
+    );
+  }
+
+  Future<String?> fetchTikTokPhotoPreview(
+    PostAnalysisRequest request,
+  ) async {
+    if (!(request.url?.contains('/photo/') ?? false)) return null;
+    try {
+      final uri = Uri.parse(
+        '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
+      );
+      final response = await _client
+          .post(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $_key',
+              'apikey': _key,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'source_post_id': request.sourcePostId,
+              'url': request.url,
+              'preview_only': true,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return null;
+      return _savePreviewImage(request.sourcePostId, decoded);
+    } catch (_) {
+      return null;
     }
   }
 

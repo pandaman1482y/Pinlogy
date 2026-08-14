@@ -4,8 +4,10 @@ import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/source_link_service.dart';
+import '../../services/post_category_service.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/place_photo.dart';
+import '../../widgets/post_category_editor.dart';
 import '../extraction/extraction_screen.dart';
 
 class InboxTab extends StatefulWidget {
@@ -52,6 +54,7 @@ class _InboxTabState extends State<InboxTab> {
         post.title ?? '',
         post.body ?? '',
         post.userMemo ?? '',
+        ...post.userCategories,
         post.url ?? '',
         post.service ?? '',
         for (final candidate in candidates) ...[
@@ -78,16 +81,7 @@ class _InboxTabState extends State<InboxTab> {
       postAreas[post.id] = detectedAreas;
       areas.addAll(detectedAreas);
 
-      final detectedCategories = <String>{
-        for (final candidate in candidates) ...[
-          if ((candidate.category ?? '').trim().isNotEmpty)
-            candidate.category!.trim(),
-          ...candidate.genres,
-        ],
-        for (final place in linkedPlaces)
-          if ((place.category ?? '').trim().isNotEmpty) place.category!.trim(),
-        ..._categoriesFrom(combined),
-      };
+      final detectedCategories = controller.categoriesForPost(post.id).toSet();
       postCategories[post.id] = detectedCategories;
       categories.addAll(detectedCategories);
 
@@ -145,6 +139,8 @@ class _InboxTabState extends State<InboxTab> {
       }
       return true;
     }).toList();
+    final areaOptions = areas.toList()..sort();
+    final categoryOptions = categories.toList()..sort();
 
     return Column(
       children: [
@@ -233,7 +229,7 @@ class _InboxTabState extends State<InboxTab> {
                   label: _selectedArea ?? '場所',
                   icon: Icons.location_on_outlined,
                   selected: _selectedArea != null,
-                  values: areas.toList()..sort(),
+                  values: areaOptions,
                   onSelected: (value) => setState(() => _selectedArea = value),
                 ),
                 const SizedBox(width: 8),
@@ -241,7 +237,7 @@ class _InboxTabState extends State<InboxTab> {
                   label: _selectedCategory ?? 'カテゴリ',
                   icon: Icons.category_outlined,
                   selected: _selectedCategory != null,
-                  values: categories.toList()..sort(),
+                  values: categoryOptions,
                   onSelected: (value) =>
                       setState(() => _selectedCategory = value),
                 ),
@@ -269,6 +265,7 @@ class _InboxTabState extends State<InboxTab> {
                   itemBuilder: (context, i) {
                     final post = posts[i];
                     final job = controller.jobForPost(post.id);
+                    final retryable = controller.isRetryableAnalysis(post.id);
                     final candidates = controller.candidatesForPost(post.id);
                     final namedCandidate = candidates
                         .where(controller.isIdentifiedPlaceCandidate)
@@ -301,6 +298,10 @@ class _InboxTabState extends State<InboxTab> {
                         source: post.service ?? 'その他',
                         title: resolvedTitle,
                         memo: post.userMemo,
+                        categories:
+                            (postCategories[post.id] ?? const <String>{})
+                                .toList()
+                              ..sort(),
                         status: savedPostIds.contains(post.id)
                             ? '保存済み'
                             : duplicatePostIds.contains(post.id)
@@ -315,13 +316,17 @@ class _InboxTabState extends State<InboxTab> {
                             ? _onTap(context, post, job)
                             : _toggleSelected(post.id),
                         onLongPress: () => _toggleSelected(post.id),
-                        actionLabel: job?.status == AnalysisJobStatus.completed
+                        actionLabel: retryable
+                            ? '再度解析する'
+                            : job?.status == AnalysisJobStatus.completed
                             ? '候補を見る'
                             : job?.status == AnalysisJobStatus.processing ||
                                   job?.status == AnalysisJobStatus.pending
                             ? '場所を解析中…'
                             : '詳細を見る',
-                        onAction: job?.status == AnalysisJobStatus.completed
+                        onAction: retryable
+                            ? () => _retryAnalysis(context, job)
+                            : job?.status == AnalysisJobStatus.completed
                             ? () => _onTap(context, post, job)
                             : null,
                         onMore: () => _showActions(
@@ -330,6 +335,12 @@ class _InboxTabState extends State<InboxTab> {
                           job,
                           archived: controller.isInboxPostArchived(post.id),
                         ),
+                        onFetchImage:
+                            post.url != null &&
+                                (post.service == 'TikTok' ||
+                                    post.service == 'YouTube')
+                            ? () => _fetchPostImage(context, post)
+                            : null,
                       ),
                     );
                   },
@@ -342,26 +353,6 @@ class _InboxTabState extends State<InboxTab> {
   Set<String> _areasFrom(String text) {
     final matches = RegExp(r'(北海道|東京都|京都府|大阪府|[一-龥]{2,3}県)').allMatches(text);
     return matches.map((match) => match.group(1)!).toSet();
-  }
-
-  Set<String> _categoriesFrom(String text) {
-    const keywords = <String, List<String>>{
-      'カフェ': ['カフェ', '喫茶', 'coffee'],
-      'ラーメン': ['ラーメン', 'つけ麺'],
-      '焼肉': ['焼肉', 'ホルモン'],
-      '寿司': ['寿司', '鮎', '海鮮'],
-      'スイーツ': ['スイーツ', 'ケーキ', 'パフェ', 'ベーカリー'],
-      '居酒屋': ['居酒屋', 'バル', '酒場'],
-      'グルメ': ['レストラン', 'ランチ', 'ディナー', 'ごはん'],
-      '観光': ['観光', '神社', '寺', '美術館', '公園'],
-      '宿泊': ['ホテル', '旅館', '宿泊'],
-      'ショッピング': ['ショップ', '雑貨', '買い物'],
-    };
-    final lower = text.toLowerCase();
-    return {
-      for (final entry in keywords.entries)
-        if (entry.value.any(lower.contains)) entry.key,
-    };
   }
 
   void _toggleSelected(String postId) {
@@ -500,7 +491,8 @@ class _InboxTabState extends State<InboxTab> {
     AnalysisJob? job, {
     required bool archived,
   }) async {
-    await AppScope.read(context).markInboxPostSeen(post.id);
+    final controller = AppScope.read(context);
+    await controller.markInboxPostSeen(post.id);
     if (!context.mounted) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
     await showModalBottomSheet<void>(
@@ -531,6 +523,34 @@ class _InboxTabState extends State<InboxTab> {
                     ),
                   ),
                 ),
+                if (controller.categoriesForPost(post.id).isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Wrap(
+                      spacing: 7,
+                      runSpacing: 6,
+                      children: [
+                        for (final category
+                            in controller.categoriesForPost(post.id))
+                          Chip(label: Text(category)),
+                      ],
+                    ),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.category_outlined),
+                  title: const Text('カテゴリを編集'),
+                  subtitle: Text(
+                    controller.categoriesForPost(post.id).isEmpty
+                        ? 'カテゴリはまだ設定されていません'
+                        : controller.categoriesForPost(post.id).join('・'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _editCategories(context, post);
+                  },
+                ),
                 if (post.url != null)
                   ListTile(
                     leading: Icon(_iconFor(post.service)),
@@ -560,7 +580,8 @@ class _InboxTabState extends State<InboxTab> {
                       );
                     },
                   ),
-                if (job?.status == AnalysisJobStatus.failed ||
+                if (controller.isRetryableAnalysis(post.id) ||
+                    job?.status == AnalysisJobStatus.failed ||
                     job?.status == AnalysisJobStatus.cancelled ||
                     job?.status == AnalysisJobStatus.pending)
                   ListTile(
@@ -575,11 +596,7 @@ class _InboxTabState extends State<InboxTab> {
                         : null,
                     onTap: () async {
                       Navigator.pop(ctx);
-                      final controller = AppScope.read(context);
-                      if (job != null) {
-                        await controller.analysis.retry(job.id);
-                        await controller.analysisRunner.runJob(job.id);
-                      }
+                      await _retryAnalysis(context, job);
                     },
                   ),
                 ListTile(
@@ -683,10 +700,17 @@ class _InboxTabState extends State<InboxTab> {
       );
       if (body == null || !context.mounted) return;
       final controller = AppScope.read(context);
+      final categories = <String>{
+        ...controller.categoriesForPost(post.id),
+        ...suggestPostCategories(body),
+      }.toList()
+        ..sort();
       await controller.sourcePosts.update(
         post.copyWith(
           userMemo: body,
           clearUserMemo: body.isEmpty,
+          userCategories: categories,
+          userCategoriesSet: post.userCategoriesSet || categories.isNotEmpty,
           updatedAt: DateTime.now(),
         ),
       );
@@ -697,6 +721,59 @@ class _InboxTabState extends State<InboxTab> {
     } finally {
       textController.dispose();
     }
+  }
+
+  Future<void> _retryAnalysis(
+    BuildContext context,
+    AnalysisJob? job,
+  ) async {
+    if (job == null) return;
+    final controller = AppScope.read(context);
+    await controller.analysis.retry(job.id);
+    await controller.analysisRunner.runJob(job.id);
+    if (!context.mounted) return;
+    final retryable = controller.isRetryableAnalysis(job.sourcePostId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          retryable ? '解析を完了できませんでした。通信状態を確認してください' : '再解析が完了しました',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editCategories(
+    BuildContext context,
+    SourcePost post,
+  ) async {
+    final result = await showPostCategoryEditor(
+      context,
+      initialCategories: AppScope.read(context).categoriesForPost(post.id),
+    );
+    if (result == null || !context.mounted) return;
+    await AppScope.read(context).sourcePosts.update(
+      post.copyWith(
+        userCategories: result,
+        userCategoriesSet: true,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _fetchPostImage(
+    BuildContext context,
+    SourcePost post,
+  ) async {
+    final controller = AppScope.read(context);
+    final succeeded = await controller.refreshPostImage(post);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          succeeded ? '投稿画像を取得しました' : '投稿画像を取得できませんでした。もう一度お試しください',
+        ),
+      ),
+    );
   }
 }
 
@@ -724,17 +801,16 @@ class _InboxFilterMenu extends StatelessWidget {
   final IconData icon;
   final bool selected;
   final List<String> values;
-  final ValueChanged<String?> onSelected;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String?>(
+    return PopupMenuButton<String>(
       enabled: values.isNotEmpty,
       onSelected: onSelected,
       itemBuilder: (context) => [
-        const PopupMenuItem<String?>(value: null, child: Text('指定なし')),
         for (final value in values)
-          PopupMenuItem<String?>(value: value, child: Text(value)),
+          PopupMenuItem<String>(value: value, child: Text(value)),
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
@@ -776,7 +852,9 @@ class _InboxCard extends StatelessWidget {
     this.thumbnailPath,
     required this.source,
     required this.title,
+    this.thumbnailPath,
     this.memo,
+    this.categories = const [],
     required this.status,
     required this.statusColor,
     this.onTap,
@@ -784,6 +862,7 @@ class _InboxCard extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.onMore,
+    this.onFetchImage,
   });
 
   final bool selected;
@@ -792,7 +871,9 @@ class _InboxCard extends StatelessWidget {
   final String? thumbnailPath;
   final String source;
   final String title;
+  final String? thumbnailPath;
   final String? memo;
+  final List<String> categories;
   final String status;
   final Color statusColor;
   final VoidCallback? onTap;
@@ -800,6 +881,7 @@ class _InboxCard extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
   final VoidCallback? onMore;
+  final VoidCallback? onFetchImage;
 
   @override
   Widget build(BuildContext context) {
@@ -897,6 +979,46 @@ class _InboxCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF596A61),
+                        ),
+                      ),
+                    ],
+                    if (categories.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          for (final category in categories.take(3))
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: mintSoft,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                category,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    if (onFetchImage != null) ...[
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: onFetchImage,
+                          icon: const Icon(Icons.image_search_rounded, size: 18),
+                          label: Text(
+                            thumbnailPath == null ? '投稿画像を取得' : '投稿画像を再取得',
+                          ),
                         ),
                       ),
                     ],

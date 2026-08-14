@@ -9,11 +9,14 @@ class SourcePost {
     this.title,
     this.body,
     this.userMemo,
+    List<String>? userCategories,
+    this.userCategoriesSet = false,
     List<String>? imagePaths,
     DateTime? receivedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = id ?? newId(),
+       userCategories = userCategories ?? const [],
        imagePaths = imagePaths ?? const [],
        receivedAt = receivedAt ?? DateTime.now(),
        createdAt = createdAt ?? DateTime.now(),
@@ -25,6 +28,8 @@ class SourcePost {
   String? title;
   String? body;
   String? userMemo;
+  List<String> userCategories;
+  bool userCategoriesSet;
   List<String> imagePaths;
   DateTime receivedAt;
   DateTime createdAt;
@@ -37,6 +42,8 @@ class SourcePost {
     String? body,
     String? userMemo,
     bool clearUserMemo = false,
+    List<String>? userCategories,
+    bool? userCategoriesSet,
     List<String>? imagePaths,
     DateTime? updatedAt,
   }) {
@@ -47,6 +54,8 @@ class SourcePost {
       title: title ?? this.title,
       body: body ?? this.body,
       userMemo: clearUserMemo ? null : userMemo ?? this.userMemo,
+      userCategories: userCategories ?? this.userCategories,
+      userCategoriesSet: userCategoriesSet ?? this.userCategoriesSet,
       imagePaths: imagePaths ?? this.imagePaths,
       receivedAt: receivedAt,
       createdAt: createdAt,
@@ -61,6 +70,8 @@ class SourcePost {
     'title': title,
     'body': body,
     'userMemo': userMemo,
+    'userCategories': userCategories,
+    'userCategoriesSet': userCategoriesSet,
     'imagePaths': imagePaths,
     'receivedAt': receivedAt.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
@@ -74,6 +85,10 @@ class SourcePost {
     title: json['title'] as String?,
     body: json['body'] as String?,
     userMemo: json['userMemo'] as String?,
+    userCategories: ((json['userCategories'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList(),
+    userCategoriesSet: json['userCategoriesSet'] as bool? ?? false,
     imagePaths: ((json['imagePaths'] as List?) ?? const [])
         .map((e) => e as String)
         .toList(),

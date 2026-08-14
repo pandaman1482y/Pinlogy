@@ -108,6 +108,8 @@ void main() {
         title: '喫茶ソワレ',
         body: 'TikTokから共有された投稿文',
         userMemo: '京都の青いゼリーのお店',
+        userCategories: const ['カフェ', 'スイーツ'],
+        userCategoriesSet: true,
       ),
     );
     final restored = AppSnapshot.fromJson(hub.snapshot.toJson());
@@ -117,6 +119,8 @@ void main() {
 
     expect(saved.body, 'TikTokから共有された投稿文');
     expect(saved.userMemo, '京都の青いゼリーのお店');
+    expect(saved.userCategories, ['カフェ', 'スイーツ']);
+    expect(saved.userCategoriesSet, isTrue);
   });
 
   test('削除したマップはクラウド削除キューへ残る', () async {

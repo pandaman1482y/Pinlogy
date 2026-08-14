@@ -107,6 +107,23 @@ class LocalRepositoryHub {
       }
     }
 
+    for (final remote in sourcePosts) {
+      SourcePost? local;
+      for (final candidate in _snapshot.sourcePosts) {
+        if (candidate.id == remote.id) {
+          local = candidate;
+          break;
+        }
+      }
+      if (local != null) {
+        remote.body = local.body;
+        remote.userMemo = local.userMemo;
+        remote.userCategories = local.userCategories;
+        remote.userCategoriesSet = local.userCategoriesSet;
+        remote.imagePaths = local.imagePaths;
+      }
+    }
+
     _snapshot = AppSnapshot(
       maps: mergeLatest(
         _snapshot.maps,

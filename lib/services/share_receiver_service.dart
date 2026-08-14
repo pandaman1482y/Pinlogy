@@ -287,6 +287,18 @@ class LocalShareReceiverService implements ShareReceiverService {
           ),
         );
       }
+      if (!post.userCategoriesSet) {
+        final categories = _analysisCategories(result);
+        if (categories.isNotEmpty) {
+          post = await sourcePosts.update(
+            post.copyWith(
+              userCategories: categories,
+              userCategoriesSet: true,
+              updatedAt: DateTime.now(),
+            ),
+          );
+        }
+      }
       await analysis.update(
         job.copyWith(
           status: AnalysisJobStatus.completed,
@@ -333,8 +345,9 @@ class AnalysisRunner {
       orElse: () => null,
     );
     if (job == null) return;
-    final post = await hub.sourcePosts.getById(job.sourcePostId);
-    if (post == null) return;
+    final storedPost = await hub.sourcePosts.getById(job.sourcePostId);
+    if (storedPost == null) return;
+    var post = storedPost;
 
     await hub.analysis.update(
       job.copyWith(status: AnalysisJobStatus.processing, errorMessage: null),
@@ -350,12 +363,24 @@ class AnalysisRunner {
       );
       if (result.previewImagePath != null &&
           (post.imagePaths.isEmpty || post.url?.contains('/photo/') == true)) {
-        await hub.sourcePosts.update(
+        post = await hub.sourcePosts.update(
           post.copyWith(
             imagePaths: [result.previewImagePath!],
             updatedAt: DateTime.now(),
           ),
         );
+      }
+      if (!post.userCategoriesSet) {
+        final categories = _analysisCategories(result);
+        if (categories.isNotEmpty) {
+          post = await hub.sourcePosts.update(
+            post.copyWith(
+              userCategories: categories,
+              userCategoriesSet: true,
+              updatedAt: DateTime.now(),
+            ),
+          );
+        }
       }
       await hub.analysis.update(
         job.copyWith(
@@ -376,6 +401,22 @@ class AnalysisRunner {
       );
     }
   }
+}
+
+List<String> _analysisCategories(PostAnalysisResponse result) {
+  final values = <String>{};
+  for (final candidate in result.candidates) {
+    final category = candidate.category?.trim();
+    if (category != null && category.isNotEmpty && category != 'その他') {
+      values.add(category);
+    }
+    values.addAll(
+      candidate.genres
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty && value != 'その他'),
+    );
+  }
+  return values.toList()..sort();
 }
 
 String? _analysisText(SourcePost post) {

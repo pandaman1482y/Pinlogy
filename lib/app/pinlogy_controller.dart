@@ -18,6 +18,7 @@ import '../services/free_place_search_service.dart';
 import '../services/in_app_route_service.dart';
 import '../services/local_post_analysis_service.dart';
 import '../services/location_services.dart';
+import '../services/post_category_service.dart';
 import '../services/share_receiver_service.dart';
 import '../services/source_link_service.dart';
 
@@ -177,8 +178,19 @@ class PinlogyController extends ChangeNotifier {
     }
     final trimmedMemo = memo?.trim() ?? '';
     if (trimmedMemo.isNotEmpty) {
+      final categories = <String>{
+        ...categoriesForPost(post.id),
+        ...suggestPostCategories(trimmedMemo),
+      }.toList()
+        ..sort();
       await sourcePosts.update(
-        currentPost.copyWith(userMemo: trimmedMemo, updatedAt: DateTime.now()),
+        currentPost.copyWith(
+          userMemo: trimmedMemo,
+          userCategories: categories,
+          userCategoriesSet:
+              currentPost.userCategoriesSet || categories.isNotEmpty,
+          updatedAt: DateTime.now(),
+        ),
       );
     }
     final job = await analysis.getBySourcePostId(post.id);
@@ -342,6 +354,73 @@ class PinlogyController extends ChangeNotifier {
       return job.errorMessage ?? '解析に失敗';
     }
     return job.status.label;
+  }
+
+  String? analysisSourceForPost(String sourcePostId) {
+    final raw = jobForPost(sourcePostId)?.resultJson;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw) as Map<String, dynamic>;
+      return value['analysis_source']?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool isRetryableAnalysis(String sourcePostId) {
+    return const {
+      'auth_fallback',
+      'function_missing_fallback',
+      'server_fallback',
+      'invalid_response_fallback',
+      'timeout_fallback',
+      'network_fallback',
+      'local_fallback',
+    }.contains(analysisSourceForPost(sourcePostId));
+  }
+
+  List<String> categoriesForPost(String sourcePostId) {
+    final post = hub.snapshot.sourcePosts
+        .where((item) => item.id == sourcePostId)
+        .firstOrNull;
+    if (post?.userCategoriesSet == true) {
+      return post!.userCategories.toList()..sort();
+    }
+    final values = <String>{};
+    for (final candidate in candidatesForPost(sourcePostId)) {
+      final category = candidate.category?.trim();
+      if (category != null && category.isNotEmpty && category != 'その他') {
+        values.add(category);
+      }
+      values.addAll(
+        candidate.genres
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty && value != 'その他'),
+      );
+    }
+    return values.toList()..sort();
+  }
+
+  Future<bool> refreshPostImage(SourcePost post) async {
+    try {
+      if ((post.url?.contains('/photo/') ?? false) &&
+          analysisService is AiPostAnalysisService) {
+        final path = await (analysisService as AiPostAnalysisService)
+            .fetchTikTokPhotoPreview(
+              PostAnalysisRequest(sourcePostId: post.id, url: post.url),
+            );
+        if (path != null) {
+          await sourcePosts.update(
+            post.copyWith(imagePaths: [path], updatedAt: DateTime.now()),
+          );
+          return true;
+        }
+      }
+      await shareReceiver.refreshOfficialPreview(post, force: true);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   bool isIdentifiedPlaceCandidate(ExtractionCandidate candidate) {
