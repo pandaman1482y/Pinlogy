@@ -106,11 +106,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     } on SocketException {
       return _asFallback(local, analysisSource: 'network_fallback');
     } catch (_) {
-      return _fallbackWithPreview(
-        local,
-        request,
-        'invalid_response_fallback',
-      );
+      return _fallbackWithPreview(local, request, 'invalid_response_fallback');
     }
   }
 
@@ -127,9 +123,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     );
   }
 
-  Future<String?> fetchTikTokPhotoPreview(
-    PostAnalysisRequest request,
-  ) async {
+  Future<String?> fetchTikTokPhotoPreview(PostAnalysisRequest request) async {
     if (!(request.url?.contains('/photo/') ?? false)) return null;
     try {
       final uri = Uri.parse(
@@ -201,6 +195,7 @@ class AiPostAnalysisService implements PostAnalysisService {
   PostAnalysisResponse _asFallback(
     PostAnalysisResponse local, {
     String analysisSource = 'local_fallback',
+    String? previewImagePath,
   }) {
     return PostAnalysisResponse(
       sourcePostId: local.sourcePostId,
@@ -208,6 +203,7 @@ class AiPostAnalysisService implements PostAnalysisService {
       rawSummary: local.rawSummary,
       evidenceText: local.evidenceText,
       analysisSource: analysisSource,
+      previewImagePath: previewImagePath ?? local.previewImagePath,
     );
   }
 

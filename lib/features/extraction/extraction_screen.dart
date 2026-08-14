@@ -207,8 +207,9 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                     spacing: 7,
                     runSpacing: 6,
                     children: [
-                      for (final category
-                          in controller.categoriesForPost(widget.sourcePostId))
+                      for (final category in controller.categoriesForPost(
+                        widget.sourcePostId,
+                      ))
                         Chip(label: Text(category)),
                     ],
                   )
@@ -403,10 +404,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     );
   }
 
-  Future<void> _editCategories(
-    BuildContext context,
-    SourcePost post,
-  ) async {
+  Future<void> _editCategories(BuildContext context, SourcePost post) async {
     final result = await showPostCategoryEditor(
       context,
       initialCategories: AppScope.read(context).categoriesForPost(post.id),

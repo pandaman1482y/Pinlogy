@@ -181,8 +181,7 @@ class PinlogyController extends ChangeNotifier {
       final categories = <String>{
         ...categoriesForPost(post.id),
         ...suggestPostCategories(trimmedMemo),
-      }.toList()
-        ..sort();
+      }.toList()..sort();
       await sourcePosts.update(
         currentPost.copyWith(
           userMemo: trimmedMemo,

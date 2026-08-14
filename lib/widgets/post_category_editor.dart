@@ -25,10 +25,11 @@ Future<List<String>?> showPostCategoryEditor(
             });
           }
 
-          final custom = selected
-              .where((value) => !standardPostCategories.contains(value))
-              .toList()
-            ..sort();
+          final custom =
+              selected
+                  .where((value) => !standardPostCategories.contains(value))
+                  .toList()
+                ..sort();
           return AlertDialog(
             scrollable: true,
             title: const Text('カテゴリを編集'),

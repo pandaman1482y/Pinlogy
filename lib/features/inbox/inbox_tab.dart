@@ -530,8 +530,9 @@ class _InboxTabState extends State<InboxTab> {
                       spacing: 7,
                       runSpacing: 6,
                       children: [
-                        for (final category
-                            in controller.categoriesForPost(post.id))
+                        for (final category in controller.categoriesForPost(
+                          post.id,
+                        ))
                           Chip(label: Text(category)),
                       ],
                     ),
@@ -703,8 +704,7 @@ class _InboxTabState extends State<InboxTab> {
       final categories = <String>{
         ...controller.categoriesForPost(post.id),
         ...suggestPostCategories(body),
-      }.toList()
-        ..sort();
+      }.toList()..sort();
       await controller.sourcePosts.update(
         post.copyWith(
           userMemo: body,
@@ -723,10 +723,7 @@ class _InboxTabState extends State<InboxTab> {
     }
   }
 
-  Future<void> _retryAnalysis(
-    BuildContext context,
-    AnalysisJob? job,
-  ) async {
+  Future<void> _retryAnalysis(BuildContext context, AnalysisJob? job) async {
     if (job == null) return;
     final controller = AppScope.read(context);
     await controller.analysis.retry(job.id);
@@ -735,17 +732,12 @@ class _InboxTabState extends State<InboxTab> {
     final retryable = controller.isRetryableAnalysis(job.sourcePostId);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          retryable ? '解析を完了できませんでした。通信状態を確認してください' : '再解析が完了しました',
-        ),
+        content: Text(retryable ? '解析を完了できませんでした。通信状態を確認してください' : '再解析が完了しました'),
       ),
     );
   }
 
-  Future<void> _editCategories(
-    BuildContext context,
-    SourcePost post,
-  ) async {
+  Future<void> _editCategories(BuildContext context, SourcePost post) async {
     final result = await showPostCategoryEditor(
       context,
       initialCategories: AppScope.read(context).categoriesForPost(post.id),
@@ -760,10 +752,7 @@ class _InboxTabState extends State<InboxTab> {
     );
   }
 
-  Future<void> _fetchPostImage(
-    BuildContext context,
-    SourcePost post,
-  ) async {
+  Future<void> _fetchPostImage(BuildContext context, SourcePost post) async {
     final controller = AppScope.read(context);
     final succeeded = await controller.refreshPostImage(post);
     if (!context.mounted) return;
@@ -852,7 +841,6 @@ class _InboxCard extends StatelessWidget {
     this.thumbnailPath,
     required this.source,
     required this.title,
-    this.thumbnailPath,
     this.memo,
     this.categories = const [],
     required this.status,
@@ -871,7 +859,6 @@ class _InboxCard extends StatelessWidget {
   final String? thumbnailPath;
   final String source;
   final String title;
-  final String? thumbnailPath;
   final String? memo;
   final List<String> categories;
   final String status;
@@ -1015,7 +1002,10 @@ class _InboxCard extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
                           onPressed: onFetchImage,
-                          icon: const Icon(Icons.image_search_rounded, size: 18),
+                          icon: const Icon(
+                            Icons.image_search_rounded,
+                            size: 18,
+                          ),
                           label: Text(
                             thumbnailPath == null ? '投稿画像を取得' : '投稿画像を再取得',
                           ),
