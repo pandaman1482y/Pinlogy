@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -34,7 +35,10 @@ class AiPostAnalysisService implements PostAnalysisService {
     }
     final cacheKey = _cacheKey(request, local.evidenceText);
     final cached = await _readCache(cacheKey);
-    if (cached != null) {
+    final needsTikTokPhotoPreview =
+        request.imageUrls.isEmpty &&
+        (request.url?.contains('/photo/') ?? false);
+    if (cached != null && !needsTikTokPhotoPreview) {
       return PostAnalysisResponse(
         sourcePostId: cached.sourcePostId,
         candidates: cached.candidates,
@@ -85,7 +89,14 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
-      final result = PostAnalysisResponse.fromJson(decoded);
+      final previewImagePath = await _savePreviewImage(
+        request.sourcePostId,
+        decoded,
+      );
+      final result = PostAnalysisResponse.fromJson({
+        ...decoded,
+        'preview_image_path': previewImagePath,
+      });
       if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
       }
@@ -97,6 +108,35 @@ class AiPostAnalysisService implements PostAnalysisService {
       return _asFallback(local, analysisSource: 'network_fallback');
     } catch (_) {
       return _asFallback(local, analysisSource: 'invalid_response_fallback');
+    }
+  }
+
+  Future<String?> _savePreviewImage(
+    String sourcePostId,
+    Map<String, dynamic> response,
+  ) async {
+    try {
+      final media = response['shared_media'];
+      if (media is! Map) return null;
+      final dataUrl = media['thumbnail_data_url']?.toString();
+      if (dataUrl == null) return null;
+      final match = RegExp(
+        r'^data:image/(jpeg|png|webp);base64,(.+)$',
+      ).firstMatch(dataUrl);
+      if (match == null) return null;
+      final bytes = base64Decode(match.group(2)!);
+      if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) return null;
+      final directory = Directory(
+        '${(await getApplicationSupportDirectory()).path}/source_previews',
+      );
+      await directory.create(recursive: true);
+      final extension = match.group(1) == 'jpeg' ? 'jpg' : match.group(1)!;
+      final safeId = sourcePostId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final file = File('${directory.path}/$safeId.$extension');
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    } catch (_) {
+      return null;
     }
   }
 

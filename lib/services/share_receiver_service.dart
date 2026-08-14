@@ -278,6 +278,14 @@ class LocalShareReceiverService implements ShareReceiverService {
           imageUrls: post.imagePaths,
         ),
       );
+      if (post.imagePaths.isEmpty && result.previewImagePath != null) {
+        post = await sourcePosts.update(
+          post.copyWith(
+            imagePaths: [result.previewImagePath!],
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
       await analysis.update(
         job.copyWith(
           status: AnalysisJobStatus.completed,
@@ -339,6 +347,14 @@ class AnalysisRunner {
           imageUrls: post.imagePaths,
         ),
       );
+      if (post.imagePaths.isEmpty && result.previewImagePath != null) {
+        await hub.sourcePosts.update(
+          post.copyWith(
+            imagePaths: [result.previewImagePath!],
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
       await hub.analysis.update(
         job.copyWith(
           status: AnalysisJobStatus.completed,

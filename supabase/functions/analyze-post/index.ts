@@ -94,6 +94,7 @@ Deno.serve(async (request) => {
             ? "available"
             : sharedPage.photo_access,
           image_count: fetchedTikTokImages.length,
+          thumbnail_data_url: fetchedTikTokImages[0] ?? null,
         },
     });
   } catch (error) {

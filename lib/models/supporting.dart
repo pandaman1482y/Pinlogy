@@ -198,6 +198,7 @@ class PostAnalysisResponse {
     this.rawSummary,
     this.evidenceText,
     this.analysisSource = 'local',
+    this.previewImagePath,
   });
 
   final String sourcePostId;
@@ -207,6 +208,7 @@ class PostAnalysisResponse {
   /// 端末OCRと投稿文を結合したAI解析用テキスト。端末内解析では保存しない。
   final String? evidenceText;
   final String analysisSource;
+  final String? previewImagePath;
 
   factory PostAnalysisResponse.fromJson(Map<String, dynamic> json) {
     final list = (json['candidates'] as List? ?? const [])
@@ -218,6 +220,7 @@ class PostAnalysisResponse {
       rawSummary: json['raw_summary'] as String?,
       evidenceText: json['evidence_text'] as String?,
       analysisSource: json['analysis_source'] as String? ?? 'ai',
+      previewImagePath: json['preview_image_path'] as String?,
     );
   }
 }
