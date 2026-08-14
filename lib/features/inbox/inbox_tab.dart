@@ -338,6 +338,7 @@ class _InboxTabState extends State<InboxTab> {
                         onFetchImage:
                             post.url != null &&
                                 (post.service == 'TikTok' ||
+                                    post.service == 'Instagram' ||
                                     post.service == 'YouTube')
                             ? () => _fetchPostImage(context, post)
                             : null,

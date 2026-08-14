@@ -402,10 +402,10 @@ class PinlogyController extends ChangeNotifier {
 
   Future<bool> refreshPostImage(SourcePost post) async {
     try {
-      if ((post.url?.contains('/photo/') ?? false) &&
+      if (AiPostAnalysisService.supportsRemotePreviewUrl(post.url) &&
           analysisService is AiPostAnalysisService) {
         final paths = await (analysisService as AiPostAnalysisService)
-            .fetchTikTokPhotoPreviews(
+            .fetchSocialPostPreviews(
               PostAnalysisRequest(sourcePostId: post.id, url: post.url),
             );
         if (paths.isNotEmpty) {

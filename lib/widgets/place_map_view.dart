@@ -92,6 +92,8 @@ class PlaceMapView extends StatefulWidget {
 }
 
 class _PlaceMapViewState extends State<PlaceMapView> {
+  static const _stylePreferenceKey = 'pinlogy_map_tile_style_v2';
+
   /// 既定は施設表示を残した、明るく柔らかいVoyagerスタイル。
   MapTileStyle _style = MapTileStyle.stores;
   late final PinlogyMapInteractionController _interaction;
@@ -112,6 +114,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
     _interaction = PinlogyMapInteractionController(
       initialZoom: widget.initialZoom ?? PlaceMapView.zoomFor(widget.places),
     );
+    unawaited(_restoreStyle());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _showMapLoading();
@@ -244,8 +247,9 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF007AFF)
-                                        .withValues(alpha: 0.4),
+                                    color: const Color(
+                                      0xFF007AFF,
+                                    ).withValues(alpha: 0.4),
                                     blurRadius: 10,
                                     spreadRadius: 1,
                                   ),
@@ -480,28 +484,9 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                   ],
                   _SoftFab(
                     heroTag: 'map-style',
-                    icon: stores
-                        ? Icons.layers_clear_outlined
-                        : Icons.layers_outlined,
-                    tooltip: stores ? '標準地図に切替' : 'やさしい地図に切替',
-                    onPressed: () {
-                      _showMapLoading();
-                      setState(() {
-                        _style = stores
-                            ? MapTileStyle.clear
-                            : MapTileStyle.stores;
-                      });
-                      final camera = widget.mapController.camera;
-                      unawaited(
-                        PinlogyMapTiles.preloadAround(
-                          context,
-                          latitude: camera.center.latitude,
-                          longitude: camera.center.longitude,
-                          zoom: camera.zoom,
-                          style: _style,
-                        ),
-                      );
-                    },
+                    icon: stores ? Icons.layers_outlined : Icons.map_outlined,
+                    tooltip: '地図の種類を選ぶ',
+                    onPressed: _showMapStylePicker,
                   ),
                   if (widget.onMyLocation != null) ...[
                     const SizedBox(height: 10),
@@ -529,6 +514,71 @@ class _PlaceMapViewState extends State<PlaceMapView> {
         _interaction.mapLoading.value = false;
       }
     });
+  }
+
+  Future<void> _restoreStyle() async {
+    final preferences = await SharedPreferences.getInstance();
+    final saved = preferences.getString(_stylePreferenceKey);
+    final restored = MapTileStyle.values
+        .where((style) => style.name == saved)
+        .firstOrNull;
+    if (!mounted || restored == null || restored == _style) return;
+    setState(() => _style = restored);
+  }
+
+  Future<void> _showMapStylePicker() async {
+    final selected = await showModalBottomSheet<MapTileStyle>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Text(
+                  '地図の種類',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+              for (final style in MapTileStyle.values)
+                ListTile(
+                  leading: Icon(
+                    style == MapTileStyle.stores
+                        ? Icons.layers_outlined
+                        : Icons.map_outlined,
+                  ),
+                  title: Text(style.label),
+                  subtitle: Text(style.description),
+                  trailing: style == _style
+                      ? const Icon(Icons.check_circle_rounded)
+                      : null,
+                  onTap: () => Navigator.pop(context, style),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selected == null || selected == _style) return;
+    _showMapLoading();
+    setState(() => _style = selected);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_stylePreferenceKey, selected.name);
+    if (!mounted) return;
+    final camera = widget.mapController.camera;
+    unawaited(
+      PinlogyMapTiles.preloadAround(
+        context,
+        latitude: camera.center.latitude,
+        longitude: camera.center.longitude,
+        zoom: camera.zoom,
+        style: selected,
+      ),
+    );
   }
 
   void _retryTiles() {
@@ -817,8 +867,9 @@ class _SelectedPlaceCard extends StatelessWidget {
                       place.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -836,8 +887,9 @@ class _SelectedPlaceCard extends StatelessWidget {
                           .join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall
-                          ?.copyWith(color: const Color(0xFF6F7C75)),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF6F7C75),
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -919,8 +971,9 @@ class _SelectedPlaceCard extends StatelessWidget {
     if (post == null) return;
     final opened = await sourceLinks.openPost(post);
     if (!context.mounted || opened) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('元の投稿を開けませんでした')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('元の投稿を開けませんでした')));
   }
 }
 
@@ -979,8 +1032,9 @@ class _AppleStylePin extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF173D30)
-                        .withValues(alpha: focused ? 0.28 : 0.18),
+                    color: const Color(
+                      0xFF173D30,
+                    ).withValues(alpha: focused ? 0.28 : 0.18),
                     blurRadius: focused ? 16 : 9,
                     offset: const Offset(0, 4),
                   ),

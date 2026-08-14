@@ -93,7 +93,7 @@ class AiPostAnalysisService implements PostAnalysisService {
         decoded,
       );
       if (previewImagePaths.isEmpty) {
-        final preview = await fetchTikTokPhotoPreview(request);
+        final preview = await fetchSocialPostPreview(request);
         if (preview != null) previewImagePaths = [preview];
       }
       final result = PostAnalysisResponse.fromJson({
@@ -120,7 +120,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     PostAnalysisRequest request,
     String analysisSource,
   ) async {
-    final previews = await fetchTikTokPhotoPreviews(request);
+    final previews = await fetchSocialPostPreviews(request);
     return _asFallback(
       local,
       analysisSource: analysisSource,
@@ -129,13 +129,23 @@ class AiPostAnalysisService implements PostAnalysisService {
     );
   }
 
-  Future<String?> fetchTikTokPhotoPreview(PostAnalysisRequest request) async =>
-      (await fetchTikTokPhotoPreviews(request)).firstOrNull;
+  static bool supportsRemotePreviewUrl(String? rawUrl) {
+    final uri = Uri.tryParse(rawUrl ?? '');
+    if (uri == null || uri.scheme != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'instagram.com' ||
+        host.endsWith('.instagram.com') ||
+        host == 'tiktok.com' ||
+        host.endsWith('.tiktok.com');
+  }
 
-  Future<List<String>> fetchTikTokPhotoPreviews(
+  Future<String?> fetchSocialPostPreview(PostAnalysisRequest request) async =>
+      (await fetchSocialPostPreviews(request)).firstOrNull;
+
+  Future<List<String>> fetchSocialPostPreviews(
     PostAnalysisRequest request,
   ) async {
-    if (!(request.url?.contains('/photo/') ?? false)) return const [];
+    if (!supportsRemotePreviewUrl(request.url)) return const [];
     try {
       final uri = Uri.parse(
         '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
@@ -163,6 +173,13 @@ class AiPostAnalysisService implements PostAnalysisService {
       return const [];
     }
   }
+
+  // 旧パッチとの互換用。新規処理はInstagramにも対応する。
+  Future<String?> fetchTikTokPhotoPreview(PostAnalysisRequest request) =>
+      fetchSocialPostPreview(request);
+
+  Future<List<String>> fetchTikTokPhotoPreviews(PostAnalysisRequest request) =>
+      fetchSocialPostPreviews(request);
 
   Future<List<String>> _savePreviewImages(
     String sourcePostId,

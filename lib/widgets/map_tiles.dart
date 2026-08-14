@@ -6,6 +6,18 @@ import 'package:flutter_map/flutter_map.dart';
 /// Pinlogyで選べる地図の見た目。
 enum MapTileStyle { clear, stores }
 
+extension MapTileStyleLabel on MapTileStyle {
+  String get label => switch (this) {
+    MapTileStyle.clear => '日本語・標準地図',
+    MapTileStyle.stores => 'やさしい地図',
+  };
+
+  String get description => switch (this) {
+    MapTileStyle.clear => '道路や施設名を詳しく表示',
+    MapTileStyle.stores => '保存したピンが見やすい淡色表示',
+  };
+}
+
 abstract final class PinlogyMapTiles {
   /// 明るく色のある、標準のポップ地図。
   static const clearUrlTemplate = String.fromEnvironment(

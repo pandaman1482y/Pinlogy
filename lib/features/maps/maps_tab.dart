@@ -1156,9 +1156,6 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  static const _mapKitComparisonEnabled = bool.fromEnvironment(
-    'PINLOGY_MAPKIT_COMPARE',
-  );
   bool listView = false;
   String query = '';
   String? category;
@@ -1246,10 +1243,9 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
           actions: [
-            if (_mapKitComparisonEnabled &&
-                defaultTargetPlatform == TargetPlatform.iOS)
+            if (defaultTargetPlatform == TargetPlatform.iOS)
               IconButton(
-                tooltip: 'MapKit版と比較',
+                tooltip: 'Appleマップで表示',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => MapKitComparisonPage(places: places),

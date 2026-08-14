@@ -7,6 +7,7 @@ import '../core/errors.dart';
 import '../models/models.dart';
 import '../repositories/local_repositories.dart';
 import '../repositories/repository_interfaces.dart';
+import 'ai_post_analysis_service.dart';
 import 'location_services.dart';
 import 'platform_share_bridge.dart';
 
@@ -141,6 +142,16 @@ class LocalShareReceiverService implements ShareReceiverService {
     bool force = false,
   }) async {
     if ((!force && post.imagePaths.isNotEmpty) || post.url == null) return post;
+    if (analysisService case final AiPostAnalysisService aiService) {
+      final previews = await aiService.fetchSocialPostPreviews(
+        PostAnalysisRequest(sourcePostId: post.id, url: post.url),
+      );
+      if (previews.isNotEmpty) {
+        return sourcePosts.update(
+          post.copyWith(imagePaths: previews, updatedAt: DateTime.now()),
+        );
+      }
+    }
     final preview = await _loadOfficialPreview(post.url!);
     if (preview == null) {
       throw StateError('この投稿から利用できる画像を取得できませんでした');
