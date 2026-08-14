@@ -36,8 +36,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     final cacheKey = _cacheKey(request, local.evidenceText);
     final cached = await _readCache(cacheKey);
     final needsTikTokPhotoPreview =
-        request.imageUrls.isEmpty &&
-        (request.url?.contains('/photo/') ?? false);
+        request.url?.contains('/photo/') ?? false;
     if (cached != null && !needsTikTokPhotoPreview) {
       return PostAnalysisResponse(
         sourcePostId: cached.sourcePostId,
