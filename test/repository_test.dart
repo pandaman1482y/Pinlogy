@@ -111,7 +111,9 @@ void main() {
       ),
     );
     final restored = AppSnapshot.fromJson(hub.snapshot.toJson());
-    final saved = restored.sourcePosts.singleWhere((item) => item.id == post.id);
+    final saved = restored.sourcePosts.singleWhere(
+      (item) => item.id == post.id,
+    );
 
     expect(saved.body, 'TikTokから共有された投稿文');
     expect(saved.userMemo, '京都の青いゼリーのお店');
@@ -131,7 +133,9 @@ void main() {
   test('削除した旅行プランと地点はクラウド削除キューへ残る', () async {
     final place = await hub.places.create(Place(name: '旅行先'), mapIds: ['m1']);
     final plan = await hub.plans.create(TripPlan(title: '旅行'));
-    final stop = await hub.plans.addStop(PlanStop(planId: plan.id, placeId: place.id));
+    final stop = await hub.plans.addStop(
+      PlanStop(planId: plan.id, placeId: place.id),
+    );
     await hub.plans.delete(plan.id);
     expect(hub.snapshot.pendingCloudDeletes, contains('plans:${plan.id}'));
     expect(hub.snapshot.pendingCloudDeletes, contains('plan_stops:${stop.id}'));

@@ -53,9 +53,7 @@ void main() {
         waitForAnalysis: true,
       );
 
-      expect(post.imagePaths, [
-        'https://p16-sign.tiktokcdn.com/preview.jpeg',
-      ]);
+      expect(post.imagePaths, ['https://p16-sign.tiktokcdn.com/preview.jpeg']);
       expect(capture.request?.text, contains('カフェ・ピンロジー'));
       expect(capture.request?.text, contains('大阪府八尾市本町1丁目1番1号'));
       expect(capture.request?.imageUrls, post.imagePaths);

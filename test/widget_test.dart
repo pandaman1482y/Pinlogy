@@ -89,8 +89,7 @@ void main() {
     final field = tester.widget<TextField>(
       find.byWidgetPredicate(
         (widget) =>
-            widget is TextField &&
-            widget.decoration?.labelText == '店名・住所',
+            widget is TextField && widget.decoration?.labelText == '店名・住所',
       ),
     );
     expect(field.autofocus, isFalse);
@@ -374,11 +373,7 @@ void main() {
     final places = controller.hub.snapshot.places.take(2).toList();
     for (var i = 0; i < places.length; i++) {
       await controller.plans.addStop(
-        PlanStop(
-          planId: plan.id,
-          placeId: places[i].id,
-          sortOrder: i,
-        ),
+        PlanStop(planId: plan.id, placeId: places[i].id, sortOrder: i),
       );
     }
 
