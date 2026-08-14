@@ -194,34 +194,44 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: mint,
-                borderRadius: BorderRadius.circular(26),
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: mint,
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                    child: Icon(icon, size: 36, color: mossDeep),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF66756D),
+                      height: 1.55,
+                    ),
+                  ),
+                  if (action != null) ...[const SizedBox(height: 22), action!],
+                ],
               ),
-              child: Icon(icon, size: 36, color: mossDeep),
             ),
-            const SizedBox(height: 18),
-            Text(title, style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 10),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF66756D),
-                height: 1.55,
-              ),
-            ),
-            if (action != null) ...[const SizedBox(height: 22), action!],
-          ],
+          ),
         ),
       ),
     );

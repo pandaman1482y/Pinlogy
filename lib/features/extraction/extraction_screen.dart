@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../services/geocoding_privacy_consent.dart';
 import '../../services/location_services.dart';
 import '../../widgets/post_category_editor.dart';
+import '../../widgets/place_photo.dart';
 import '../../widgets/sheet_layout.dart';
 import '../maps/maps_tab.dart';
 
@@ -244,7 +245,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
             const Text('候補がありません。解析結果を確認してください。')
           else
             ...candidates.map((c) {
-              final needsReview = c.match != PlaceMatchConfidence.high;
+              final needsReview = _requiresReview(c);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Card(
@@ -271,7 +272,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                           Text((resolved[c.id] ?? c).address ?? '住所未確定'),
                           const SizedBox(height: 6),
                           Text(
-                            c.match.label,
+                            _confidenceLabel(c),
                             style: TextStyle(
                               color: needsReview
                                   ? Colors.orange.shade800
@@ -286,6 +287,36 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                          if (_evidenceImagePath(post, c) case final path?) ...[
+                            const SizedBox(height: 9),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: SizedBox(
+                                height: 132,
+                                width: double.infinity,
+                                child: PlacePhoto(
+                                  path: path,
+                                  fallback: const ColoredBox(
+                                    color: Color(0xFFF0F2F1),
+                                    child: Center(
+                                      child: Icon(
+                                        Icons.image_not_supported_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            const Text(
+                              'この画像を主な根拠として候補化',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF6F7C75),
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
@@ -387,7 +418,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     setState(() => retrying = true);
     await controller.analysis.retry(job.id);
     await controller.analysisRunner.runJob(job.id);
-    if (!mounted) return;
+    if (!context.mounted) return;
     setState(() {
       retrying = false;
       selected.clear();
@@ -405,12 +436,13 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
   }
 
   Future<void> _editCategories(BuildContext context, SourcePost post) async {
+    final controller = AppScope.read(context);
     final result = await showPostCategoryEditor(
       context,
-      initialCategories: AppScope.read(context).categoriesForPost(post.id),
+      initialCategories: controller.categoriesForPost(post.id),
     );
-    if (result == null || !mounted) return;
-    await AppScope.read(context).sourcePosts.update(
+    if (result == null || !context.mounted) return;
+    await controller.sourcePosts.update(
       post.copyWith(
         userCategories: result,
         userCategoriesSet: true,
@@ -486,11 +518,20 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
         messenger.hideCurrentSnackBar();
         messenger.showSnackBar(
           SnackBar(
-            duration: const Duration(seconds: 5),
-            content: Text(
-              duplicateCount == 0
-                  ? '${addedPlaces.length}件を「$mapName」に保存しました'
-                  : '${addedPlaces.length}件を「$mapName」に保存しました（$duplicateCount件は登録済みの場所に追加）',
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    duplicateCount == 0
+                        ? '保存しました\n${addedPlaces.firstOrNull?.name ?? mapName} · ${addedPlaces.firstOrNull?.category ?? 'カテゴリ未設定'}'
+                        : '${addedPlaces.length}件を保存しました（$duplicateCount件は登録済み）',
+                  ),
+                ),
+              ],
             ),
             action: SnackBarAction(
               label: '地図で見る',
@@ -513,10 +554,26 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
         !reviewed.contains(c.id),
   );
 
+  String? _evidenceImagePath(SourcePost? post, ExtractionCandidate candidate) {
+    final index = candidate.evidenceImageIndex;
+    final images = post?.imagePaths ?? const <String>[];
+    if (index == null || index < 0 || index >= images.length) return null;
+    return images[index];
+  }
+
   bool _requiresReview(ExtractionCandidate candidate) =>
       candidate.hasAddressMismatch ||
       candidate.address?.isNotEmpty != true ||
-      (candidate.confidencePercent ?? 0) < 60;
+      (candidate.confidencePercent ?? 0) < 85;
+
+  String _confidenceLabel(ExtractionCandidate candidate) {
+    final confidence = candidate.confidencePercent ?? 0;
+    if (confidence >= 85 && candidate.match == PlaceMatchConfidence.high) {
+      return '確度 $confidence% · 自動選択';
+    }
+    if (confidence >= 55) return '確度 $confidence% · 候補を確認';
+    return '確度 $confidence% · 手動検索を推奨';
+  }
 
   Future<void> _resolveWithSearch(
     BuildContext context,
@@ -631,6 +688,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
         category: candidate.category,
         genres: candidate.genres,
         evidenceSummary: 'ユーザーが店名・住所検索から確認',
+        evidenceImageIndex: candidate.evidenceImageIndex,
         confidencePercent: 100,
         match: PlaceMatchConfidence.high,
         postAddress: candidate.postAddress,
@@ -749,6 +807,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                         category: candidate.category,
                         genres: candidate.genres,
                         evidenceSummary: candidate.evidenceSummary,
+                        evidenceImageIndex: candidate.evidenceImageIndex,
                         confidencePercent: candidate.confidencePercent,
                         match: PlaceMatchConfidence.high,
                         latitude: candidate.latitude,

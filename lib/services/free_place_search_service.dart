@@ -32,11 +32,11 @@ class FreePlaceSearchService implements PlaceSearchService {
       _searchGsi(enrichedQuery),
       _searchNominatim(enrichedQuery),
     ]);
-    final merged = _merge(results[0], results[1]);
+    final merged = rankAndMerge(q, results[1], results[0], nearAddress: area);
     if (merged.isNotEmpty || enrichedQuery == q) return merged;
 
     final fallback = await Future.wait([_searchGsi(q), _searchNominatim(q)]);
-    return _merge(fallback[0], fallback[1]);
+    return rankAndMerge(q, fallback[1], fallback[0], nearAddress: area);
   }
 
   @override
@@ -189,10 +189,12 @@ class FreePlaceSearchService implements PlaceSearchService {
     );
   }
 
-  List<PlaceSearchHit> _merge(
+  static List<PlaceSearchHit> rankAndMerge(
+    String query,
     List<PlaceSearchHit> primary,
-    List<PlaceSearchHit> secondary,
-  ) {
+    List<PlaceSearchHit> secondary, {
+    String? nearAddress,
+  }) {
     final merged = <PlaceSearchHit>[];
     bool isNear(PlaceSearchHit a, PlaceSearchHit b) {
       if (a.latitude == null ||
@@ -214,8 +216,42 @@ class FreePlaceSearchService implements PlaceSearchService {
 
     addAll(primary);
     addAll(secondary);
-    return merged.take(20).toList();
+    final normalizedQuery = _normalizeSearchText(query);
+    final area = _normalizeSearchText(nearAddress ?? '');
+    int score(PlaceSearchHit hit) {
+      final name = _normalizeSearchText(hit.name);
+      final address = _normalizeSearchText(hit.address ?? '');
+      var value = 0;
+      if (name == normalizedQuery) {
+        value += 1000;
+      } else if (name.startsWith(normalizedQuery)) {
+        value += 820;
+      } else if (name.contains(normalizedQuery)) {
+        value += 700;
+      } else if (address.contains(normalizedQuery)) {
+        value += 240;
+      }
+      if (area.isNotEmpty && address.contains(area)) value += 120;
+      if (name == address) value -= 280;
+      if (RegExp(r'^(?:〒?\d{3}-?\d{4})?[東京都道府県]').hasMatch(hit.name)) {
+        value -= 220;
+      }
+      return value;
+    }
+
+    final originalOrder = {
+      for (var i = 0; i < merged.length; i++) merged[i]: i,
+    };
+    merged.sort((a, b) {
+      final byScore = score(b).compareTo(score(a));
+      if (byScore != 0) return byScore;
+      return originalOrder[a]!.compareTo(originalOrder[b]!);
+    });
+    return merged.take(20).toList(growable: false);
   }
+
+  static String _normalizeSearchText(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'[\s　・·\-_－]'), '');
 }
 
 /// 国土地理院ベースのジオコーディング（無料・キー不要）。
@@ -227,9 +263,8 @@ class GsiGeocodingService implements GeocodingService {
 
   @override
   Future<GeoResult?> geocodeAddress(String address) async {
-    final hits = await FreePlaceSearchService(
-      client: _client,
-    ).searchByName(address);
+    final hits = await FreePlaceSearchService(client: _client)
+        .searchByName(address);
     if (hits.isEmpty) return null;
     final first = hits.first;
     if (first.latitude == null || first.longitude == null) return null;

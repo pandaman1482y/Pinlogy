@@ -4,17 +4,8 @@ const headers = { "Content-Type": "application/json; charset=utf-8" };
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) return reply({ error: "ai_not_configured" }, 503);
-
-  const deviceId = request.headers.get("x-pinlogy-device") ?? "";
-  if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
-    return reply({ error: "device_id_required" }, 400);
-  }
-  if (!await consumeQuota(deviceId)) {
-    return reply({ error: "daily_limit_reached" }, 429);
-  }
-
+  let deviceId = "";
+  let quotaReserved = false;
   try {
     const input = await request.json();
     const sourcePostId = String(input.source_post_id ?? "");
@@ -22,6 +13,27 @@ Deno.serve(async (request) => {
     const sharedPage = await enrichSharedUrl(
       typeof input.url === "string" ? input.url : "",
     );
+    if (input.preview_only === true) {
+      const previewImages = await fetchTikTokImages(
+        (sharedPage?.image_urls ?? []).slice(0, 5),
+      );
+      return reply({
+        source_post_id: sourcePostId,
+        analysis_source: "preview_only",
+        shared_media: sharedMedia(sharedPage, previewImages),
+      });
+    }
+
+    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!apiKey) return reply({ error: "ai_not_configured" }, 503);
+    deviceId = request.headers.get("x-pinlogy-device") ?? "";
+    if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
+      return reply({ error: "device_id_required" }, 400);
+    }
+    if (!await consumeQuota(deviceId)) {
+      return reply({ error: "daily_limit_reached" }, 429);
+    }
+    quotaReserved = true;
 
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
@@ -61,6 +73,7 @@ Deno.serve(async (request) => {
         max_output_tokens: 2500,
         tools: [{ type: "web_search" }],
         instructions:
+          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。evidenceImageIndexは主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。" +
           "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれか、genresは具体的な種類を最大3件とします。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。候補が0件でURLから取得した投稿情報のis_photo_postがtrueかつphoto_accessがunavailableの場合、raw_summaryは「TikTokの画像を取得できませんでした。店名などが写ったスクリーンショットを追加してください。」としてください。",
         input: [{ role: "user", content }],
         text: { verbosity: "low", format: placeSchema },
@@ -69,6 +82,8 @@ Deno.serve(async (request) => {
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1000);
       console.error("openai_failed", response.status, detail);
+      await refundQuota(deviceId);
+      quotaReserved = false;
       return reply({ error: "openai_failed" }, 502);
     }
     const value = await response.json();
@@ -77,31 +92,40 @@ Deno.serve(async (request) => {
       .find((part: { type?: string }) => part.type === "output_text") as
       | { text?: string }
       | undefined;
-    if (!output?.text) return reply({ error: "empty_ai_response" }, 502);
+    if (!output?.text) {
+      await refundQuota(deviceId);
+      quotaReserved = false;
+      return reply({ error: "empty_ai_response" }, 502);
+    }
+    const parsedOutput = JSON.parse(output.text);
+    quotaReserved = false;
     return reply({
       source_post_id: sourcePostId,
-      ...JSON.parse(output.text),
+      ...parsedOutput,
       analysis_source: sharedPage?.is_photo_post === true
         ? (fetchedTikTokImages.length > 0
           ? "ai_tiktok_photos"
           : "ai_tiktok_text_only")
         : "ai",
-      shared_media: sharedPage == null
-        ? null
-        : {
-          is_photo_post: sharedPage.is_photo_post,
-          photo_access: fetchedTikTokImages.length > 0
-            ? "available"
-            : sharedPage.photo_access,
-          image_count: fetchedTikTokImages.length,
-          thumbnail_data_url: fetchedTikTokImages[0] ?? null,
-        },
+      shared_media: sharedMedia(sharedPage, fetchedTikTokImages),
     });
   } catch (error) {
+    if (quotaReserved && deviceId) await refundQuota(deviceId);
     console.error("analysis_failed", error);
     return reply({ error: "analysis_failed" }, 500);
   }
 });
+
+function sharedMedia(sharedPage: SharedPage | null, images: string[]) {
+  if (sharedPage == null) return null;
+  return {
+    is_photo_post: sharedPage.is_photo_post,
+    photo_access: images.length > 0 ? "available" : sharedPage.photo_access,
+    image_count: images.length,
+    thumbnail_data_url: images[0] ?? null,
+    image_data_urls: images,
+  };
+}
 
 const placeSchema = {
   type: "json_schema",
@@ -119,7 +143,7 @@ const placeSchema = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "address", "reason", "category", "genres", "evidenceSummary", "confidencePercent", "match", "postAddress", "latitude", "longitude"],
+          required: ["name", "address", "reason", "category", "genres", "evidenceSummary", "evidenceImageIndex", "confidencePercent", "match", "postAddress", "latitude", "longitude"],
           properties: {
             name: { type: "string" },
             address: { type: ["string", "null"] },
@@ -127,6 +151,7 @@ const placeSchema = {
             category: { type: "string", enum: ["飲食店", "観光・レジャー", "宿泊", "買い物", "その他"] },
             genres: { type: "array", maxItems: 3, items: { type: "string" } },
             evidenceSummary: { type: ["string", "null"] },
+            evidenceImageIndex: { type: ["integer", "null"], minimum: 0, maximum: 4 },
             confidencePercent: { type: "integer", minimum: 0, maximum: 100 },
             match: { type: "string", enum: ["high", "needsReview", "unresolved"] },
             postAddress: { type: ["string", "null"] },
@@ -449,4 +474,35 @@ async function consumeQuota(deviceId: string) {
     return false;
   }
   return await response.json() === true;
+}
+
+async function refundQuota(deviceId: string) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) return;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(deviceId),
+  );
+  const deviceHash = Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/rpc/refund_ai_quota`,
+      {
+        method: "POST",
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ p_device_hash: deviceHash }),
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!response.ok) console.error("quota_refund_failed", response.status);
+  } catch (error) {
+    console.error("quota_refund_failed", String(error));
+  }
 }

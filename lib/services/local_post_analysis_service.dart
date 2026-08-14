@@ -46,6 +46,7 @@ class LocalPostAnalysisService implements PostAnalysisService {
             evidenceSummary: draft.address == null
                 ? '店名候補の取得元：${draft.source}。住所は手動確認してください'
                 : '住所の取得元：${draft.source} / 店名候補も同じ投稿から抽出',
+            evidenceImageIndex: _imageIndexForSource(draft.source),
             confidencePercent: draft.address == null ? 50 : 78,
             match: PlaceMatchConfidence.needsReview,
             openingTimeMinutes: hours?.$1,
@@ -62,10 +63,10 @@ class LocalPostAnalysisService implements PostAnalysisService {
           ExtractionCandidate(
             name: fallback,
             category: _categoryFor(
-              '${fallback} ${parts.map((p) => p.text).join(' ')}',
+              '$fallback ${parts.map((p) => p.text).join(' ')}',
             ),
             genres: _genresFor(
-              '${fallback} ${parts.map((p) => p.text).join(' ')}',
+              '$fallback ${parts.map((p) => p.text).join(' ')}',
             ),
             reason: shortReason,
             evidenceSummary: '住所を特定できなかったため確認が必要です',
@@ -96,6 +97,12 @@ class LocalPostAnalysisService implements PostAnalysisService {
     }
     if (RegExp(r'ショップ|雑貨|百貨店|ショッピング|市場').hasMatch(text)) return '買い物';
     return null;
+  }
+
+  int? _imageIndexForSource(String source) {
+    final match = RegExp(r'^画像(\d+)枚目$').firstMatch(source);
+    final oneBased = int.tryParse(match?.group(1) ?? '');
+    return oneBased == null ? null : oneBased - 1;
   }
 
   List<String> _genresFor(String text) {
@@ -157,9 +164,8 @@ class LocalPostAnalysisService implements PostAnalysisService {
     if (path.startsWith('local://') || !await File(path).exists()) return '';
     final recognizer = TextRecognizer(script: TextRecognitionScript.japanese);
     try {
-      return (await recognizer.processImage(
-        InputImage.fromFilePath(path),
-      )).text;
+      return (await recognizer.processImage(InputImage.fromFilePath(path)))
+          .text;
     } catch (_) {
       return '';
     } finally {
@@ -283,9 +289,8 @@ class LocalPostAnalysisService implements PostAnalysisService {
 
   List<int> _extractClosedWeekdays(List<_TextPart> parts) {
     final text = parts.map((part) => part.text).join(' ');
-    final match = RegExp(
-      r'(?:定休日|休業日)\s*[:：]?\s*([月火水木金土日](?:曜(?:日)?)?)',
-    ).firstMatch(text);
+    final match = RegExp(r'(?:定休日|休業日)\s*[:：]?\s*([月火水木金土日](?:曜(?:日)?)?)')
+        .firstMatch(text);
     if (match == null) return const [];
     const names = '月火水木金土日';
     final weekday = names.indexOf(match.group(1)![0]);

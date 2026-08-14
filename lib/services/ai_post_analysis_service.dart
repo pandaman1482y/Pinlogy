@@ -70,7 +70,8 @@ class AiPostAnalysisService implements PostAnalysisService {
               'image_data_urls': imageDataUrls,
             }),
           )
-          .timeout(const Duration(seconds: 25));
+          // 5枚画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
+          .timeout(const Duration(seconds: 55));
       if (response.statusCode == 401 || response.statusCode == 403) {
         return _asFallback(local, analysisSource: 'auth_fallback');
       }
@@ -87,14 +88,18 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
-      var previewImagePath = await _savePreviewImage(
+      var previewImagePaths = await _savePreviewImages(
         request.sourcePostId,
         decoded,
       );
-      previewImagePath ??= await fetchTikTokPhotoPreview(request);
+      if (previewImagePaths.isEmpty) {
+        final preview = await fetchTikTokPhotoPreview(request);
+        if (preview != null) previewImagePaths = [preview];
+      }
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
-        'preview_image_path': previewImagePath,
+        'preview_image_path': previewImagePaths.firstOrNull,
+        'preview_image_paths': previewImagePaths,
       });
       if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
@@ -115,16 +120,22 @@ class AiPostAnalysisService implements PostAnalysisService {
     PostAnalysisRequest request,
     String analysisSource,
   ) async {
-    final preview = await fetchTikTokPhotoPreview(request);
+    final previews = await fetchTikTokPhotoPreviews(request);
     return _asFallback(
       local,
       analysisSource: analysisSource,
-      previewImagePath: preview,
+      previewImagePath: previews.firstOrNull,
+      previewImagePaths: previews,
     );
   }
 
-  Future<String?> fetchTikTokPhotoPreview(PostAnalysisRequest request) async {
-    if (!(request.url?.contains('/photo/') ?? false)) return null;
+  Future<String?> fetchTikTokPhotoPreview(PostAnalysisRequest request) async =>
+      (await fetchTikTokPhotoPreviews(request)).firstOrNull;
+
+  Future<List<String>> fetchTikTokPhotoPreviews(
+    PostAnalysisRequest request,
+  ) async {
+    if (!(request.url?.contains('/photo/') ?? false)) return const [];
     try {
       final uri = Uri.parse(
         '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
@@ -144,41 +155,51 @@ class AiPostAnalysisService implements PostAnalysisService {
             }),
           )
           .timeout(const Duration(seconds: 20));
-      if (response.statusCode != 200) return null;
+      if (response.statusCode != 200) return const [];
       final decoded = jsonDecode(response.body);
-      if (decoded is! Map<String, dynamic>) return null;
-      return _savePreviewImage(request.sourcePostId, decoded);
+      if (decoded is! Map<String, dynamic>) return const [];
+      return await _savePreviewImages(request.sourcePostId, decoded);
     } catch (_) {
-      return null;
+      return const [];
     }
   }
 
-  Future<String?> _savePreviewImage(
+  Future<List<String>> _savePreviewImages(
     String sourcePostId,
     Map<String, dynamic> response,
   ) async {
     try {
       final media = response['shared_media'];
-      if (media is! Map) return null;
-      final dataUrl = media['thumbnail_data_url']?.toString();
-      if (dataUrl == null) return null;
-      final match = RegExp(
-        r'^data:image/(jpeg|png|webp);base64,(.+)$',
-      ).firstMatch(dataUrl);
-      if (match == null) return null;
-      final bytes = base64Decode(match.group(2)!);
-      if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) return null;
+      if (media is! Map) return const [];
+      final rawImages = media['image_data_urls'];
+      final dataUrls = rawImages is List
+          ? rawImages.whereType<String>().take(5).toList()
+          : [
+              if (media['thumbnail_data_url'] case final String thumbnail)
+                thumbnail,
+            ];
+      if (dataUrls.isEmpty) return const [];
       final directory = Directory(
         '${(await getApplicationSupportDirectory()).path}/source_previews',
       );
       await directory.create(recursive: true);
-      final extension = match.group(1) == 'jpeg' ? 'jpg' : match.group(1)!;
       final safeId = sourcePostId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-      final file = File('${directory.path}/$safeId.$extension');
-      await file.writeAsBytes(bytes, flush: true);
-      return file.path;
+      final paths = <String>[];
+      for (var index = 0; index < dataUrls.length; index++) {
+        final match = RegExp(
+          r'^data:image/(jpeg|png|webp);base64,(.+)$',
+        ).firstMatch(dataUrls[index]);
+        if (match == null) continue;
+        final bytes = base64Decode(match.group(2)!);
+        if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) continue;
+        final extension = match.group(1) == 'jpeg' ? 'jpg' : match.group(1)!;
+        final file = File('${directory.path}/${safeId}_$index.$extension');
+        await file.writeAsBytes(bytes, flush: true);
+        paths.add(file.path);
+      }
+      return paths;
     } catch (_) {
-      return null;
+      return const [];
     }
   }
 
@@ -196,6 +217,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     PostAnalysisResponse local, {
     String analysisSource = 'local_fallback',
     String? previewImagePath,
+    List<String> previewImagePaths = const [],
   }) {
     return PostAnalysisResponse(
       sourcePostId: local.sourcePostId,
@@ -204,6 +226,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       evidenceText: local.evidenceText,
       analysisSource: analysisSource,
       previewImagePath: previewImagePath ?? local.previewImagePath,
+      previewImagePaths: previewImagePaths.isNotEmpty
+          ? previewImagePaths
+          : previewImagePath == null
+          ? local.previewImagePaths
+          : [previewImagePath],
     );
   }
 

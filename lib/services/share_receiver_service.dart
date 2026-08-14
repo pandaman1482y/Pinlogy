@@ -278,13 +278,10 @@ class LocalShareReceiverService implements ShareReceiverService {
           imageUrls: post.imagePaths,
         ),
       );
-      if (result.previewImagePath != null &&
-          (post.imagePaths.isEmpty || post.url?.contains('/photo/') == true)) {
+      final mergedImages = _mergedAnalysisImages(post, result);
+      if (!_samePaths(post.imagePaths, mergedImages)) {
         post = await sourcePosts.update(
-          post.copyWith(
-            imagePaths: [result.previewImagePath!],
-            updatedAt: DateTime.now(),
-          ),
+          post.copyWith(imagePaths: mergedImages, updatedAt: DateTime.now()),
         );
       }
       if (!post.userCategoriesSet) {
@@ -361,13 +358,10 @@ class AnalysisRunner {
           imageUrls: post.imagePaths,
         ),
       );
-      if (result.previewImagePath != null &&
-          (post.imagePaths.isEmpty || post.url?.contains('/photo/') == true)) {
+      final mergedImages = _mergedAnalysisImages(post, result);
+      if (!_samePaths(post.imagePaths, mergedImages)) {
         post = await hub.sourcePosts.update(
-          post.copyWith(
-            imagePaths: [result.previewImagePath!],
-            updatedAt: DateTime.now(),
-          ),
+          post.copyWith(imagePaths: mergedImages, updatedAt: DateTime.now()),
         );
       }
       if (!post.userCategoriesSet) {
@@ -417,6 +411,26 @@ List<String> _analysisCategories(PostAnalysisResponse result) {
     );
   }
   return values.toList()..sort();
+}
+
+List<String> _mergedAnalysisImages(
+  SourcePost post,
+  PostAnalysisResponse result,
+) {
+  final fetched = result.previewImagePaths.isNotEmpty
+      ? result.previewImagePaths
+      : [if (result.previewImagePath != null) result.previewImagePath!];
+  if (fetched.isEmpty) return post.imagePaths;
+  return {...post.imagePaths, ...fetched}.take(5).toList(growable: false);
+}
+
+bool _samePaths(List<String> left, List<String> right) {
+  if (identical(left, right)) return true;
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 String? _analysisText(SourcePost post) {

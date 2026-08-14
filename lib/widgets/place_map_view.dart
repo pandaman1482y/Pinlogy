@@ -6,8 +6,11 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/app_scope.dart';
+import '../controllers/pinlogy_map_interaction_controller.dart';
 import '../features/places/place_details_sheet.dart';
 import '../models/models.dart';
+import '../services/map_cluster_service.dart';
+import '../services/source_link_service.dart';
 import 'map_tiles.dart';
 import 'place_photo.dart';
 
@@ -29,6 +32,7 @@ class PlaceMapView extends StatefulWidget {
     this.routePolylines = const [],
     this.markerLabels = const {},
     this.clusterMarkers = true,
+    this.onSearchArea,
   });
 
   final List<Place> places;
@@ -45,6 +49,7 @@ class PlaceMapView extends StatefulWidget {
   final List<Polyline> routePolylines;
   final Map<String, String> markerLabels;
   final bool clusterMarkers;
+  final ValueChanged<MapCamera>? onSearchArea;
 
   static const japanOverview = LatLng(36.4, 138.0);
   static const focusZoom = 16.5;
@@ -89,13 +94,13 @@ class PlaceMapView extends StatefulWidget {
 class _PlaceMapViewState extends State<PlaceMapView> {
   /// 既定は施設表示を残した、明るく柔らかいVoyagerスタイル。
   MapTileStyle _style = MapTileStyle.stores;
-  String? _selectedPlaceId;
-  double _zoom = 13.5;
+  late final PinlogyMapInteractionController _interaction;
   final StreamController<void> _tileReset = StreamController.broadcast();
   Timer? _loadingTimer;
-  bool _mapLoading = true;
-  int _tileErrors = 0;
   Timer? _cameraSaveTimer;
+  Timer? _cameraIdleTimer;
+  MapCamera? _latestCamera;
+  bool _cameraMovedByGesture = false;
   bool _cameraReady = false;
   final PageController _placePageController = PageController(
     viewportFraction: .9,
@@ -104,7 +109,9 @@ class _PlaceMapViewState extends State<PlaceMapView> {
   @override
   void initState() {
     super.initState();
-    _zoom = widget.initialZoom ?? PlaceMapView.zoomFor(widget.places);
+    _interaction = PinlogyMapInteractionController(
+      initialZoom: widget.initialZoom ?? PlaceMapView.zoomFor(widget.places),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _showMapLoading();
@@ -115,7 +122,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
           context,
           latitude: center.latitude,
           longitude: center.longitude,
-          zoom: _zoom,
+          zoom: _interaction.settledZoom.value,
           style: _style,
         ),
       );
@@ -124,9 +131,21 @@ class _PlaceMapViewState extends State<PlaceMapView> {
   }
 
   @override
+  void didUpdateWidget(covariant PlaceMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final selected = _interaction.selectedPlaceId.value;
+    if (selected != null &&
+        !widget.places.any((place) => place.id == selected)) {
+      _interaction.selectPlace(null);
+    }
+  }
+
+  @override
   void dispose() {
     _loadingTimer?.cancel();
     _cameraSaveTimer?.cancel();
+    _cameraIdleTimer?.cancel();
+    _interaction.dispose();
     _placePageController.dispose();
     _tileReset.close();
     super.dispose();
@@ -145,22 +164,6 @@ class _PlaceMapViewState extends State<PlaceMapView> {
         : null;
     final stores = _style == MapTileStyle.stores;
     final controller = AppScope.of(context);
-    final markerGroups = widget.clusterMarkers
-        ? _groupMarkers(places, _zoom)
-        : [
-            for (var i = 0; i < places.length; i++)
-              _MarkerGroup(
-                places: [places[i]],
-                center: PlaceMapView.pointFor(places[i], index: i),
-              ),
-          ];
-    Place? selectedPlace;
-    for (final place in places) {
-      if (place.id == _selectedPlaceId) {
-        selectedPlace = place;
-        break;
-      }
-    }
 
     return Stack(
       children: [
@@ -179,11 +182,12 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                 flags: InteractiveFlag.all,
               ),
               onPositionChanged: (camera, hasGesture) {
-                if (hasGesture) _showMapLoading();
-                if (_cameraReady) _scheduleCameraSave(camera);
-                if ((camera.zoom - _zoom).abs() >= .05) {
-                  setState(() => _zoom = camera.zoom);
+                _latestCamera = camera;
+                if (hasGesture) {
+                  if (!_cameraMovedByGesture) _showMapLoading();
+                  _cameraMovedByGesture = true;
                 }
+                _scheduleCameraIdle();
               },
               onLongPress: widget.onLongPress == null
                   ? null
@@ -195,84 +199,113 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                 reset: _tileReset.stream,
                 onError: (_, _, _) {
                   if (!mounted) return;
-                  setState(() {
-                    _tileErrors++;
-                    _mapLoading = false;
-                  });
+                  _interaction.tileErrors.value++;
+                  _interaction.mapLoading.value = false;
                 },
               ),
               if (widget.routePolylines.isNotEmpty)
                 PolylineLayer(polylines: widget.routePolylines),
-              MarkerLayer(
-                markers: [
-                  if (widget.userLocation != null)
-                    Marker(
-                      point: widget.userLocation!,
-                      width: 28,
-                      height: 28,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF007AFF),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(
-                                0xFF007AFF,
-                              ).withValues(alpha: 0.4),
-                              blurRadius: 10,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  for (final group in markerGroups)
-                    if (group.places.length > 1)
-                      Marker(
-                        point: group.center,
-                        width: 58,
-                        height: 58,
-                        child: _PlaceCluster(
-                          count: group.places.length,
-                          onTap: () {
-                            setState(() => _selectedPlaceId = null);
-                            widget.mapController.move(
-                              group.center,
-                              (_zoom + 2).clamp(
-                                PlaceMapView.minZoom,
-                                PlaceMapView.maxZoom,
+              ValueListenableBuilder<double>(
+                valueListenable: _interaction.settledZoom,
+                builder: (context, settledZoom, _) {
+                  final markerGroups = widget.clusterMarkers
+                      ? clusterMapPlaces(
+                          places,
+                          settledZoom,
+                          pointFor: (place, index) =>
+                              PlaceMapView.pointFor(place, index: index),
+                        )
+                      : [
+                          for (var i = 0; i < places.length; i++)
+                            MapMarkerGroup(
+                              places: [places[i]],
+                              center: PlaceMapView.pointFor(
+                                places[i],
+                                index: i,
                               ),
-                            );
-                          },
-                        ),
-                      )
-                    else
-                      Marker(
-                        point: group.center,
-                        width: 72,
-                        height: 82,
-                        alignment: Alignment.topCenter,
-                        child: _AppleStylePin(
-                          place: group.places.first,
-                          imagePath:
-                              group.places.first.coverImagePath ??
-                              controller
-                                  .primarySourceForPlace(group.places.first.id)
-                                  ?.imagePaths
-                                  .firstOrNull,
-                          visited: group.places.first.isVisited,
-                          focused:
-                              group.places.first.id == widget.focusPlaceId ||
-                              group.places.first.id == _selectedPlaceId,
-                          markerLabel:
-                              widget.markerLabels[group.places.first.id],
-                          onTap: () {
-                            _selectPlace(group.places.first, places);
-                          },
-                        ),
-                      ),
-                ],
+                            ),
+                        ];
+                  return ValueListenableBuilder<String?>(
+                    valueListenable: _interaction.selectedPlaceId,
+                    builder: (context, selectedPlaceId, _) => MarkerLayer(
+                      markers: [
+                        if (widget.userLocation != null)
+                          Marker(
+                            point: widget.userLocation!,
+                            width: 28,
+                            height: 28,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF007AFF),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 3,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF007AFF)
+                                        .withValues(alpha: 0.4),
+                                    blurRadius: 10,
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        for (final group in markerGroups)
+                          if (group.places.length > 1)
+                            Marker(
+                              point: group.center,
+                              width: 58,
+                              height: 58,
+                              child: _PlaceCluster(
+                                count: group.places.length,
+                                onTap: () {
+                                  _interaction.selectPlace(null);
+                                  widget.mapController.move(
+                                    group.center,
+                                    (settledZoom + 2).clamp(
+                                      PlaceMapView.minZoom,
+                                      PlaceMapView.maxZoom,
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          else
+                            Marker(
+                              point: group.center,
+                              width: settledZoom >= 17 ? 132 : 72,
+                              height: settledZoom >= 17 ? 104 : 82,
+                              alignment: Alignment.topCenter,
+                              child: _AppleStylePin(
+                                place: group.places.first,
+                                imagePath:
+                                    group.places.first.coverImagePath ??
+                                    controller
+                                        .primarySourceForPlace(
+                                          group.places.first.id,
+                                        )
+                                        ?.imagePaths
+                                        .firstOrNull,
+                                visited: group.places.first.isVisited,
+                                focused:
+                                    group.places.first.id ==
+                                        widget.focusPlaceId ||
+                                    group.places.first.id == selectedPlaceId,
+                                markerLabel:
+                                    widget.markerLabels[group.places.first.id],
+                                showName: settledZoom >= 17,
+                                onTap: () {
+                                  _selectPlace(group.places.first, places);
+                                },
+                              ),
+                            ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -290,93 +323,139 @@ class _PlaceMapViewState extends State<PlaceMapView> {
               child: widget.searchField,
             ),
           ),
-        if (_mapLoading)
-          Positioned(
-            top: widget.searchField != null ? 138 : 18,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _MapStatusChip(
-                icon: Icons.downloading_rounded,
-                label: '地図を読み込み中…',
-              ),
-            ),
-          ),
-        if (_tileErrors >= 3)
-          Positioned(
-            top: widget.searchField != null ? 138 : 18,
-            left: 20,
-            right: 20,
-            child: _MapRetryCard(onRetry: _retryTiles),
-          ),
-        if (selectedPlace != null && places.isNotEmpty)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 92,
-            height: 112,
-            child: PageView.builder(
-              controller: _placePageController,
-              itemCount: places.length,
-              onPageChanged: (index) {
-                final place = places[index];
-                setState(() => _selectedPlaceId = place.id);
-                widget.mapController.move(
-                  PlaceMapView.pointFor(place, index: index),
-                  widget.mapController.camera.zoom,
-                );
-              },
-              itemBuilder: (context, index) {
-                final place = places[index];
-                final source = controller.primarySourceForPlace(place.id);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
-                  child: _SelectedPlaceCard(
-                    place: place,
-                    positionLabel: '${index + 1}/${places.length}',
-                    imagePath:
-                        place.coverImagePath ?? source?.imagePaths.firstOrNull,
-                    onClose: () => setState(() => _selectedPlaceId = null),
-                    onOpen: () => showPlaceDetails(context, place),
-                    onRefreshSource: source?.url == null
-                        ? null
-                        : () async {
-                            final refreshed = await controller.shareReceiver
-                                .refreshOfficialPreview(source!, force: true);
-                            return refreshed.imagePaths.firstOrNull;
-                          },
+        ValueListenableBuilder<bool>(
+          valueListenable: _interaction.mapLoading,
+          builder: (context, loading, _) => loading
+              ? Positioned(
+                  top: widget.searchField != null ? 138 : 18,
+                  left: 0,
+                  right: 0,
+                  child: const Center(
+                    child: _MapStatusChip(
+                      icon: Icons.downloading_rounded,
+                      label: '地図を読み込み中…',
+                    ),
                   ),
-                );
-              },
-            ),
+                )
+              : const SizedBox.shrink(),
+        ),
+        ValueListenableBuilder<int>(
+          valueListenable: _interaction.tileErrors,
+          builder: (context, errors, _) => errors >= 3
+              ? Positioned(
+                  top: widget.searchField != null ? 138 : 18,
+                  left: 20,
+                  right: 20,
+                  child: _MapRetryCard(onRetry: _retryTiles),
+                )
+              : const SizedBox.shrink(),
+        ),
+        if (widget.onSearchArea != null)
+          ValueListenableBuilder<bool>(
+            valueListenable: _interaction.areaSearchAvailable,
+            builder: (context, available, _) => available
+                ? Positioned(
+                    top: widget.searchField != null ? 138 : 18,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: FilledButton.tonalIcon(
+                        onPressed: _searchCurrentArea,
+                        icon: const Icon(Icons.search_rounded, size: 18),
+                        label: const Text('このエリアを検索'),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
           ),
-        Positioned(
-          left: 16,
-          bottom: selectedPlace == null ? 100 : 210,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '長押しでピンを追加',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade700,
+        ValueListenableBuilder<String?>(
+          valueListenable: _interaction.selectedPlaceId,
+          builder: (context, selectedPlaceId, _) {
+            if (selectedPlaceId == null || places.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Positioned(
+              left: 0,
+              right: 0,
+              bottom: 92,
+              height: 112,
+              child: PageView.builder(
+                controller: _placePageController,
+                itemCount: places.length,
+                onPageChanged: (index) {
+                  final place = places[index];
+                  _interaction.selectPlace(place.id);
+                  widget.mapController.move(
+                    PlaceMapView.pointFor(place, index: index),
+                    widget.mapController.camera.zoom,
+                  );
+                },
+                itemBuilder: (context, index) {
+                  final place = places[index];
+                  final source = controller.primarySourceForPlace(place.id);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: _SelectedPlaceCard(
+                      place: place,
+                      positionLabel: '${index + 1}/${places.length}',
+                      imagePath:
+                          place.coverImagePath ??
+                          source?.imagePaths.firstOrNull,
+                      source: source,
+                      onClose: () => _interaction.selectPlace(null),
+                      onOpen: () => showPlaceDetails(context, place),
+                      onDirections: () async {
+                        final opened = await controller.directions
+                            .openDirections(place);
+                        if (!context.mounted || opened) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('経路を開けませんでした')),
+                        );
+                      },
+                      onRefreshSource: source?.url == null
+                          ? null
+                          : () async {
+                              final refreshed = await controller.shareReceiver
+                                  .refreshOfficialPreview(source!, force: true);
+                              return refreshed.imagePaths.firstOrNull;
+                            },
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+        ValueListenableBuilder<String?>(
+          valueListenable: _interaction.selectedPlaceId,
+          builder: (context, selectedPlaceId, _) => Positioned(
+            left: 16,
+            bottom: selectedPlaceId == null ? 100 : 210,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '長押しでピンを追加',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey.shade700,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              PinlogyMapTiles.attributionBadge(_style),
-            ],
+                const SizedBox(height: 6),
+                PinlogyMapTiles.attributionBadge(_style),
+              ],
+            ),
           ),
         ),
         Positioned(
@@ -442,52 +521,19 @@ class _PlaceMapViewState extends State<PlaceMapView> {
     );
   }
 
-  List<_MarkerGroup> _groupMarkers(List<Place> places, double zoom) {
-    if (zoom >= 15 || places.length < 2) {
-      return [
-        for (var i = 0; i < places.length; i++)
-          _MarkerGroup(
-            places: [places[i]],
-            center: PlaceMapView.pointFor(places[i], index: i),
-          ),
-      ];
-    }
-
-    final threshold = 360 / (1 << zoom.floor()) * .34;
-    final groups = <_MarkerGroup>[];
-    for (var i = 0; i < places.length; i++) {
-      final place = places[i];
-      final point = PlaceMapView.pointFor(place, index: i);
-      _MarkerGroup? match;
-      for (final group in groups) {
-        if ((group.center.latitude - point.latitude).abs() <= threshold &&
-            (group.center.longitude - point.longitude).abs() <= threshold) {
-          match = group;
-          break;
-        }
-      }
-      if (match == null) {
-        groups.add(_MarkerGroup(places: [place], center: point));
-      } else {
-        match.add(place, point);
-      }
-    }
-    return groups;
-  }
-
   void _showMapLoading() {
     _loadingTimer?.cancel();
-    if (!_mapLoading && mounted) setState(() => _mapLoading = true);
+    _interaction.mapLoading.value = true;
     _loadingTimer = Timer(const Duration(milliseconds: 850), () {
-      if (mounted && _tileErrors < 3) setState(() => _mapLoading = false);
+      if (mounted && _interaction.tileErrors.value < 3) {
+        _interaction.mapLoading.value = false;
+      }
     });
   }
 
   void _retryTiles() {
-    setState(() {
-      _tileErrors = 0;
-      _mapLoading = true;
-    });
+    _interaction.tileErrors.value = 0;
+    _interaction.mapLoading.value = true;
     _tileReset.add(null);
     final camera = widget.mapController.camera;
     unawaited(
@@ -517,7 +563,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
   void _fitAllPlaces() {
     if (widget.places.isEmpty) return;
     _showMapLoading();
-    setState(() => _selectedPlaceId = null);
+    _interaction.selectPlace(null);
     if (widget.places.length == 1) {
       widget.mapController.move(PlaceMapView.pointFor(widget.places.first), 16);
     } else {
@@ -527,7 +573,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
 
   void _selectPlace(Place place, List<Place> places) {
     final index = places.indexWhere((item) => item.id == place.id);
-    setState(() => _selectedPlaceId = place.id);
+    _interaction.selectPlace(place.id);
     widget.mapController.move(
       PlaceMapView.pointFor(place, index: index < 0 ? 0 : index),
       widget.mapController.camera.zoom,
@@ -541,6 +587,24 @@ class _PlaceMapViewState extends State<PlaceMapView> {
         curve: Curves.easeOutCubic,
       );
     });
+  }
+
+  void _scheduleCameraIdle() {
+    _cameraIdleTimer?.cancel();
+    _cameraIdleTimer = Timer(const Duration(milliseconds: 180), () {
+      final camera = _latestCamera;
+      if (!mounted || camera == null) return;
+      final movedByGesture = _cameraMovedByGesture;
+      _cameraMovedByGesture = false;
+      _interaction.settleCamera(zoom: camera.zoom, userGesture: movedByGesture);
+      if (_cameraReady) _scheduleCameraSave(camera);
+    });
+  }
+
+  void _searchCurrentArea() {
+    final camera = _latestCamera ?? widget.mapController.camera;
+    widget.onSearchArea?.call(camera);
+    _interaction.consumeAreaSearch();
   }
 
   String get _cameraKey => 'pinlogy_map_camera_v1_${widget.mapId}';
@@ -643,22 +707,6 @@ class _MapRetryCard extends StatelessWidget {
   );
 }
 
-class _MarkerGroup {
-  _MarkerGroup({required this.places, required this.center});
-
-  final List<Place> places;
-  LatLng center;
-
-  void add(Place place, LatLng point) {
-    final count = places.length;
-    center = LatLng(
-      (center.latitude * count + point.latitude) / (count + 1),
-      (center.longitude * count + point.longitude) / (count + 1),
-    );
-    places.add(place);
-  }
-}
-
 class _PlaceCluster extends StatelessWidget {
   const _PlaceCluster({required this.count, required this.onTap});
 
@@ -706,20 +754,26 @@ class _SelectedPlaceCard extends StatelessWidget {
     required this.place,
     required this.positionLabel,
     required this.imagePath,
+    required this.source,
     required this.onClose,
     required this.onOpen,
+    required this.onDirections,
     this.onRefreshSource,
   });
 
   final Place place;
   final String positionLabel;
   final String? imagePath;
+  final SourcePost? source;
   final VoidCallback onClose;
   final VoidCallback onOpen;
+  final VoidCallback onDirections;
   final Future<String?> Function()? onRefreshSource;
 
   @override
   Widget build(BuildContext context) {
+    final sourceLinks = SourceLinkService();
+    final canOpenSource = sourceLinks.canOpen(source);
     return Material(
       color: Colors.white.withValues(alpha: .97),
       elevation: 0,
@@ -763,9 +817,8 @@ class _SelectedPlaceCard extends StatelessWidget {
                       place.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -777,35 +830,97 @@ class _SelectedPlaceCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      place.address ?? place.category ?? '場所の詳細を見る',
+                      [place.category, place.area ?? place.address]
+                          .whereType<String>()
+                          .where((value) => value.trim().isNotEmpty)
+                          .join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF6F7C75),
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: const Color(0xFF6F7C75)),
                     ),
-                    const SizedBox(height: 5),
-                    const Text(
-                      '詳細を見る  ›',
-                      style: TextStyle(
-                        color: Color(0xFF205740),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Text(
+                          '詳細を見る  ›',
+                          style: TextStyle(
+                            color: Color(0xFF205740),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (canOpenSource) ...[
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () => _openSource(context, sourceLinks),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    sourceLinks.iconFor(source),
+                                    size: 14,
+                                    color: const Color(0xFF205740),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    sourceLinks.serviceLabel(source),
+                                    style: const TextStyle(
+                                      color: Color(0xFF205740),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: '閉じる',
-                onPressed: onClose,
-                icon: const Icon(Icons.close_rounded, size: 19),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    tooltip: '経路',
+                    onPressed: onDirections,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.directions_outlined, size: 20),
+                  ),
+                  IconButton(
+                    tooltip: '閉じる',
+                    onPressed: onClose,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close_rounded, size: 19),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _openSource(
+    BuildContext context,
+    SourceLinkService sourceLinks,
+  ) async {
+    final post = source;
+    if (post == null) return;
+    final opened = await sourceLinks.openPost(post);
+    if (!context.mounted || opened) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('元の投稿を開けませんでした')));
   }
 }
 
@@ -816,6 +931,7 @@ class _AppleStylePin extends StatelessWidget {
     required this.imagePath,
     required this.visited,
     required this.focused,
+    required this.showName,
     this.markerLabel,
     required this.onTap,
   });
@@ -824,8 +940,10 @@ class _AppleStylePin extends StatelessWidget {
   final String? imagePath;
   final bool visited;
   final bool focused;
+  final bool showName;
   final String? markerLabel;
   final VoidCallback onTap;
+  static final Map<String, _PinStyle> _styleCache = {};
 
   @override
   Widget build(BuildContext context) {
@@ -861,9 +979,8 @@ class _AppleStylePin extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(
-                      0xFF173D30,
-                    ).withValues(alpha: focused ? 0.28 : 0.18),
+                    color: const Color(0xFF173D30)
+                        .withValues(alpha: focused ? 0.28 : 0.18),
                     blurRadius: focused ? 16 : 9,
                     offset: const Offset(0, 4),
                   ),
@@ -888,13 +1005,10 @@ class _AppleStylePin extends StatelessWidget {
                   ? ColoredBox(
                       color: pinStyle.color,
                       child: Center(
-                        child: Text(
-                          visited ? '✓' : pinStyle.emoji,
-                          style: TextStyle(
-                            color: visited ? Colors.white : null,
-                            fontSize: visited ? 18 : 19,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        child: Icon(
+                          visited ? Icons.check_rounded : pinStyle.icon,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
                     )
@@ -957,6 +1071,25 @@ class _AppleStylePin extends StatelessWidget {
                 ),
               ),
             ),
+            if (showName)
+              Container(
+                constraints: const BoxConstraints(maxWidth: 126),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .92),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  place.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF244C39),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -964,34 +1097,40 @@ class _AppleStylePin extends StatelessWidget {
   }
 
   _PinStyle _styleFor(String? category, {required bool visited}) {
-    if (visited) return const _PinStyle(Color(0xFF57A67C), '✓');
+    if (visited) {
+      return const _PinStyle(Color(0xFF57A67C), Icons.check_rounded);
+    }
     final value = (category ?? '').toLowerCase();
+    return _styleCache.putIfAbsent(value, () => _uncachedStyleFor(value));
+  }
+
+  _PinStyle _uncachedStyleFor(String value) {
     if (value.contains('カフェ') || value.contains('coffee')) {
-      return const _PinStyle(Color(0xFFFFA66B), '☕');
+      return const _PinStyle(Color(0xFFFFA66B), Icons.local_cafe_rounded);
     }
     if (value.contains('レストラン') ||
         value.contains('飲食') ||
         value.contains('restaurant')) {
-      return const _PinStyle(Color(0xFFFF6F7D), '🍴');
+      return const _PinStyle(Color(0xFFFF6F7D), Icons.restaurant_rounded);
     }
     if (value.contains('観光') || value.contains('travel')) {
-      return const _PinStyle(Color(0xFF7D8BFF), '✈️');
+      return const _PinStyle(Color(0xFF7D8BFF), Icons.photo_camera_rounded);
     }
     if (value.contains('宿') || value.contains('hotel')) {
-      return const _PinStyle(Color(0xFFB57BE8), '🛏');
+      return const _PinStyle(Color(0xFFB57BE8), Icons.bed_rounded);
     }
     if (value.contains('公園') || value.contains('自然')) {
-      return const _PinStyle(Color(0xFF55B98A), '🌿');
+      return const _PinStyle(Color(0xFF55B98A), Icons.park_rounded);
     }
-    return const _PinStyle(Color(0xFFFF6F91), '●');
+    return const _PinStyle(Color(0xFFFF6F91), Icons.place_rounded);
   }
 }
 
 class _PinStyle {
-  const _PinStyle(this.color, this.emoji);
+  const _PinStyle(this.color, this.icon);
 
   final Color color;
-  final String emoji;
+  final IconData icon;
 }
 
 class _SoftFab extends StatelessWidget {

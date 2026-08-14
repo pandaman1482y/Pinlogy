@@ -144,12 +144,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _drainSharePrompts() async {
     if (_drainingSharePrompts) return;
     _drainingSharePrompts = true;
+    final controller = AppScope.read(context);
     try {
       while (mounted && _queuedSharePrompts.isNotEmpty) {
         final post = _queuedSharePrompts.removeAt(0);
         // さらに共有が待っている場合は先頭をメモなしで確定し、最後の1件だけ入力を待つ。
         if (_queuedSharePrompts.isNotEmpty) {
-          await AppScope.read(context).analyzeSharedPost(post);
+          await controller.analyzeSharedPost(post);
           continue;
         }
         await _promptForSharedPost(post);
@@ -187,6 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await controller.analyzeSharedPost(displayPost);
       return;
     }
+    FocusManager.instance.primaryFocus?.unfocus();
     final memoController = TextEditingController();
     String? memo;
     try {
@@ -196,6 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (dialogContext) {
           _activeShareDialogContext = dialogContext;
           return AlertDialog(
+            scrollable: true,
             insetPadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 24,
@@ -204,46 +207,45 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('取り込みメモ'),
             content: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (displayPost.imagePaths.isNotEmpty) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: AspectRatio(
-                          aspectRatio: 16 / 9,
-                          child: PlacePhoto(
-                            path: displayPost.imagePaths.first,
-                            fallback: const ColoredBox(
-                              color: Color(0xFFE8F1EC),
-                              child: Center(
-                                child: Icon(Icons.movie_outlined, size: 36),
-                              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (displayPost.imagePaths.isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: PlacePhoto(
+                          path: displayPost.imagePaths.first,
+                          fallback: const ColoredBox(
+                            color: Color(0xFFE8F1EC),
+                            child: Center(
+                              child: Icon(Icons.movie_outlined, size: 36),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                    ],
-                    SourcePostTile(post: displayPost, compact: true),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: memoController,
-                      autofocus: false,
-                      minLines: 3,
-                      maxLines: 6,
-                      decoration: const InputDecoration(
-                        hintText: '店名や住所など（任意）',
-                        helperText: '入力すると場所を検索しやすくなります',
-                        helperMaxLines: 2,
-                      ),
                     ),
+                    const SizedBox(height: 12),
                   ],
-                ),
+                  SourcePostTile(post: displayPost, compact: true),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: memoController,
+                    autofocus: false,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                      hintText: '店名や住所など（任意）',
+                      helperText: '入力すると場所を検索しやすくなります',
+                      helperMaxLines: 2,
+                    ),
+                  ),
+                ],
               ),
             ),
+            actionsOverflowDirection: VerticalDirection.down,
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, ''),

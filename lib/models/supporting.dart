@@ -77,6 +77,7 @@ class ExtractionCandidate {
     this.category,
     this.genres = const [],
     this.evidenceSummary,
+    this.evidenceImageIndex,
     this.confidencePercent,
     this.match = PlaceMatchConfidence.high,
     this.hasAddressMismatch = false,
@@ -99,6 +100,7 @@ class ExtractionCandidate {
   final String? category;
   final List<String> genres;
   final String? evidenceSummary;
+  final int? evidenceImageIndex;
   final int? confidencePercent;
   final PlaceMatchConfidence match;
   final bool hasAddressMismatch;
@@ -121,6 +123,7 @@ class ExtractionCandidate {
     'category': category,
     'genres': genres,
     'evidenceSummary': evidenceSummary,
+    'evidenceImageIndex': evidenceImageIndex,
     'confidencePercent': confidencePercent,
     'match': match.name,
     'hasAddressMismatch': hasAddressMismatch,
@@ -147,6 +150,7 @@ class ExtractionCandidate {
             .whereType<String>()
             .toList(),
         evidenceSummary: json['evidenceSummary'] as String?,
+        evidenceImageIndex: (json['evidenceImageIndex'] as num?)?.toInt(),
         confidencePercent: json['confidencePercent'] as int?,
         match: PlaceMatchConfidence.fromName(json['match'] as String?),
         hasAddressMismatch: (json['hasAddressMismatch'] as bool?) ?? false,
@@ -199,6 +203,7 @@ class PostAnalysisResponse {
     this.evidenceText,
     this.analysisSource = 'local',
     this.previewImagePath,
+    this.previewImagePaths = const [],
   });
 
   final String sourcePostId;
@@ -209,6 +214,7 @@ class PostAnalysisResponse {
   final String? evidenceText;
   final String analysisSource;
   final String? previewImagePath;
+  final List<String> previewImagePaths;
 
   factory PostAnalysisResponse.fromJson(Map<String, dynamic> json) {
     final list = (json['candidates'] as List? ?? const [])
@@ -221,6 +227,9 @@ class PostAnalysisResponse {
       evidenceText: json['evidence_text'] as String?,
       analysisSource: json['analysis_source'] as String? ?? 'ai',
       previewImagePath: json['preview_image_path'] as String?,
+      previewImagePaths: ((json['preview_image_paths'] as List?) ?? const [])
+          .whereType<String>()
+          .toList(),
     );
   }
 }

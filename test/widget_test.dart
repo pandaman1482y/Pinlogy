@@ -245,9 +245,25 @@ void main() {
     final controller = await pumpApp(tester);
     await tester.tap(find.text('受信箱'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('喫茶ソワレ'),
+      220,
+      scrollable: find
+          .descendant(
+            of: find
+                .byWidgetPredicate(
+                  (widget) =>
+                      widget is ListView &&
+                      widget.scrollDirection == Axis.vertical,
+                )
+                .last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.text('喫茶ソワレ').first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('件見つかりました'), findsOneWidget);
+    expect(find.textContaining('件の場所を特定しました'), findsOneWidget);
     expect(find.text('喫茶ソワレ'), findsWidgets);
     expect(find.text('全選択'), findsOneWidget);
 
@@ -261,6 +277,22 @@ void main() {
     await pumpApp(tester);
     await tester.tap(find.text('受信箱'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('喫茶ソワレ'),
+      220,
+      scrollable: find
+          .descendant(
+            of: find
+                .byWidgetPredicate(
+                  (widget) =>
+                      widget is ListView &&
+                      widget.scrollDirection == Axis.vertical,
+                )
+                .last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.text('喫茶ソワレ').first);
     await tester.pumpAndSettle();
     final searchButton = find.text('店名・住所で正しい場所を検索').first;
@@ -390,8 +422,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('大阪旅行の地図'), findsOneWidget);
     expect(find.byType(PlaceMapView), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('2'), findsWidgets);
   });
 
   test('プランの開始時刻を保存・復元できる', () {

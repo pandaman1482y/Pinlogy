@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -12,6 +13,7 @@ import '../../services/location_services.dart';
 import '../../services/share_receiver_service.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/feedback.dart';
+import '../../widgets/ios_mapkit_view.dart';
 import '../../widgets/place_map_view.dart';
 import '../../widgets/sheet_layout.dart';
 import '../../widgets/source_post_tile.dart';
@@ -173,64 +175,71 @@ class MapsTab extends StatelessWidget {
                 query: queryController.text,
                 filter: filter,
               );
-              return SizedBox(
-                height: modalSheetHeight(context),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '横断検索',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
+              final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+              return AnimatedPadding(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: EdgeInsets.only(bottom: keyboardHeight),
+                child: SizedBox(
+                  height: modalSheetHeight(context),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '横断検索',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: queryController,
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: '店名・住所・タグ・メモ',
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: queryController,
+                          autofocus: false,
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            hintText: '店名・住所・タグ・メモ',
+                          ),
+                          onChanged: (_) => setModalState(() {}),
                         ),
-                        onChanged: (_) => setModalState(() {}),
-                      ),
-                      const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (final option in PlaceFilterOption.values) ...[
-                              FilterChip(
-                                label: Text(option.label),
-                                selected: filter == option,
-                                onSelected: (_) =>
-                                    setModalState(() => filter = option),
-                              ),
-                              const SizedBox(width: 8),
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final option
+                                  in PlaceFilterOption.values) ...[
+                                FilterChip(
+                                  label: Text(option.label),
+                                  selected: filter == option,
+                                  onSelected: (_) =>
+                                      setModalState(() => filter = option),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: results.isEmpty
-                            ? const EmptyState(
-                                icon: Icons.search_off,
-                                title: '見つかりませんでした',
-                                message: 'キーワードや絞り込みを変えてみてください。',
-                              )
-                            : ListView.separated(
-                                itemCount: results.length,
-                                separatorBuilder: (_, index) =>
-                                    const SizedBox(height: 8),
-                                itemBuilder: (_, i) =>
-                                    PlaceListTile(place: results[i]),
-                              ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: results.isEmpty
+                              ? const EmptyState(
+                                  icon: Icons.search_off,
+                                  title: '見つかりませんでした',
+                                  message: 'キーワードや絞り込みを変えてみてください。',
+                                )
+                              : ListView.separated(
+                                  itemCount: results.length,
+                                  separatorBuilder: (_, index) =>
+                                      const SizedBox(height: 8),
+                                  itemBuilder: (_, i) =>
+                                      PlaceListTile(place: results[i]),
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -336,52 +345,54 @@ class MapsTab extends StatelessWidget {
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.add_location_alt_outlined),
           title: const Text('場所を手動で追加'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('店名だけで見つからない場合は、駅名や住所も一緒に入力してください。'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: queryController,
-                autofocus: false,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  labelText: '店名・住所',
-                  hintText: '例：喫茶ソワレ 京都',
-                ),
-                onSubmitted: (value) =>
-                    Navigator.pop(dialogContext, value.trim()),
-              ),
-              const SizedBox(height: 16),
-              const Row(
-                children: [
-                  Expanded(child: Divider()),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('または'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('店名だけで見つからない場合は、駅名や住所も一緒に入力してください。'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: queryController,
+                  autofocus: false,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    labelText: '店名・住所',
+                    hintText: '例：喫茶ソワレ 京都',
                   ),
-                  Expanded(child: Divider()),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    screenshotRequested = true;
-                    Navigator.pop(dialogContext);
-                  },
-                  icon: const Icon(Icons.add_photo_alternate_outlined),
-                  label: const Text('AIでスクショから追加（最大5枚）'),
+                  onSubmitted: (value) =>
+                      Navigator.pop(dialogContext, value.trim()),
                 ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '投稿の途中にあるお店は、その画像や動画の場面をスクショしてください。',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    Expanded(child: Divider()),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text('または'),
+                    ),
+                    Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      screenshotRequested = true;
+                      Navigator.pop(dialogContext);
+                    },
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text('AIでスクショから追加（最大5枚）'),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '投稿の途中にあるお店は、その画像や動画の場面をスクショしてください。',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -1145,17 +1156,24 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  static const _mapKitComparisonEnabled = bool.fromEnvironment(
+    'PINLOGY_MAPKIT_COMPARE',
+  );
   bool listView = false;
   String query = '';
+  String? category;
   PlaceFilterOption filter = PlaceFilterOption.all;
   PlaceSortOption sort = PlaceSortOption.registeredDesc;
+  final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
   LatLng? _userLocation;
   bool _locating = false;
   String? _focusPlaceId;
+  LatLngBounds? _searchBounds;
 
   @override
   void dispose() {
+    _searchController.dispose();
     _mapController.dispose();
     super.dispose();
   }
@@ -1178,12 +1196,36 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final places = controller.queryPlaces(
+    final matchingPlaces = controller.queryPlaces(
       query: query,
       filter: filter,
       sort: sort,
       mapId: map.id,
     );
+    final availableCategories =
+        matchingPlaces
+            .map((place) => place.category?.trim())
+            .whereType<String>()
+            .where((value) => value.isNotEmpty && value != 'その他')
+            .toSet()
+            .toList()
+          ..sort();
+    final effectiveCategory = availableCategories.contains(category)
+        ? category
+        : null;
+    final categoryPlaces = effectiveCategory == null
+        ? matchingPlaces
+        : matchingPlaces
+              .where((place) => place.category?.trim() == effectiveCategory)
+              .toList(growable: false);
+    final places = _searchBounds == null
+        ? categoryPlaces
+        : categoryPlaces
+              .where(
+                (place) =>
+                    _searchBounds!.contains(PlaceMapView.pointFor(place)),
+              )
+              .toList(growable: false);
     return PinlogyBackdrop(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -1204,6 +1246,17 @@ class _MapScreenState extends State<MapScreen> {
             ],
           ),
           actions: [
+            if (_mapKitComparisonEnabled &&
+                defaultTargetPlatform == TargetPlatform.iOS)
+              IconButton(
+                tooltip: 'MapKit版と比較',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MapKitComparisonPage(places: places),
+                  ),
+                ),
+                icon: const Icon(Icons.compare_rounded),
+              ),
             IconButton(
               tooltip: listView ? '地図で表示' : '一覧で表示',
               onPressed: () => setState(() => listView = !listView),
@@ -1215,7 +1268,10 @@ class _MapScreenState extends State<MapScreen> {
         ),
         body: Column(
           children: [
-            if (filter != PlaceFilterOption.all || query.isNotEmpty)
+            if (filter != PlaceFilterOption.all ||
+                query.isNotEmpty ||
+                effectiveCategory != null ||
+                _searchBounds != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Align(
@@ -1226,13 +1282,27 @@ class _MapScreenState extends State<MapScreen> {
                       if (query.isNotEmpty)
                         Chip(
                           label: Text('「$query」'),
-                          onDeleted: () => setState(() => query = ''),
+                          onDeleted: () {
+                            _searchController.clear();
+                            setState(() => query = '');
+                          },
                         ),
                       if (filter != PlaceFilterOption.all)
                         Chip(
                           label: Text(filter.label),
                           onDeleted: () =>
                               setState(() => filter = PlaceFilterOption.all),
+                        ),
+                      if (effectiveCategory != null)
+                        Chip(
+                          label: Text(effectiveCategory),
+                          onDeleted: () => setState(() => category = null),
+                        ),
+                      if (_searchBounds != null)
+                        Chip(
+                          avatar: const Icon(Icons.map_outlined, size: 17),
+                          label: const Text('地図の範囲内'),
+                          onDeleted: () => setState(() => _searchBounds = null),
                         ),
                       Chip(label: Text(sort.label)),
                     ],
@@ -1242,7 +1312,12 @@ class _MapScreenState extends State<MapScreen> {
             Expanded(
               child: listView
                   ? _placeList(places, map.id)
-                  : _mapCanvas(places, map.id),
+                  : _mapCanvas(
+                      places,
+                      map.id,
+                      availableCategories: availableCategories,
+                      effectiveCategory: effectiveCategory,
+                    ),
             ),
           ],
         ),
@@ -1261,6 +1336,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _showFilterSheet(BuildContext context) async {
     if (ModalRoute.of(context)?.isCurrent != true) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1367,7 +1443,12 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  Widget _mapCanvas(List<Place> places, String mapId) {
+  Widget _mapCanvas(
+    List<Place> places,
+    String mapId, {
+    required List<String> availableCategories,
+    required String? effectiveCategory,
+  }) {
     return Stack(
       children: [
         PlaceMapView(
@@ -1379,7 +1460,12 @@ class _MapScreenState extends State<MapScreen> {
           focusPlaceId: _focusPlaceId,
           onLongPress: (point) => _addPinAt(context, mapId, point),
           onMyLocation: () => _goToMyLocation(context),
+          onSearchArea: (camera) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            setState(() => _searchBounds = camera.visibleBounds);
+          },
           searchField: TextField(
+            controller: _searchController,
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
               hintText: 'このマップを検索',
@@ -1407,8 +1493,24 @@ class _MapScreenState extends State<MapScreen> {
                 ]) ...[
                   FilterPill(
                     label: option.label,
-                    selected: filter == option,
-                    onTap: () => setState(() => filter = option),
+                    selected: option == PlaceFilterOption.all
+                        ? filter == PlaceFilterOption.all &&
+                              effectiveCategory == null
+                        : filter == option,
+                    onTap: () => setState(() {
+                      filter = option;
+                      if (option == PlaceFilterOption.all) category = null;
+                    }),
+                  ),
+                  const SizedBox(width: 7),
+                ],
+                for (final item in availableCategories) ...[
+                  FilterPill(
+                    label: item,
+                    selected: effectiveCategory == item,
+                    onTap: () => setState(() {
+                      category = effectiveCategory == item ? null : item;
+                    }),
                   ),
                   const SizedBox(width: 7),
                 ],

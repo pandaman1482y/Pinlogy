@@ -16,6 +16,12 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "PinlogyMapKit") {
+      registrar.register(
+        PinlogyMapKitViewFactory(messenger: registrar.messenger()),
+        withId: "com.pinlogy/mapkit"
+      )
+    }
     let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     setupShareChannel()
     return launched

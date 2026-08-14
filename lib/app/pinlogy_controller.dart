@@ -404,13 +404,13 @@ class PinlogyController extends ChangeNotifier {
     try {
       if ((post.url?.contains('/photo/') ?? false) &&
           analysisService is AiPostAnalysisService) {
-        final path = await (analysisService as AiPostAnalysisService)
-            .fetchTikTokPhotoPreview(
+        final paths = await (analysisService as AiPostAnalysisService)
+            .fetchTikTokPhotoPreviews(
               PostAnalysisRequest(sourcePostId: post.id, url: post.url),
             );
-        if (path != null) {
+        if (paths.isNotEmpty) {
           await sourcePosts.update(
-            post.copyWith(imagePaths: [path], updatedAt: DateTime.now()),
+            post.copyWith(imagePaths: paths, updatedAt: DateTime.now()),
           );
           return true;
         }

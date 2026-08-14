@@ -715,9 +715,8 @@ class _QuickAction extends StatelessWidget {
             const SizedBox(height: 5),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: emphasized ? Colors.white : mossDeep,
-              ),
+              style: Theme.of(context).textTheme.labelLarge
+                  ?.copyWith(color: emphasized ? Colors.white : mossDeep),
             ),
           ],
         ),
@@ -732,6 +731,7 @@ Future<void> showAddPlaceSheet(
   void Function(Place place)? onPlaceAdded,
 }) async {
   if (ModalRoute.of(context)?.isCurrent != true) return;
+  FocusManager.instance.primaryFocus?.unfocus();
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1119,9 +1119,8 @@ class _AddPlaceSheet extends StatelessWidget {
     if (!context.mounted) return;
     final paths = images.map((image) => image.path).toList();
     if (paths.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('画像ファイルを読み込めませんでした')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('画像ファイルを読み込めませんでした')));
       return;
     }
     final controller = AppScope.read(context);
@@ -1192,9 +1191,8 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
           children: [
             Text(
               '場所を検索',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
@@ -1204,7 +1202,7 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: textController,
-              autofocus: true,
+              autofocus: false,
               decoration: const InputDecoration(
                 hintText: '例: 東京駅、京都市下京区…',
                 prefixIcon: Icon(Icons.search),
