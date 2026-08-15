@@ -102,8 +102,8 @@ class AiPostAnalysisService implements PostAnalysisService {
       }.take(5).toList(growable: false);
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
-        'preview_image_path': fetchedPreviewPaths.firstOrNull ??
-            analysisImagePaths.firstOrNull,
+        'preview_image_path':
+            fetchedPreviewPaths.firstOrNull ?? analysisImagePaths.firstOrNull,
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
@@ -326,6 +326,7 @@ class AiPostAnalysisService implements PostAnalysisService {
       encoded.add(dataUrl);
       sources.add(sourcePath);
     }
+
     for (final rawPath in paths.take(5)) {
       try {
         final remote = Uri.tryParse(rawPath);

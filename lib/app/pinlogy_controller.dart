@@ -456,9 +456,10 @@ class PinlogyController extends ChangeNotifier {
           for (final path in post.imagePaths) {
             if (await sourceMedia.isAvailable(path)) retained.add(path);
           }
-          final merged = {...retained, ...paths}
-              .take(SourceMediaStore.maxImages)
-              .toList(growable: false);
+          final merged = {
+            ...retained,
+            ...paths,
+          }.take(SourceMediaStore.maxImages).toList(growable: false);
           await sourcePosts.update(
             post.copyWith(
               imagePaths: merged,
