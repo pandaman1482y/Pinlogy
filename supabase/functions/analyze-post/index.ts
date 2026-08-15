@@ -297,35 +297,122 @@ function extractInstagramPhotoUrls(html: string) {
 
   const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
-    const decoded = decodeHtml(match[1] ?? "")
-      .replaceAll("\\u0026", "&")
-      .replaceAll("\\u002F", "/")
-      .replaceAll("\\/", "/");
-    if (!decoded.includes("carousel_media") &&
-      !decoded.includes("edge_sidecar_to_children")) continue;
-    for (const urlMatch of decoded.matchAll(/https:\/\/[^\s"'<>\\]+/g)) {
-      const url = urlMatch[0].replace(/[),\]]+$/, "");
-      if (isAllowedInstagramImage(url) && !candidates.includes(url)) {
-        candidates.push(url);
-      }
-      if (candidates.length >= 5) break;
+    const decoded = normalizeEmbeddedJson(match[1] ?? "");
+    if (!looksLikeInstagramPostMedia(decoded)) continue;
+    try {
+      collectInstagramPostImages(JSON.parse(decoded), candidates);
+    } catch {
+      collectInstagramUrlsFromMarkedBlocks(decoded, candidates);
     }
     if (candidates.length >= 5) break;
   }
   return candidates.slice(0, 5);
 }
 
+function looksLikeInstagramPostMedia(value: string) {
+  return value.includes("carousel_media") ||
+    value.includes("edge_sidecar_to_children") ||
+    value.includes("xdt_api__v1__media__shortcode__web_info") ||
+    value.includes("image_versions2");
+}
+
+function collectInstagramPostImages(
+  value: unknown,
+  output: string[],
+  insidePostMedia = false,
+) {
+  if (output.length >= 5 || value == null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectInstagramPostImages(item, output, insidePostMedia);
+    }
+    return;
+  }
+  if (typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  const mediaKeys = [
+    "carousel_media",
+    "edge_sidecar_to_children",
+    "xdt_api__v1__media__shortcode__web_info",
+    "image_versions2",
+  ];
+  const isMediaNode = insidePostMedia || mediaKeys.some((key) => key in record);
+  if (isMediaNode) {
+    for (const key of ["display_url", "image_url", "thumbnail_url", "url"]) {
+      addInstagramImage(record[key], output);
+    }
+    const candidates = record.candidates;
+    if (Array.isArray(candidates)) {
+      for (const candidate of candidates) {
+        if (candidate && typeof candidate === "object") {
+          addInstagramImage(
+            (candidate as Record<string, unknown>).url,
+            output,
+          );
+          if (output.length >= 5) return;
+        }
+      }
+    }
+  }
+  for (const [key, nested] of Object.entries(record)) {
+    collectInstagramPostImages(
+      nested,
+      output,
+      isMediaNode || mediaKeys.includes(key),
+    );
+    if (output.length >= 5) return;
+  }
+}
+
+function addInstagramImage(value: unknown, output: string[]) {
+  if (typeof value !== "string" || output.length >= 5) return;
+  const normalized = normalizeEmbeddedJson(value);
+  const url = normalized.match(/https:\/\/[^\s"'<>\\]+/)?.[0]
+    ?.replace(/[),\]]+$/, "");
+  if (url && isAllowedInstagramImage(url) && !hasSameImage(output, url)) {
+    output.push(url);
+  }
+}
+
+function collectInstagramUrlsFromMarkedBlocks(value: string, output: string[]) {
+  const markers = [
+    "carousel_media",
+    "edge_sidecar_to_children",
+    "image_versions2",
+  ];
+  for (const marker of markers) {
+    let offset = 0;
+    while (output.length < 5) {
+      const index = value.indexOf(marker, offset);
+      if (index < 0) break;
+      const block = value.slice(index, Math.min(value.length, index + 250_000));
+      for (const match of block.matchAll(/https:\/\/[^\s"'<>\\]+/g)) {
+        const url = match[0].replace(/[),\]]+$/, "");
+        if (isAllowedInstagramImage(url) && !hasSameImage(output, url)) {
+          output.push(url);
+        }
+        if (output.length >= 5) break;
+      }
+      offset = index + marker.length;
+    }
+  }
+}
+
 /// TikTokが公開HTMLへ埋め込んだ写真カルーセルだけを抽出する。
 /// アバターやおすすめ投稿画像が混ざらないよう写真投稿の配下だけを読む。
 function extractTikTokPhotoUrls(html: string) {
   const candidates: string[] = [];
+  const representative = meta(html, "og:image");
+  if (representative && isAllowedTikTokImage(representative)) {
+    candidates.push(representative);
+  }
   const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
     const raw = match[1]?.trim();
-    if (!raw || (!raw.includes("imagePost") && !raw.includes("photoImages"))) {
+    if (!raw || !looksLikeTikTokPhotoPost(raw)) {
       continue;
     }
-    const decoded = decodeHtml(raw);
+    const decoded = normalizeEmbeddedJson(raw);
     try {
       collectPhotoUrls(JSON.parse(decoded), candidates);
     } catch {
@@ -350,17 +437,34 @@ function collectPhotoUrls(value: unknown, output: string[]) {
   if (typeof value !== "object") return;
   const record = value as Record<string, unknown>;
   // 現行TikTok写真投稿: imagePost.images[].imageURL.urlList[]
-  const imagePost = record.imagePost;
-  if (imagePost != null) collectAllowedUrls(imagePost, output);
-  const photos = record.photoImages;
-  if (Array.isArray(photos)) {
-    for (const photo of photos) collectAllowedUrls(photo, output);
+  const photoKeys = [
+    "imagePost",
+    "photoImages",
+    "image_post_info",
+    "imagePostInfo",
+  ];
+  for (const key of photoKeys) {
+    if (record[key] != null) collectAllowedUrls(record[key], output);
   }
   for (const [key, nested] of Object.entries(record)) {
-    if (key !== "imagePost" && key !== "photoImages") {
+    if (!photoKeys.includes(key)) {
       collectPhotoUrls(nested, output);
     }
   }
+}
+
+function looksLikeTikTokPhotoPost(value: string) {
+  return value.includes("imagePost") ||
+    value.includes("photoImages") ||
+    value.includes("image_post_info") ||
+    value.includes("imagePostInfo");
+}
+
+function normalizeEmbeddedJson(value: string) {
+  return decodeHtml(value)
+    .replaceAll("\\u0026", "&")
+    .replaceAll("\\u002F", "/")
+    .replaceAll("\\/", "/");
 }
 
 function collectAllowedUrls(value: unknown, output: string[]) {
@@ -372,7 +476,9 @@ function collectAllowedUrls(value: unknown, output: string[]) {
       .replaceAll("\\/", "/");
     for (const match of normalized.matchAll(/https:\/\/[^\s"'<>\\]+/g)) {
       const url = match[0].replace(/[),\]]+$/, "");
-      if (isAllowedTikTokImage(url) && !output.includes(url)) output.push(url);
+      if (isAllowedTikTokImage(url) && !hasSameImage(output, url)) {
+        output.push(url);
+      }
       if (output.length >= 5) return;
     }
     return;
@@ -382,9 +488,39 @@ function collectAllowedUrls(value: unknown, output: string[]) {
     return;
   }
   if (typeof value === "object") {
-    for (const nested of Object.values(value as Record<string, unknown>)) {
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.urlList)) {
+      for (const candidate of record.urlList) {
+        if (typeof candidate !== "string") continue;
+        const normalized = normalizeEmbeddedJson(candidate);
+        if (isAllowedTikTokImage(normalized) &&
+          !hasSameImage(output, normalized)) {
+          output.push(normalized);
+          break;
+        }
+      }
+    }
+    for (const [key, nested] of Object.entries(record)) {
+      if (key === "urlList") continue;
       collectAllowedUrls(nested, output);
     }
+  }
+}
+
+function hasSameImage(output: string[], candidate: string) {
+  try {
+    const target = new URL(candidate);
+    return output.some((value) => {
+      try {
+        const current = new URL(value);
+        return current.hostname === target.hostname &&
+          current.pathname === target.pathname;
+      } catch {
+        return value === candidate;
+      }
+    });
+  } catch {
+    return output.includes(candidate);
   }
 }
 
