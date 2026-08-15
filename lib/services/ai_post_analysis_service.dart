@@ -49,7 +49,7 @@ class AiPostAnalysisService implements PostAnalysisService {
       final uri = Uri.parse(
         '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
       );
-      final imageDataUrls = await _readImages(request.imageUrls);
+      final encodedImages = await _readImages(request.imageUrls);
       final deviceId = await _deviceId();
       final response = await _client
           .post(
@@ -67,7 +67,7 @@ class AiPostAnalysisService implements PostAnalysisService {
                   .toList(),
               'local_summary': local.rawSummary,
               'ocr_text': local.evidenceText,
-              'image_data_urls': imageDataUrls,
+              'image_data_urls': encodedImages.dataUrls,
             }),
           )
           // 5枚画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
@@ -88,18 +88,24 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
-      var previewImagePaths = await _savePreviewImages(
+      var fetchedPreviewPaths = await _savePreviewImages(
         request.sourcePostId,
         decoded,
       );
-      if (previewImagePaths.isEmpty) {
+      if (fetchedPreviewPaths.isEmpty) {
         final preview = await fetchSocialPostPreview(request);
-        if (preview != null) previewImagePaths = [preview];
+        if (preview != null) fetchedPreviewPaths = [preview];
       }
+      final analysisImagePaths = {
+        ...encodedImages.sourcePaths,
+        ...fetchedPreviewPaths,
+      }.take(5).toList(growable: false);
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
-        'preview_image_path': previewImagePaths.firstOrNull,
-        'preview_image_paths': previewImagePaths,
+        'preview_image_path': fetchedPreviewPaths.firstOrNull ??
+            analysisImagePaths.firstOrNull,
+        // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
+        'preview_image_paths': analysisImagePaths,
       });
       if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
@@ -311,8 +317,15 @@ class AiPostAnalysisService implements PostAnalysisService {
     await preferences.setStringList(_cacheIndexKey, index.take(30).toList());
   }
 
-  Future<List<String>> _readImages(List<String> paths) async {
+  Future<_EncodedImages> _readImages(List<String> paths) async {
     final encoded = <String>[];
+    final sources = <String>[];
+    final seen = <String>{};
+    void addImage(String dataUrl, String sourcePath) {
+      if (!seen.add(dataUrl)) return;
+      encoded.add(dataUrl);
+      sources.add(sourcePath);
+    }
     for (final rawPath in paths.take(5)) {
       try {
         final remote = Uri.tryParse(rawPath);
@@ -331,7 +344,7 @@ class AiPostAnalysisService implements PostAnalysisService {
             if (mime == 'image/jpeg' ||
                 mime == 'image/png' ||
                 mime == 'image/webp') {
-              encoded.add('data:$mime;base64,${base64Encode(bytes)}');
+              addImage('data:$mime;base64,${base64Encode(bytes)}', rawPath);
             }
           }
           continue;
@@ -351,12 +364,12 @@ class AiPostAnalysisService implements PostAnalysisService {
             : lower.endsWith('.webp')
             ? 'image/webp'
             : 'image/jpeg';
-        encoded.add('data:$mime;base64,${base64Encode(bytes)}');
+        addImage('data:$mime;base64,${base64Encode(bytes)}', rawPath);
       } catch (_) {
         // 読めない画像があっても投稿文・端末OCRで解析を続ける。
       }
     }
-    return encoded;
+    return _EncodedImages(dataUrls: encoded, sourcePaths: sources);
   }
 
   bool _isAllowedPreviewHost(String rawHost) {
@@ -368,4 +381,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       'ytimg.com',
     ].any((domain) => host == domain || host.endsWith('.$domain'));
   }
+}
+
+class _EncodedImages {
+  const _EncodedImages({required this.dataUrls, required this.sourcePaths});
+
+  final List<String> dataUrls;
+  final List<String> sourcePaths;
 }

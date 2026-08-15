@@ -21,6 +21,7 @@ import '../services/location_services.dart';
 import '../services/post_category_service.dart';
 import '../services/share_receiver_service.dart';
 import '../services/source_link_service.dart';
+import '../services/source_media_store.dart';
 
 /// UIから参照するアプリ状態。
 class PinlogyController extends ChangeNotifier {
@@ -46,6 +47,7 @@ class PinlogyController extends ChangeNotifier {
        inAppRoutes = inAppRouteService ?? InAppRouteService(),
        cloud = cloudSyncService ?? CloudSyncService(),
        sourceLinks = SourceLinkService(),
+       sourceMedia = SourceMediaStore(),
        _seedIfEmpty = seedIfEmpty;
 
   final LocalRepositoryHub hub;
@@ -57,6 +59,7 @@ class PinlogyController extends ChangeNotifier {
   final InAppRouteService inAppRoutes;
   final CloudSyncService cloud;
   final SourceLinkService sourceLinks;
+  final SourceMediaStore sourceMedia;
   final bool _seedIfEmpty;
 
   bool get aiBackendConfigured => AiPostAnalysisService.backendConfigured;
@@ -68,6 +71,7 @@ class PinlogyController extends ChangeNotifier {
     sourcePosts: hub.sourcePosts,
     analysis: hub.analysis,
     analysisService: analysisService,
+    mediaStore: sourceMedia,
   );
   late final AnalysisRunner analysisRunner = AnalysisRunner(
     hub: hub,
@@ -136,6 +140,7 @@ class PinlogyController extends ChangeNotifier {
       // ネイティブ共有の待ちで起動をブロックしない
       if (enablePlatformShare) {
         unawaited(shareIntake.start());
+        unawaited(_repairMissingThumbnails(preferences));
       }
     } catch (error) {
       loadError = toUserMessage(error);
@@ -143,6 +148,44 @@ class PinlogyController extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _repairMissingThumbnails(SharedPreferences preferences) async {
+    const attemptsKey = 'pinlogy_thumbnail_repair_attempts_v1';
+    final attempted =
+        preferences.getStringList(attemptsKey)?.toSet() ?? <String>{};
+    var attemptedThisLaunch = 0;
+    for (final post in hub.snapshot.sourcePosts) {
+      if (attemptedThisLaunch >= 3) break;
+      final thumbnail = post.displayThumbnailPath;
+      if (await sourceMedia.isAvailable(thumbnail)) {
+        attempted.remove(post.id);
+        continue;
+      }
+      if (attempted.contains(post.id) ||
+          !AiPostAnalysisService.supportsRemotePreviewUrl(post.url)) {
+        continue;
+      }
+      attempted.add(post.id);
+      attemptedThisLaunch++;
+      // preview_onlyのためAI利用回数・AI料金は消費しない。
+      await refreshPostImage(post);
+    }
+    await preferences.setStringList(attemptsKey, attempted.toList());
+  }
+
+  Future<void> deleteSourcePost(String sourcePostId) async {
+    final post = await sourcePosts.getById(sourcePostId);
+    await sourcePosts.delete(sourcePostId);
+    if (post == null) return;
+    final protectedPaths = hub.snapshot.places
+        .map((place) => place.coverImagePath)
+        .whereType<String>()
+        .toSet();
+    await sourceMedia.deleteForPost(
+      sourcePostId,
+      protectedPaths: protectedPaths,
+    );
   }
 
   String? consumeShareToast() {
@@ -409,9 +452,16 @@ class PinlogyController extends ChangeNotifier {
               PostAnalysisRequest(sourcePostId: post.id, url: post.url),
             );
         if (paths.isNotEmpty) {
+          final retained = <String>[];
+          for (final path in post.imagePaths) {
+            if (await sourceMedia.isAvailable(path)) retained.add(path);
+          }
+          final merged = {...retained, ...paths}
+              .take(SourceMediaStore.maxImages)
+              .toList(growable: false);
           await sourcePosts.update(
             post.copyWith(
-              imagePaths: paths,
+              imagePaths: merged,
               thumbnailPath: paths.first,
               updatedAt: DateTime.now(),
             ),

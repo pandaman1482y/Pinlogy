@@ -405,7 +405,7 @@ class _InboxTabState extends State<InboxTab> {
     final controller = AppScope.read(context);
     final ids = _selectedPostIds.toList();
     for (final id in ids) {
-      await controller.sourcePosts.delete(id);
+      await controller.deleteSourcePost(id);
     }
     if (!context.mounted) return;
     setState(_selectedPostIds.clear);
@@ -481,7 +481,7 @@ class _InboxTabState extends State<InboxTab> {
       ),
     );
     if (ok == true && context.mounted) {
-      await AppScope.read(context).sourcePosts.delete(post.id);
+      await AppScope.read(context).deleteSourcePost(post.id);
     }
     return ok == true;
   }

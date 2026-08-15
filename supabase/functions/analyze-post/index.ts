@@ -48,19 +48,20 @@ Deno.serve(async (request) => {
         `端末候補:\n${JSON.stringify(input.local_candidates ?? [])}`,
       ].join("\n\n"),
     }];
-    const suppliedImages = validImages(input.image_data_urls);
+    const suppliedImages = validImages(input.image_data_urls).slice(0, 5);
     for (const image of suppliedImages) {
       content.push({ type: "input_image", image_url: image, detail: "high" });
     }
     // SNSの複数画像投稿は共有拡張へ画像本体を渡さないことがある。
     // 公開ページ内の投稿画像だけを同じ1回の解析へ追加する。
-    const fetchedSocialImages = await fetchSocialImages(
-      (sharedPage?.image_urls ?? []).slice(
-        0,
-        Math.max(0, 5 - suppliedImages.length),
-      ),
+    const fetchedCandidates = await fetchSocialImages(
+      (sharedPage?.image_urls ?? []).slice(0, 5),
       sharedPage?.service ?? null,
     );
+    const suppliedFingerprints = new Set(suppliedImages.map(imageFingerprint));
+    const fetchedSocialImages = fetchedCandidates
+      .filter((image) => !suppliedFingerprints.has(imageFingerprint(image)))
+      .slice(0, Math.max(0, 5 - suppliedImages.length));
     for (const image of fetchedSocialImages) {
       content.push({ type: "input_image", image_url: image, detail: "high" });
     }
@@ -127,6 +128,18 @@ function sharedMedia(sharedPage: SharedPage | null, images: string[]) {
     thumbnail_data_url: images[0] ?? null,
     image_data_urls: images,
   };
+}
+
+function imageFingerprint(dataUrl: string) {
+  const comma = dataUrl.indexOf(",");
+  const body = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  // 完全一致画像の重複除外用。暗号用途ではない。
+  let hash = 2166136261;
+  for (let index = 0; index < body.length; index++) {
+    hash ^= body.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${body.length}:${hash >>> 0}`;
 }
 
 const placeSchema = {
@@ -291,9 +304,6 @@ async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
 function extractInstagramPhotoUrls(html: string) {
   const candidates: string[] = [];
   const representative = meta(html, "og:image");
-  if (representative && isAllowedInstagramImage(representative)) {
-    candidates.push(representative);
-  }
 
   const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
@@ -305,6 +315,10 @@ function extractInstagramPhotoUrls(html: string) {
       collectInstagramUrlsFromMarkedBlocks(decoded, candidates);
     }
     if (candidates.length >= 5) break;
+  }
+  if (candidates.isEmpty && representative &&
+    isAllowedInstagramImage(representative)) {
+    candidates.push(representative);
   }
   return candidates.slice(0, 5);
 }
@@ -403,9 +417,6 @@ function collectInstagramUrlsFromMarkedBlocks(value: string, output: string[]) {
 function extractTikTokPhotoUrls(html: string) {
   const candidates: string[] = [];
   const representative = meta(html, "og:image");
-  if (representative && isAllowedTikTokImage(representative)) {
-    candidates.push(representative);
-  }
   const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(scriptPattern)) {
     const raw = match[1]?.trim();
@@ -424,6 +435,10 @@ function extractTikTokPhotoUrls(html: string) {
       }
     }
     if (candidates.length >= 5) break;
+  }
+  if (candidates.length === 0 && representative &&
+    isAllowedTikTokImage(representative)) {
+    candidates.push(representative);
   }
   return [...new Set(candidates)].slice(0, 5);
 }

@@ -51,6 +51,53 @@ class SourceMediaStore {
     }
   }
 
+  Future<bool> isAvailable(String? rawPath) async {
+    final value = rawPath?.trim();
+    if (value == null || value.isEmpty) return false;
+    final uri = Uri.tryParse(value);
+    if (uri?.scheme == 'https') return false;
+    if (value.startsWith('local://')) return false;
+    try {
+      final path = uri?.scheme == 'file' ? uri!.toFilePath() : value;
+      final file = File(path);
+      return await file.exists() && await file.length() > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> deleteForPost(
+    String sourcePostId, {
+    Set<String> protectedPaths = const {},
+  }) async {
+    try {
+      final root = await getApplicationSupportDirectory();
+      final safeId = sourcePostId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final mediaDirectory = Directory('${root.path}/source_media/$safeId');
+      if (await mediaDirectory.exists()) {
+        await for (final entity in mediaDirectory.list()) {
+          if (entity is File && !protectedPaths.contains(entity.path)) {
+            await entity.delete();
+          }
+        }
+        if (await mediaDirectory.list().isEmpty) await mediaDirectory.delete();
+      }
+      final previewDirectory = Directory('${root.path}/source_previews');
+      if (await previewDirectory.exists()) {
+        await for (final entity in previewDirectory.list()) {
+          if (entity is! File) continue;
+          final name = entity.uri.pathSegments.last;
+          if (name.startsWith('${safeId}_') &&
+              !protectedPaths.contains(entity.path)) {
+            await entity.delete();
+          }
+        }
+      }
+    } catch (_) {
+      // 投稿データの削除は、補助画像の掃除失敗で止めない。
+    }
+  }
+
   Future<_LoadedImage?> _load(String source) async {
     final data = RegExp(
       r'^data:image/(jpeg|png|webp);base64,(.+)$',
@@ -65,7 +112,7 @@ class SourceMediaStore {
     }
 
     final uri = Uri.tryParse(source);
-    if (uri?.scheme == 'https') {
+    if (uri?.scheme == 'https' && _isAllowedRemoteHost(uri!.host)) {
       final response = await http
           .get(uri!)
           .timeout(const Duration(seconds: 10));
@@ -108,6 +155,19 @@ class SourceMediaStore {
     if (lower.endsWith('.png')) return 'png';
     if (lower.endsWith('.webp')) return 'webp';
     return null;
+  }
+
+  static bool _isAllowedRemoteHost(String rawHost) {
+    final host = rawHost.toLowerCase();
+    return const [
+      'tiktokcdn.com',
+      'tiktokcdn-us.com',
+      'muscdn.com',
+      'byteimg.com',
+      'cdninstagram.com',
+      'fbcdn.net',
+      'ytimg.com',
+    ].any((domain) => host == domain || host.endsWith('.$domain'));
   }
 }
 

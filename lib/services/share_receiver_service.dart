@@ -323,9 +323,11 @@ class LocalShareReceiverService implements ShareReceiverService {
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
-      final fetchedThumbnail = result.previewImagePaths.isNotEmpty
-          ? result.previewImagePaths.first
-          : result.previewImagePath;
+      final fetchedThumbnail =
+          result.previewImagePath ??
+          (result.previewImagePaths.isNotEmpty
+              ? result.previewImagePaths.first
+              : null);
       if (!_samePaths(post.imagePaths, mergedImages) ||
           (fetchedThumbnail != null &&
               post.thumbnailPath != fetchedThumbnail)) {
@@ -412,9 +414,11 @@ class AnalysisRunner {
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
-      final fetchedThumbnail = result.previewImagePaths.isNotEmpty
-          ? result.previewImagePaths.first
-          : result.previewImagePath;
+      final fetchedThumbnail =
+          result.previewImagePath ??
+          (result.previewImagePaths.isNotEmpty
+              ? result.previewImagePaths.first
+              : null);
       if (!_samePaths(post.imagePaths, mergedImages) ||
           (fetchedThumbnail != null &&
               post.thumbnailPath != fetchedThumbnail)) {
@@ -483,7 +487,9 @@ List<String> _mergedAnalysisImages(
       ? result.previewImagePaths
       : [if (result.previewImagePath != null) result.previewImagePath!];
   if (fetched.isEmpty) return post.imagePaths;
-  return {...fetched, ...post.imagePaths}.take(5).toList(growable: false);
+  // AIへ送信した既存画像→SNS取得画像の順番を維持する。
+  // evidenceImageIndexはこの配列の順番を参照する。
+  return {...post.imagePaths, ...fetched}.take(5).toList(growable: false);
 }
 
 bool _samePaths(List<String> left, List<String> right) {
