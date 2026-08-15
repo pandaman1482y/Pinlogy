@@ -263,8 +263,9 @@ class GsiGeocodingService implements GeocodingService {
 
   @override
   Future<GeoResult?> geocodeAddress(String address) async {
-    final hits = await FreePlaceSearchService(client: _client)
-        .searchByName(address);
+    final hits = await FreePlaceSearchService(
+      client: _client,
+    ).searchByName(address);
     if (hits.isEmpty) return null;
     final first = hits.first;
     if (first.latitude == null || first.longitude == null) return null;

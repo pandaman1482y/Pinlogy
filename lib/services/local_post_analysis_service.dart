@@ -164,8 +164,9 @@ class LocalPostAnalysisService implements PostAnalysisService {
     if (path.startsWith('local://') || !await File(path).exists()) return '';
     final recognizer = TextRecognizer(script: TextRecognitionScript.japanese);
     try {
-      return (await recognizer.processImage(InputImage.fromFilePath(path)))
-          .text;
+      return (await recognizer.processImage(
+        InputImage.fromFilePath(path),
+      )).text;
     } catch (_) {
       return '';
     } finally {
@@ -289,8 +290,9 @@ class LocalPostAnalysisService implements PostAnalysisService {
 
   List<int> _extractClosedWeekdays(List<_TextPart> parts) {
     final text = parts.map((part) => part.text).join(' ');
-    final match = RegExp(r'(?:定休日|休業日)\s*[:：]?\s*([月火水木金土日](?:曜(?:日)?)?)')
-        .firstMatch(text);
+    final match = RegExp(
+      r'(?:定休日|休業日)\s*[:：]?\s*([月火水木金土日](?:曜(?:日)?)?)',
+    ).firstMatch(text);
     if (match == null) return const [];
     const names = '月火水木金土日';
     final weekday = names.indexOf(match.group(1)![0]);

@@ -327,7 +327,8 @@ class LocalShareReceiverService implements ShareReceiverService {
           ? result.previewImagePaths.first
           : result.previewImagePath;
       if (!_samePaths(post.imagePaths, mergedImages) ||
-          (fetchedThumbnail != null && post.thumbnailPath != fetchedThumbnail)) {
+          (fetchedThumbnail != null &&
+              post.thumbnailPath != fetchedThumbnail)) {
         post = await sourcePosts.update(
           post.copyWith(
             imagePaths: mergedImages,
@@ -415,7 +416,8 @@ class AnalysisRunner {
           ? result.previewImagePaths.first
           : result.previewImagePath;
       if (!_samePaths(post.imagePaths, mergedImages) ||
-          (fetchedThumbnail != null && post.thumbnailPath != fetchedThumbnail)) {
+          (fetchedThumbnail != null &&
+              post.thumbnailPath != fetchedThumbnail)) {
         post = await hub.sourcePosts.update(
           post.copyWith(
             imagePaths: mergedImages,

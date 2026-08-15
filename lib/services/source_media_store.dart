@@ -35,7 +35,9 @@ class SourceMediaStore {
         }
         final loaded = await _load(value);
         if (loaded == null) continue;
-        final target = File('${directory.path}/image_$index.${loaded.extension}');
+        final target = File(
+          '${directory.path}/image_$index.${loaded.extension}',
+        );
         final temporary = File('${target.path}.tmp');
         await temporary.writeAsBytes(loaded.bytes, flush: true);
         if (await target.exists()) await target.delete();
@@ -64,8 +66,11 @@ class SourceMediaStore {
 
     final uri = Uri.tryParse(source);
     if (uri?.scheme == 'https') {
-      final response = await http.get(uri!).timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200 || !_validSize(response.bodyBytes.length)) {
+      final response = await http
+          .get(uri!)
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200 ||
+          !_validSize(response.bodyBytes.length)) {
         return null;
       }
       final contentType = response.headers['content-type']?.toLowerCase() ?? '';
@@ -93,10 +98,9 @@ class SourceMediaStore {
 
   bool _validSize(int length) => length > 0 && length <= maxImageBytes;
 
-  static bool _isInside(String file, String directory) =>
-      File(
-        file,
-      ).absolute.path.startsWith('${Directory(directory).absolute.path}/');
+  static bool _isInside(String file, String directory) => File(
+    file,
+  ).absolute.path.startsWith('${Directory(directory).absolute.path}/');
 
   static String? _extensionFor(String path) {
     final lower = path.toLowerCase();

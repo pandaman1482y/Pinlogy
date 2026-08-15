@@ -365,8 +365,9 @@ class PlanDetailPage extends StatelessWidget {
     final places = List<Place>.of(controller.hub.snapshot.places)
       ..sort((a, b) => a.name.compareTo(b.name));
     if (places.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('先にマップへ場所を保存してください')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('先にマップへ場所を保存してください')));
       return;
     }
 
@@ -374,9 +375,9 @@ class PlanDetailPage extends StatelessWidget {
       places.map(
         (place) async => MapEntry(
           place.id,
-          (await controller.tags.tagsForPlace(place.id))
-              .map((tag) => tag.name)
-              .toList(),
+          (await controller.tags.tagsForPlace(
+            place.id,
+          )).map((tag) => tag.name).toList(),
         ),
       ),
     );
@@ -743,8 +744,9 @@ class _PlanMapPageState extends State<PlanMapPage> {
             points: points,
             strokeWidth: route == null ? 4 : 6,
             color: route == null
-                ? _routeColor(visibleStops[i].transitToNext)
-                      .withValues(alpha: .58)
+                ? _routeColor(
+                    visibleStops[i].transitToNext,
+                  ).withValues(alpha: .58)
                 : _routeColor(visibleStops[i].transitToNext),
             pattern: route == null
                 ? const StrokePattern.dotted()
@@ -1007,8 +1009,9 @@ class _PlanMapPageState extends State<PlanMapPage> {
   };
 
   Future<void> _openNextPlace(Place place) async {
-    final opened = await AppScope.read(context).directions
-        .openDirections(place);
+    final opened = await AppScope.read(
+      context,
+    ).directions.openDirections(place);
     if (!opened && mounted) showInfoSnackBar(context, '次の場所を外部マップで開けませんでした');
   }
 
@@ -1413,8 +1416,9 @@ class _DayHeader extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 2),
               Text(
@@ -1790,8 +1794,7 @@ class _StopBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final warnings = _warnings();
     final sourceLinks = SourceLinkService();
-    final imagePath =
-        place?.coverImagePath ?? sourcePost?.displayThumbnailPath;
+    final imagePath = place?.coverImagePath ?? sourcePost?.displayThumbnailPath;
     final scheduledArrival =
         stop.reservationTimeMinutes ?? stop.arrivalDeadlineMinutes;
     return Column(

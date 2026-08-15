@@ -19,7 +19,8 @@ class SourcePost {
   }) : id = id ?? newId(),
        userCategories = userCategories ?? const [],
        imagePaths = imagePaths ?? const [],
-       thumbnailPath = thumbnailPath ??
+       thumbnailPath =
+           thumbnailPath ??
            ((imagePaths != null && imagePaths.isNotEmpty)
                ? imagePaths.first
                : null),

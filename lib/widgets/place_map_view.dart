@@ -403,8 +403,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                       place: place,
                       positionLabel: '${index + 1}/${places.length}',
                       imagePath:
-                          place.coverImagePath ??
-                          source?.displayThumbnailPath,
+                          place.coverImagePath ?? source?.displayThumbnailPath,
                       source: source,
                       onClose: () => _interaction.selectPlace(null),
                       onOpen: () => showPlaceDetails(context, place),

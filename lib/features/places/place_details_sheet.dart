@@ -715,8 +715,9 @@ class _QuickAction extends StatelessWidget {
             const SizedBox(height: 5),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelLarge
-                  ?.copyWith(color: emphasized ? Colors.white : mossDeep),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: emphasized ? Colors.white : mossDeep,
+              ),
             ),
           ],
         ),
@@ -1119,8 +1120,9 @@ class _AddPlaceSheet extends StatelessWidget {
     if (!context.mounted) return;
     final paths = images.map((image) => image.path).toList();
     if (paths.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('画像ファイルを読み込めませんでした')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('画像ファイルを読み込めませんでした')));
       return;
     }
     final controller = AppScope.read(context);
@@ -1191,8 +1193,9 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
           children: [
             Text(
               '場所を検索',
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(

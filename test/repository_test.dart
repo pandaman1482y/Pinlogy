@@ -144,8 +144,7 @@ void main() {
     final json = SourcePost(
       title: '旧データ',
       imagePaths: const ['/support/legacy.jpg'],
-    ).toJson()
-      ..remove('thumbnailPath');
+    ).toJson()..remove('thumbnailPath');
 
     final restored = SourcePost.fromJson(json);
 
