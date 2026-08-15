@@ -410,7 +410,11 @@ class PinlogyController extends ChangeNotifier {
             );
         if (paths.isNotEmpty) {
           await sourcePosts.update(
-            post.copyWith(imagePaths: paths, updatedAt: DateTime.now()),
+            post.copyWith(
+              imagePaths: paths,
+              thumbnailPath: paths.first,
+              updatedAt: DateTime.now(),
+            ),
           );
           return true;
         }

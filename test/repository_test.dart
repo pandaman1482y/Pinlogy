@@ -123,6 +123,35 @@ void main() {
     expect(saved.userCategoriesSet, isTrue);
   });
 
+  test('投稿の代表画像を店名などと同じ投稿レコードに保持できる', () {
+    final post = SourcePost(
+      title: '画像を保持する店',
+      imagePaths: const ['/support/source_media/post/image_0.jpg'],
+      thumbnailPath: '/support/source_media/post/image_0.jpg',
+    );
+
+    final restored = SourcePost.fromJson(post.toJson());
+
+    expect(restored.title, '画像を保持する店');
+    expect(
+      restored.displayThumbnailPath,
+      '/support/source_media/post/image_0.jpg',
+    );
+    expect(restored.imagePaths, hasLength(1));
+  });
+
+  test('旧データも最初の投稿画像を代表画像として引き継ぐ', () {
+    final json = SourcePost(
+      title: '旧データ',
+      imagePaths: const ['/support/legacy.jpg'],
+    ).toJson()
+      ..remove('thumbnailPath');
+
+    final restored = SourcePost.fromJson(json);
+
+    expect(restored.displayThumbnailPath, '/support/legacy.jpg');
+  });
+
   test('削除したマップはクラウド削除キューへ残る', () async {
     final hub = LocalRepositoryHub(InMemoryDataStore());
     await hub.load();

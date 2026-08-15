@@ -10,6 +10,7 @@ import '../repositories/repository_interfaces.dart';
 import 'ai_post_analysis_service.dart';
 import 'location_services.dart';
 import 'platform_share_bridge.dart';
+import 'source_media_store.dart';
 
 class SharedContent {
   const SharedContent({
@@ -125,13 +126,15 @@ class LocalShareReceiverService implements ShareReceiverService {
     required this.analysisService,
     this.autoAnalyze = true,
     this.officialPreviewLoader,
-  });
+    SourceMediaStore? mediaStore,
+  }) : _mediaStore = mediaStore ?? SourceMediaStore();
 
   final SourcePostRepository sourcePosts;
   final AnalysisRepository analysis;
   final PostAnalysisService analysisService;
   final bool autoAnalyze;
   final Future<String?> Function(String sharedUrl)? officialPreviewLoader;
+  final SourceMediaStore _mediaStore;
 
   bool _busy = false;
 
@@ -147,8 +150,16 @@ class LocalShareReceiverService implements ShareReceiverService {
         PostAnalysisRequest(sourcePostId: post.id, url: post.url),
       );
       if (previews.isNotEmpty) {
+        final persisted = await _mediaStore.persist(post.id, previews);
+        if (persisted.isEmpty) {
+          throw StateError('取得した画像を端末に保存できませんでした');
+        }
         return sourcePosts.update(
-          post.copyWith(imagePaths: previews, updatedAt: DateTime.now()),
+          post.copyWith(
+            imagePaths: persisted,
+            thumbnailPath: persisted.first,
+            updatedAt: DateTime.now(),
+          ),
         );
       }
     }
@@ -156,8 +167,16 @@ class LocalShareReceiverService implements ShareReceiverService {
     if (preview == null) {
       throw StateError('この投稿から利用できる画像を取得できませんでした');
     }
+    final persisted = await _mediaStore.persist(post.id, [preview]);
+    if (persisted.isEmpty) {
+      throw StateError('取得した画像を端末に保存できませんでした');
+    }
     return sourcePosts.update(
-      post.copyWith(imagePaths: [preview], updatedAt: DateTime.now()),
+      post.copyWith(
+        imagePaths: persisted,
+        thumbnailPath: persisted.first,
+        updatedAt: DateTime.now(),
+      ),
     );
   }
 
@@ -185,13 +204,21 @@ class LocalShareReceiverService implements ShareReceiverService {
           (content.imagePaths.isNotEmpty ? '共有された画像' : null) ??
           '共有された投稿';
 
+      final draft = SourcePost(
+        url: content.url,
+        service: service,
+        title: title,
+        body: content.text,
+        imagePaths: content.imagePaths,
+      );
+      final persistedImages = await _mediaStore.persist(
+        draft.id,
+        content.imagePaths,
+      );
       var post = await sourcePosts.create(
-        SourcePost(
-          url: content.url,
-          service: service,
-          title: title,
-          body: content.text,
-          imagePaths: content.imagePaths,
+        draft.copyWith(
+          imagePaths: persistedImages,
+          thumbnailPath: persistedImages.isEmpty ? null : persistedImages.first,
         ),
       );
       final job = await analysis.enqueue(post.id);
@@ -222,8 +249,14 @@ class LocalShareReceiverService implements ShareReceiverService {
     try {
       final preview = await _loadOfficialPreview(post.url!);
       if (preview == null) return post;
+      final persisted = await _mediaStore.persist(post.id, [preview]);
+      if (persisted.isEmpty) return post;
       return await sourcePosts.update(
-        post.copyWith(imagePaths: [preview], updatedAt: DateTime.now()),
+        post.copyWith(
+          imagePaths: persisted,
+          thumbnailPath: persisted.first,
+          updatedAt: DateTime.now(),
+        ),
       );
     } catch (_) {
       // 画像は補助情報。失敗しても投稿保存と場所解析は継続する。
@@ -290,9 +323,17 @@ class LocalShareReceiverService implements ShareReceiverService {
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
-      if (!_samePaths(post.imagePaths, mergedImages)) {
+      final fetchedThumbnail = result.previewImagePaths.isNotEmpty
+          ? result.previewImagePaths.first
+          : result.previewImagePath;
+      if (!_samePaths(post.imagePaths, mergedImages) ||
+          (fetchedThumbnail != null && post.thumbnailPath != fetchedThumbnail)) {
         post = await sourcePosts.update(
-          post.copyWith(imagePaths: mergedImages, updatedAt: DateTime.now()),
+          post.copyWith(
+            imagePaths: mergedImages,
+            thumbnailPath: fetchedThumbnail,
+            updatedAt: DateTime.now(),
+          ),
         );
       }
       if (!post.userCategoriesSet) {
@@ -370,9 +411,17 @@ class AnalysisRunner {
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
-      if (!_samePaths(post.imagePaths, mergedImages)) {
+      final fetchedThumbnail = result.previewImagePaths.isNotEmpty
+          ? result.previewImagePaths.first
+          : result.previewImagePath;
+      if (!_samePaths(post.imagePaths, mergedImages) ||
+          (fetchedThumbnail != null && post.thumbnailPath != fetchedThumbnail)) {
         post = await hub.sourcePosts.update(
-          post.copyWith(imagePaths: mergedImages, updatedAt: DateTime.now()),
+          post.copyWith(
+            imagePaths: mergedImages,
+            thumbnailPath: fetchedThumbnail,
+            updatedAt: DateTime.now(),
+          ),
         );
       }
       if (!post.userCategoriesSet) {
@@ -432,7 +481,7 @@ List<String> _mergedAnalysisImages(
       ? result.previewImagePaths
       : [if (result.previewImagePath != null) result.previewImagePath!];
   if (fetched.isEmpty) return post.imagePaths;
-  return {...post.imagePaths, ...fetched}.take(5).toList(growable: false);
+  return {...fetched, ...post.imagePaths}.take(5).toList(growable: false);
 }
 
 bool _samePaths(List<String> left, List<String> right) {

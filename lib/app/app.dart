@@ -211,13 +211,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (displayPost.imagePaths.isNotEmpty) ...[
+                  if (displayPost.displayThumbnailPath != null) ...[
                     ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: AspectRatio(
                         aspectRatio: 16 / 9,
                         child: PlacePhoto(
-                          path: displayPost.imagePaths.first,
+                          path: displayPost.displayThumbnailPath!,
                           fallback: const ColoredBox(
                             color: Color(0xFFE8F1EC),
                             child: Center(

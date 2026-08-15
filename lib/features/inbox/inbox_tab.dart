@@ -294,7 +294,7 @@ class _InboxTabState extends State<InboxTab> {
                         selected: _selectedPostIds.contains(post.id),
                         unread: controller.isInboxPostUnread(post.id),
                         icon: _iconFor(post.service),
-                        thumbnailPath: post.imagePaths.firstOrNull,
+                        thumbnailPath: post.displayThumbnailPath,
                         source: post.service ?? 'その他',
                         title: resolvedTitle,
                         memo: post.userMemo,

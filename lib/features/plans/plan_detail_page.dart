@@ -1791,7 +1791,7 @@ class _StopBlock extends StatelessWidget {
     final warnings = _warnings();
     final sourceLinks = SourceLinkService();
     final imagePath =
-        place?.coverImagePath ?? sourcePost?.imagePaths.firstOrNull;
+        place?.coverImagePath ?? sourcePost?.displayThumbnailPath;
     final scheduledArrival =
         stop.reservationTimeMinutes ?? stop.arrivalDeadlineMinutes;
     return Column(

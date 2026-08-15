@@ -12,12 +12,17 @@ class SourcePost {
     List<String>? userCategories,
     this.userCategoriesSet = false,
     List<String>? imagePaths,
+    String? thumbnailPath,
     DateTime? receivedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : id = id ?? newId(),
        userCategories = userCategories ?? const [],
        imagePaths = imagePaths ?? const [],
+       thumbnailPath = thumbnailPath ??
+           ((imagePaths != null && imagePaths.isNotEmpty)
+               ? imagePaths.first
+               : null),
        receivedAt = receivedAt ?? DateTime.now(),
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now();
@@ -31,9 +36,17 @@ class SourcePost {
   List<String> userCategories;
   bool userCategoriesSet;
   List<String> imagePaths;
+  String? thumbnailPath;
   DateTime receivedAt;
   DateTime createdAt;
   DateTime updatedAt;
+
+  /// 一覧・地図・詳細で共通利用する代表画像。
+  String? get displayThumbnailPath {
+    final thumbnail = thumbnailPath?.trim();
+    if (thumbnail != null && thumbnail.isNotEmpty) return thumbnail;
+    return imagePaths.isEmpty ? null : imagePaths.first;
+  }
 
   SourcePost copyWith({
     String? url,
@@ -45,6 +58,8 @@ class SourcePost {
     List<String>? userCategories,
     bool? userCategoriesSet,
     List<String>? imagePaths,
+    String? thumbnailPath,
+    bool clearThumbnailPath = false,
     DateTime? updatedAt,
   }) {
     return SourcePost(
@@ -57,6 +72,9 @@ class SourcePost {
       userCategories: userCategories ?? this.userCategories,
       userCategoriesSet: userCategoriesSet ?? this.userCategoriesSet,
       imagePaths: imagePaths ?? this.imagePaths,
+      thumbnailPath: clearThumbnailPath
+          ? null
+          : thumbnailPath ?? this.thumbnailPath,
       receivedAt: receivedAt,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -73,6 +91,7 @@ class SourcePost {
     'userCategories': userCategories,
     'userCategoriesSet': userCategoriesSet,
     'imagePaths': imagePaths,
+    'thumbnailPath': thumbnailPath,
     'receivedAt': receivedAt.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
@@ -92,6 +111,7 @@ class SourcePost {
     imagePaths: ((json['imagePaths'] as List?) ?? const [])
         .map((e) => e as String)
         .toList(),
+    thumbnailPath: json['thumbnailPath'] as String?,
     receivedAt: DateTime.parse(json['receivedAt'] as String),
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),

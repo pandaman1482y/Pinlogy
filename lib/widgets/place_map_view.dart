@@ -404,7 +404,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                       positionLabel: '${index + 1}/${places.length}',
                       imagePath:
                           place.coverImagePath ??
-                          source?.imagePaths.firstOrNull,
+                          source?.displayThumbnailPath,
                       source: source,
                       onClose: () => _interaction.selectPlace(null),
                       onOpen: () => showPlaceDetails(context, place),
@@ -421,7 +421,7 @@ class _PlaceMapViewState extends State<PlaceMapView> {
                           : () async {
                               final refreshed = await controller.shareReceiver
                                   .refreshOfficialPreview(source!, force: true);
-                              return refreshed.imagePaths.firstOrNull;
+                              return refreshed.displayThumbnailPath;
                             },
                     ),
                   );

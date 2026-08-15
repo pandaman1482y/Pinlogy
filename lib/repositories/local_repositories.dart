@@ -121,6 +121,7 @@ class LocalRepositoryHub {
         remote.userCategories = local.userCategories;
         remote.userCategoriesSet = local.userCategoriesSet;
         remote.imagePaths = local.imagePaths;
+        remote.thumbnailPath = local.thumbnailPath;
       }
     }
 

@@ -70,7 +70,7 @@ class PlaceDetailsSheet extends StatelessWidget {
     final posts = controller.sourcesForPlace(place.id);
     final primary = controller.primarySourceForPlace(place.id);
     final canOpenPrimary = controller.sourceLinks.canOpen(primary);
-    final sourceImagePath = primary?.imagePaths.firstOrNull;
+    final sourceImagePath = primary?.displayThumbnailPath;
     final imagePath = place.coverImagePath ?? sourceImagePath;
 
     return DraggableScrollableSheet(
@@ -99,7 +99,7 @@ class PlaceDetailsSheet extends StatelessWidget {
                                     primary!,
                                     force: true,
                                   );
-                              return refreshed.imagePaths.firstOrNull;
+                              return refreshed.displayThumbnailPath;
                             },
                       fallback: ColoredBox(
                         color: mint,
