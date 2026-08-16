@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 class SourceMediaStore {
   static const maxImages = 5;
   static const maxImageBytes = 2 * 1024 * 1024;
+  static const maxTotalBytes = 8 * 1024 * 1024;
 
   Future<List<String>> persist(
     String sourcePostId,
@@ -25,16 +26,21 @@ class SourceMediaStore {
       final directory = Directory('${root.path}/source_media/$safeId');
       await directory.create(recursive: true);
       final saved = <String>[];
+      var savedBytes = 0;
       for (var index = 0; index < values.length; index++) {
         final value = values[index];
         final existing = File(value);
         if (await existing.exists() &&
             _isInside(existing.path, directory.path)) {
+          final length = await existing.length();
+          if (!_validSize(length) || savedBytes + length > maxTotalBytes) break;
           saved.add(existing.path);
+          savedBytes += length;
           continue;
         }
         final loaded = await _load(value);
         if (loaded == null) continue;
+        if (savedBytes + loaded.bytes.length > maxTotalBytes) break;
         final target = File(
           '${directory.path}/image_$index.${loaded.extension}',
         );
@@ -43,6 +49,7 @@ class SourceMediaStore {
         if (await target.exists()) await target.delete();
         await temporary.rename(target.path);
         saved.add(target.path);
+        savedBytes += loaded.bytes.length;
       }
       return saved;
     } catch (_) {
@@ -105,17 +112,18 @@ class SourceMediaStore {
     if (data != null) {
       final bytes = base64Decode(data.group(2)!);
       if (!_validSize(bytes.length)) return null;
+      final extension = data.group(1) == 'jpeg' ? 'jpg' : data.group(1)!;
+      if (!_matchesImageSignature(bytes, extension)) return null;
       return _LoadedImage(
         bytes,
-        data.group(1) == 'jpeg' ? 'jpg' : data.group(1)!,
+        extension,
       );
     }
 
     final uri = Uri.tryParse(source);
     if (uri?.scheme == 'https' && _isAllowedRemoteHost(uri!.host)) {
-      final response = await http
-          .get(uri!)
-          .timeout(const Duration(seconds: 10));
+      final response = await _getAllowedRemote(uri);
+      if (response == null) return null;
       if (response.statusCode != 200 ||
           !_validSize(response.bodyBytes.length)) {
         return null;
@@ -128,7 +136,8 @@ class SourceMediaStore {
           : contentType.contains('jpeg') || contentType.contains('jpg')
           ? 'jpg'
           : null;
-      return extension == null
+      return extension == null ||
+              !_matchesImageSignature(response.bodyBytes, extension)
           ? null
           : _LoadedImage(response.bodyBytes, extension);
     }
@@ -138,12 +147,72 @@ class SourceMediaStore {
     final length = await file.length();
     if (!_validSize(length)) return null;
     final extension = _extensionFor(file.path);
-    return extension == null
-        ? null
-        : _LoadedImage(await file.readAsBytes(), extension);
+    if (extension == null) return null;
+    final bytes = await file.readAsBytes();
+    return _matchesImageSignature(bytes, extension)
+        ? _LoadedImage(bytes, extension)
+        : null;
   }
 
   bool _validSize(int length) => length > 0 && length <= maxImageBytes;
+
+  Future<http.Response?> _getAllowedRemote(Uri initialUri) async {
+    var current = initialUri;
+    for (var redirect = 0; redirect <= 3; redirect++) {
+      if (current.scheme != 'https' || !_isAllowedRemoteHost(current.host)) {
+        return null;
+      }
+      final request = http.Request('GET', current)
+        ..followRedirects = false
+        ..headers['Accept'] = 'image/jpeg,image/png,image/webp';
+      final streamed = await request.send().timeout(
+        const Duration(seconds: 10),
+      );
+      if (streamed.isRedirect) {
+        final location = streamed.headers['location'];
+        if (location == null || redirect == 3) return null;
+        current = current.resolve(location);
+        continue;
+      }
+      final declaredLength = streamed.contentLength;
+      if (declaredLength != null && declaredLength > maxImageBytes) return null;
+      final bytes = await streamed.stream
+          .expand((chunk) => chunk)
+          .take(maxImageBytes + 1)
+          .toList()
+          .timeout(const Duration(seconds: 10));
+      if (bytes.length > maxImageBytes) return null;
+      return http.Response.bytes(
+        bytes,
+        streamed.statusCode,
+        headers: streamed.headers,
+        request: request,
+      );
+    }
+    return null;
+  }
+
+  static bool _matchesImageSignature(List<int> bytes, String extension) {
+    if (extension == 'jpg') {
+      return bytes.length >= 3 &&
+          bytes[0] == 0xff &&
+          bytes[1] == 0xd8 &&
+          bytes[2] == 0xff;
+    }
+    if (extension == 'png') {
+      return bytes.length >= 8 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4e &&
+          bytes[3] == 0x47;
+    }
+    if (extension == 'webp') {
+      return bytes.length >= 12 &&
+          String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+          String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
+    }
+    return false;
+  }
 
   static bool _isInside(String file, String directory) => File(
     file,

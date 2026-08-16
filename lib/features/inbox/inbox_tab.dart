@@ -673,19 +673,25 @@ class _InboxTabState extends State<InboxTab> {
     SourcePost post,
     AnalysisJob? job,
   ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!context.mounted) return;
     final textController = TextEditingController(text: post.userMemo ?? '');
     try {
       final body = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('投稿文を補足'),
-          content: TextField(
-            controller: textController,
-            minLines: 4,
-            maxLines: 8,
-            decoration: const InputDecoration(
-              hintText: '例：店名、東京都渋谷区…',
-              helperText: '元のURLと画像はそのまま残ります',
+          content: SingleChildScrollView(
+            child: TextField(
+              controller: textController,
+              minLines: 4,
+              maxLines: 8,
+              autofocus: false,
+              decoration: const InputDecoration(
+                hintText: '例：店名、東京都渋谷区…',
+                helperText: '元のURLと画像はそのまま残ります',
+              ),
             ),
           ),
           actions: [

@@ -31,6 +31,18 @@ Deno.serve(async (request) => {
     if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
       return reply({ error: "device_id_required" }, 400);
     }
+    const analysisKey = String(input.analysis_key ?? "");
+    const deviceHash = await hashDeviceId(deviceId);
+    if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
+      const cached = await readAnalysisCache(deviceHash, analysisKey);
+      if (cached != null) {
+        return reply({
+          source_post_id: sourcePostId,
+          ...cached,
+          analysis_source: "ai_server_cache",
+        });
+      }
+    }
     if (!await consumeQuota(deviceId)) {
       return reply({ error: "daily_limit_reached" }, 429);
     }
@@ -101,8 +113,7 @@ Deno.serve(async (request) => {
       return reply({ error: "empty_ai_response" }, 502);
     }
     const parsedOutput = JSON.parse(output.text);
-    quotaReserved = false;
-    return reply({
+    const successfulResult = {
       source_post_id: sourcePostId,
       ...parsedOutput,
       analysis_source: sharedPage?.is_photo_post === true
@@ -111,7 +122,12 @@ Deno.serve(async (request) => {
           : `ai_${sharedPage.service}_text_only`)
         : "ai",
       shared_media: sharedMedia(sharedPage, fetchedSocialImages),
-    });
+    };
+    if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
+      await writeAnalysisCache(deviceHash, analysisKey, parsedOutput);
+    }
+    quotaReserved = false;
+    return reply(successfulResult);
   } catch (error) {
     if (quotaReserved && deviceId) await refundQuota(deviceId);
     console.error("analysis_failed", error);
@@ -316,7 +332,7 @@ function extractInstagramPhotoUrls(html: string) {
     }
     if (candidates.length >= 5) break;
   }
-  if (candidates.isEmpty && representative &&
+  if (candidates.length === 0 && representative &&
     isAllowedInstagramImage(representative)) {
     candidates.push(representative);
   }
@@ -652,13 +668,7 @@ async function consumeQuota(deviceId: string) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) return false;
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(deviceId),
-  );
-  const deviceHash = Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  const deviceHash = await hashDeviceId(deviceId);
   const dailyLimit = Math.max(
     1,
     Math.min(200, Number(Deno.env.get("AI_DAILY_DEVICE_LIMIT") ?? "10")),
@@ -690,13 +700,7 @@ async function refundQuota(deviceId: string) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) return;
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(deviceId),
-  );
-  const deviceHash = Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  const deviceHash = await hashDeviceId(deviceId);
   try {
     const response = await fetch(
       `${supabaseUrl}/rest/v1/rpc/refund_ai_quota`,
@@ -714,5 +718,71 @@ async function refundQuota(deviceId: string) {
     if (!response.ok) console.error("quota_refund_failed", response.status);
   } catch (error) {
     console.error("quota_refund_failed", String(error));
+  }
+}
+
+async function hashDeviceId(deviceId: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(deviceId),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function readAnalysisCache(deviceHash: string, analysisKey: string) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) return null;
+  try {
+    const query = new URL(`${supabaseUrl}/rest/v1/ai_analysis_cache`);
+    query.searchParams.set("device_hash", `eq.${deviceHash}`);
+    query.searchParams.set("analysis_key", `eq.${analysisKey}`);
+    query.searchParams.set("expires_at", `gt.${new Date().toISOString()}`);
+    query.searchParams.set("select", "result_json");
+    query.searchParams.set("limit", "1");
+    const response = await fetch(query, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok) return null;
+    const rows = await response.json();
+    return Array.isArray(rows) && rows[0]?.result_json
+      ? rows[0].result_json as Record<string, unknown>
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writeAnalysisCache(
+  deviceHash: string,
+  analysisKey: string,
+  result: Record<string, unknown>,
+) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) return;
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/ai_analysis_cache`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({
+        device_hash: deviceHash,
+        analysis_key: analysisKey,
+        result_json: result,
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch (error) {
+    // キャッシュ失敗は解析結果を失敗扱いにしない。
+    console.error("analysis_cache_write_failed", String(error));
   }
 }

@@ -592,6 +592,9 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     BuildContext context,
     ExtractionCandidate candidate,
   ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!context.mounted) return null;
     final queryController = TextEditingController(
       text: candidate.name == '名称を確認してください'
           ? candidate.postAddress ?? candidate.address ?? ''
@@ -606,24 +609,26 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.location_searching_rounded),
           title: const Text('正しい場所を検索'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('TikTokの画面に表示された店名、または住所を入力してください。'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: queryController,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  labelText: '店名・住所',
-                  hintText: '例：喫茶ソワレ 京都',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('TikTokの画面に表示された店名、または住所を入力してください。'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: queryController,
+                  autofocus: false,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    labelText: '店名・住所',
+                    hintText: '例：喫茶ソワレ 京都',
+                  ),
+                  onSubmitted: (value) =>
+                      Navigator.pop(dialogContext, value.trim()),
                 ),
-                onSubmitted: (value) =>
-                    Navigator.pop(dialogContext, value.trim()),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(

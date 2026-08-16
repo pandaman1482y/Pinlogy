@@ -361,6 +361,9 @@ class PlanDetailPage extends StatelessWidget {
     String planId,
     DateTime? day,
   ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!context.mounted) return;
     final controller = AppScope.read(context);
     final places = List<Place>.of(controller.hub.snapshot.places)
       ..sort((a, b) => a.name.compareTo(b.name));

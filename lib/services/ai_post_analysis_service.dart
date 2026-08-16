@@ -20,8 +20,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  static const _cachePrefix = 'ai_analysis_cache_v1_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v1';
+  static const _cachePrefix = 'ai_analysis_cache_v2_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v2';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -35,14 +35,15 @@ class AiPostAnalysisService implements PostAnalysisService {
     }
     final cacheKey = _cacheKey(request, local.evidenceText);
     final cached = await _readCache(cacheKey);
-    final needsTikTokPhotoPreview = request.url?.contains('/photo/') ?? false;
-    if (cached != null && !needsTikTokPhotoPreview) {
+    if (cached != null && await _cachedMediaAvailable(cached)) {
       return PostAnalysisResponse(
-        sourcePostId: cached.sourcePostId,
+        sourcePostId: request.sourcePostId,
         candidates: cached.candidates,
         rawSummary: cached.rawSummary,
         evidenceText: cached.evidenceText,
         analysisSource: 'ai_cache',
+        previewImagePath: cached.previewImagePath,
+        previewImagePaths: cached.previewImagePaths,
       );
     }
     try {
@@ -68,6 +69,7 @@ class AiPostAnalysisService implements PostAnalysisService {
               'local_summary': local.rawSummary,
               'ocr_text': local.evidenceText,
               'image_data_urls': encodedImages.dataUrls,
+              'analysis_key': cacheKey,
             }),
           )
           // 5枚画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
@@ -259,7 +261,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      request.url ?? '',
+      _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',
       ...request.imageUrls,
@@ -271,6 +273,16 @@ class AiPostAnalysisService implements PostAnalysisService {
       hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
     }
     return hash.toRadixString(16);
+  }
+
+  String _normalizedSourceUrl(String? rawUrl) {
+    final uri = Uri.tryParse(rawUrl?.trim() ?? '');
+    if (uri == null || uri.host.isEmpty) return rawUrl?.trim() ?? '';
+    final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+    if (_isAllowedPreviewHost(host)) {
+      return Uri(scheme: 'https', host: host, path: uri.path).toString();
+    }
+    return uri.replace(fragment: '').toString();
   }
 
   Future<PostAnalysisResponse?> _readCache(String key) async {
@@ -305,6 +317,8 @@ class AiPostAnalysisService implements PostAnalysisService {
           'raw_summary': result.rawSummary,
           'evidence_text': result.evidenceText,
           'analysis_source': result.analysisSource,
+          'preview_image_path': result.previewImagePath,
+          'preview_image_paths': result.previewImagePaths,
         },
       }),
     );
@@ -315,6 +329,25 @@ class AiPostAnalysisService implements PostAnalysisService {
       await preferences.remove('$_cachePrefix$expired');
     }
     await preferences.setStringList(_cacheIndexKey, index.take(30).toList());
+  }
+
+  Future<bool> _cachedMediaAvailable(PostAnalysisResponse cached) async {
+    final paths = cached.previewImagePaths.isNotEmpty
+        ? cached.previewImagePaths
+        : [if (cached.previewImagePath != null) cached.previewImagePath!];
+    if (paths.isEmpty) return true;
+    for (final rawPath in paths) {
+      try {
+        final uri = Uri.tryParse(rawPath);
+        if (uri?.scheme == 'https') return false;
+        final path = uri?.scheme == 'file' ? uri!.toFilePath() : rawPath;
+        final file = File(path);
+        if (!await file.exists() || await file.length() == 0) return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<_EncodedImages> _readImages(List<String> paths) async {

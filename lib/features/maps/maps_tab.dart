@@ -160,6 +160,9 @@ class MapsTab extends StatelessWidget {
 
   static Future<void> _openCrossSearch(BuildContext context) async {
     if (ModalRoute.of(context)?.isCurrent != true) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!context.mounted) return;
     final controller = AppScope.read(context);
     final queryController = TextEditingController();
     PlaceFilterOption filter = PlaceFilterOption.all;
@@ -332,6 +335,9 @@ class MapsTab extends StatelessWidget {
   }
 
   static Future<void> _showManualAdd(BuildContext context) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!context.mounted) return;
     final controller = AppScope.read(context);
     if (controller.hub.snapshot.maps.isEmpty) {
       await _showCreateMap(context);
