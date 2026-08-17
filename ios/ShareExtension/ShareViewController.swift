@@ -1,5 +1,6 @@
 import UIKit
 import UniformTypeIdentifiers
+import LinkPresentation
 
 /// iOS Share Extension 本体。
 /// 共有元アプリ内では保存だけを行い、詳細編集と解析はPinlogy本体へ引き継ぐ。
@@ -115,6 +116,7 @@ final class ShareViewController: UIViewController {
     var imagePaths: [String] = []
     var texts: [String] = []
     var urlString: String?
+    var providers: [NSItemProvider] = []
 
     guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
       return payload
@@ -129,6 +131,7 @@ final class ShareViewController: UIViewController {
       }
       guard let attachments = item.attachments else { continue }
       for provider in attachments {
+        providers.append(provider)
         if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
           if let url = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
             urlString = url.absoluteString
@@ -143,6 +146,35 @@ final class ShareViewController: UIViewController {
           if let saved = await saveImage(provider: provider) {
             imagePaths.append(saved)
           }
+        }
+      }
+    }
+
+    // InstagramはURLだけを共有し、public.imageを付けないことがある。
+    // 共有シートが保持するプレビューを端末側で回収して解析へ渡す。
+    if imagePaths.isEmpty,
+       let rawUrl = urlString,
+       guessService(rawUrl) == "Instagram"
+    {
+      for provider in providers where imagePaths.count < 5 {
+        if let saved = await savePreviewImage(provider: provider) {
+          imagePaths.append(saved)
+          break
+        }
+      }
+      if imagePaths.isEmpty,
+         let url = URL(string: rawUrl),
+         let metadata = await fetchLinkMetadata(url: url)
+      {
+        if let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty
+        {
+          texts.append(title)
+        }
+        if let imageProvider = metadata.imageProvider,
+           let saved = await saveImage(provider: imageProvider)
+        {
+          imagePaths.append(saved)
         }
       }
     }
@@ -176,21 +208,57 @@ final class ShareViewController: UIViewController {
   private func saveImage(provider: NSItemProvider) async -> String? {
     do {
       let item = try await provider.loadItem(forTypeIdentifier: UTType.image.identifier)
-      let data: Data?
-      if let url = item as? URL {
-        let original = try Data(contentsOf: url)
-        data = UIImage(data: original).flatMap(encodedAnalysisImage) ?? original
-      } else if let image = item as? UIImage {
-        data = encodedAnalysisImage(image)
-      } else if let raw = item as? Data {
-        data = UIImage(data: raw).flatMap(encodedAnalysisImage) ?? raw
-      } else {
-        data = nil
-      }
+      let data = try encodedImageData(from: item)
       guard let data else { return nil }
       return writeToAppGroup(data: data, ext: "jpg")
     } catch {
       return nil
+    }
+  }
+
+  private func savePreviewImage(provider: NSItemProvider) async -> String? {
+    let item: NSSecureCoding? = await withCheckedContinuation { continuation in
+      provider.loadPreviewImage(options: nil) { value, _ in
+        continuation.resume(returning: value)
+      }
+    }
+    guard let item else { return nil }
+    do {
+      guard let data = try encodedImageData(from: item) else { return nil }
+      return writeToAppGroup(data: data, ext: "jpg")
+    } catch {
+      return nil
+    }
+  }
+
+  private func encodedImageData(from item: NSSecureCoding) throws -> Data? {
+    if let url = item as? URL {
+      let original = try Data(contentsOf: url)
+      return UIImage(data: original).flatMap(encodedAnalysisImage) ?? original
+    }
+    if let image = item as? UIImage {
+      return encodedAnalysisImage(image)
+    }
+    if let raw = item as? Data {
+      return UIImage(data: raw).flatMap(encodedAnalysisImage) ?? raw
+    }
+    return nil
+  }
+
+  private func fetchLinkMetadata(url: URL) async -> LPLinkMetadata? {
+    let provider = LPMetadataProvider()
+    return await withTaskGroup(of: LPLinkMetadata?.self) { group in
+      group.addTask {
+        try? await provider.startFetchingMetadata(for: url)
+      }
+      group.addTask {
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        provider.cancel()
+        return nil
+      }
+      let result = await group.next() ?? nil
+      group.cancelAll()
+      return result
     }
   }
 

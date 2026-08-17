@@ -44,6 +44,8 @@ class _AnalysisSourceBanner extends StatelessWidget {
       'server_fallback' => 'AI解析サーバーでエラーが発生しました。SupabaseのFunctionログを確認してください',
       'invalid_response_fallback' => 'AI解析の応答を読み取れませんでした。Functionの設定を確認してください',
       'timeout_fallback' => 'AI解析が時間内に完了しませんでした。もう一度解析してください',
+      'instagram_media_unavailable' =>
+        'Instagramから画像を取得できませんでした。スクリーンショットを追加してください',
       'network_fallback' => 'AI解析サーバーへ接続できませんでした。通信状態を確認してください',
       'ai_no_match' => 'AI解析は完了しましたが、この投稿から場所を特定できませんでした',
       _ => '解析結果を表示しています。住所とピン位置を確認してください',

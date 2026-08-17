@@ -112,6 +112,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
       }
+      // 画像・本文未取得は一時的なSNS側制限の可能性があるため、
+      // 30日キャッシュせずスクショ追加や再取得後に再解析できるようにする。
+      if (result.analysisSource == 'instagram_media_unavailable') {
+        return result;
+      }
       await _writeCache(cacheKey, result);
       return result;
     } on TimeoutException {

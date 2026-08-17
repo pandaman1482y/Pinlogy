@@ -35,7 +35,7 @@ $$;
 revoke all on function public.cleanup_stale_cloud_data() from public;
 grant execute on function public.cleanup_stale_cloud_data() to authenticated;
 
-drop function if exists public.list_public_maps();
+drop function if exists public.list_public_maps(integer, integer);
 create function public.list_public_maps(
   page_limit int default 30,
   page_offset int default 0

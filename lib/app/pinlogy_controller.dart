@@ -418,6 +418,7 @@ class PinlogyController extends ChangeNotifier {
       'timeout_fallback',
       'network_fallback',
       'local_fallback',
+      'instagram_media_unavailable',
     }.contains(analysisSourceForPost(sourcePostId));
   }
 

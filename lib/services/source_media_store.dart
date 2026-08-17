@@ -114,10 +114,7 @@ class SourceMediaStore {
       if (!_validSize(bytes.length)) return null;
       final extension = data.group(1) == 'jpeg' ? 'jpg' : data.group(1)!;
       if (!_matchesImageSignature(bytes, extension)) return null;
-      return _LoadedImage(
-        bytes,
-        extension,
-      );
+      return _LoadedImage(bytes, extension);
     }
 
     final uri = Uri.tryParse(source);

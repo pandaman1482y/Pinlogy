@@ -25,6 +25,38 @@ Deno.serve(async (request) => {
       });
     }
 
+    const suppliedImages = validImages(input.image_data_urls).slice(0, 5);
+    const instagramHasNoMedia = sharedPage?.service === "instagram" &&
+      sharedPage.is_photo_post &&
+      sharedPage.image_urls.length === 0 &&
+      suppliedImages.length === 0;
+    const availableText = [
+      input.text,
+      input.ocr_text,
+      sharedPage?.title,
+      sharedPage?.description,
+    ].map((value) => String(value ?? "").trim())
+      .filter((value) => {
+        if (value.length < 3 || /^https?:\/\//i.test(value)) return false;
+        const normalized = value.toLowerCase();
+        return ![
+          "instagram",
+          "login • instagram",
+          "ログイン • instagram",
+        ].includes(normalized) &&
+          !normalized.includes("create an account or log in to instagram");
+      });
+    if (instagramHasNoMedia && availableText.length === 0) {
+      return reply({
+        source_post_id: sourcePostId,
+        candidates: [],
+        raw_summary:
+          "Instagramの投稿画像と投稿文を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。",
+        analysis_source: "instagram_media_unavailable",
+        shared_media: sharedMedia(sharedPage, []),
+      });
+    }
+
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return reply({ error: "ai_not_configured" }, 503);
     deviceId = request.headers.get("x-pinlogy-device") ?? "";
@@ -60,7 +92,6 @@ Deno.serve(async (request) => {
         `端末候補:\n${JSON.stringify(input.local_candidates ?? [])}`,
       ].join("\n\n"),
     }];
-    const suppliedImages = validImages(input.image_data_urls).slice(0, 5);
     for (const image of suppliedImages) {
       content.push({ type: "input_image", image_url: image, detail: "high" });
     }
