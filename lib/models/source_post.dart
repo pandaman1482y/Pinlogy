@@ -12,6 +12,7 @@ class SourcePost {
     List<String>? userCategories,
     this.userCategoriesSet = false,
     List<String>? imagePaths,
+    List<String>? analysisImagePaths,
     String? thumbnailPath,
     DateTime? receivedAt,
     DateTime? createdAt,
@@ -19,6 +20,7 @@ class SourcePost {
   }) : id = id ?? newId(),
        userCategories = userCategories ?? const [],
        imagePaths = imagePaths ?? const [],
+       analysisImagePaths = analysisImagePaths ?? const [],
        thumbnailPath =
            thumbnailPath ??
            ((imagePaths != null && imagePaths.isNotEmpty)
@@ -37,6 +39,9 @@ class SourcePost {
   List<String> userCategories;
   bool userCategoriesSet;
   List<String> imagePaths;
+
+  /// ユーザーが今回のAI解析対象として選んだ画像。空なら全画像を対象にする。
+  List<String> analysisImagePaths;
   String? thumbnailPath;
   DateTime receivedAt;
   DateTime createdAt;
@@ -59,6 +64,7 @@ class SourcePost {
     List<String>? userCategories,
     bool? userCategoriesSet,
     List<String>? imagePaths,
+    List<String>? analysisImagePaths,
     String? thumbnailPath,
     bool clearThumbnailPath = false,
     DateTime? updatedAt,
@@ -73,6 +79,7 @@ class SourcePost {
       userCategories: userCategories ?? this.userCategories,
       userCategoriesSet: userCategoriesSet ?? this.userCategoriesSet,
       imagePaths: imagePaths ?? this.imagePaths,
+      analysisImagePaths: analysisImagePaths ?? this.analysisImagePaths,
       thumbnailPath: clearThumbnailPath
           ? null
           : thumbnailPath ?? this.thumbnailPath,
@@ -92,6 +99,7 @@ class SourcePost {
     'userCategories': userCategories,
     'userCategoriesSet': userCategoriesSet,
     'imagePaths': imagePaths,
+    'analysisImagePaths': analysisImagePaths,
     'thumbnailPath': thumbnailPath,
     'receivedAt': receivedAt.toIso8601String(),
     'createdAt': createdAt.toIso8601String(),
@@ -110,6 +118,9 @@ class SourcePost {
         .toList(),
     userCategoriesSet: json['userCategoriesSet'] as bool? ?? false,
     imagePaths: ((json['imagePaths'] as List?) ?? const [])
+        .map((e) => e as String)
+        .toList(),
+    analysisImagePaths: ((json['analysisImagePaths'] as List?) ?? const [])
         .map((e) => e as String)
         .toList(),
     thumbnailPath: json['thumbnailPath'] as String?,

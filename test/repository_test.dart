@@ -126,7 +126,11 @@ void main() {
   test('投稿の代表画像を店名などと同じ投稿レコードに保持できる', () {
     final post = SourcePost(
       title: '画像を保持する店',
-      imagePaths: const ['/support/source_media/post/image_0.jpg'],
+      imagePaths: const [
+        '/support/source_media/post/image_0.jpg',
+        '/support/source_media/post/image_1.jpg',
+      ],
+      analysisImagePaths: const ['/support/source_media/post/image_1.jpg'],
       thumbnailPath: '/support/source_media/post/image_0.jpg',
     );
 
@@ -137,7 +141,10 @@ void main() {
       restored.displayThumbnailPath,
       '/support/source_media/post/image_0.jpg',
     );
-    expect(restored.imagePaths, hasLength(1));
+    expect(restored.imagePaths, hasLength(2));
+    expect(restored.analysisImagePaths, [
+      '/support/source_media/post/image_1.jpg',
+    ]);
   });
 
   test('旧データも最初の投稿画像を代表画像として引き継ぐ', () {

@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const headers = { "Content-Type": "application/json; charset=utf-8" };
+const maxSocialImages = 10;
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
@@ -15,7 +16,7 @@ Deno.serve(async (request) => {
     );
     if (input.preview_only === true) {
       const previewImages = await fetchSocialImages(
-        (sharedPage?.image_urls ?? []).slice(0, 5),
+        (sharedPage?.image_urls ?? []).slice(0, maxSocialImages),
         sharedPage?.service ?? null,
       );
       return reply({
@@ -25,13 +26,16 @@ Deno.serve(async (request) => {
       });
     }
 
-    const suppliedImages = validImages(input.image_data_urls).slice(0, 5);
+    const suppliedImages = validImages(input.image_data_urls)
+      .slice(0, maxSocialImages);
+    const selectedImagesOnly = input.selected_images_only === true;
+    const suppliedImageIndexes = validImageIndexes(input.image_indexes);
     const instagramHasNoMedia = sharedPage?.service === "instagram" &&
       sharedPage.is_photo_post &&
       sharedPage.image_urls.length === 0 &&
       suppliedImages.length === 0;
     const availableText = [
-      input.text,
+      cleanSharedText(input.text, sharedPage),
       input.ocr_text,
       sharedPage?.title,
       sharedPage?.description,
@@ -83,7 +87,7 @@ Deno.serve(async (request) => {
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
       text: [
-        `投稿文:\n${String(input.text ?? "")}`,
+        `投稿文:\n${cleanSharedText(input.text, sharedPage)}`,
         `端末OCR:\n${String(input.ocr_text ?? "")}`,
         `共有URL:\n${String(input.url ?? "")}`,
         `URLから取得した投稿情報:\n${JSON.stringify(
@@ -92,21 +96,40 @@ Deno.serve(async (request) => {
         `端末候補:\n${JSON.stringify(input.local_candidates ?? [])}`,
       ].join("\n\n"),
     }];
-    for (const image of suppliedImages) {
+    let analysisImageIndex = 0;
+    for (let index = 0; index < suppliedImages.length; index++) {
+      const image = suppliedImages[index];
+      const originalIndex = suppliedImageIndexes[index] ?? analysisImageIndex;
+      content.push({
+        type: "input_text",
+        text: `画像${originalIndex}（ユーザーが選択した解析対象）`,
+      });
       content.push({ type: "input_image", image_url: image, detail: "high" });
+      analysisImageIndex++;
     }
     // SNSの複数画像投稿は共有拡張へ画像本体を渡さないことがある。
     // 公開ページ内の投稿画像だけを同じ1回の解析へ追加する。
-    const fetchedCandidates = await fetchSocialImages(
-      (sharedPage?.image_urls ?? []).slice(0, 5),
-      sharedPage?.service ?? null,
-    );
+    const fetchedCandidates = selectedImagesOnly
+      ? []
+      : await fetchSocialImages(
+        (sharedPage?.image_urls ?? []).slice(0, maxSocialImages),
+        sharedPage?.service ?? null,
+      );
     const suppliedFingerprints = new Set(suppliedImages.map(imageFingerprint));
-    const fetchedSocialImages = fetchedCandidates
+    const orderedFetchedCandidates = sharedPage?.service === "instagram" &&
+        suppliedImages.length === 1 && fetchedCandidates.length > 1
+      ? fetchedCandidates.slice(1)
+      : fetchedCandidates;
+    const fetchedSocialImages = orderedFetchedCandidates
       .filter((image) => !suppliedFingerprints.has(imageFingerprint(image)))
-      .slice(0, Math.max(0, 5 - suppliedImages.length));
+      .slice(0, Math.max(0, maxSocialImages - suppliedImages.length));
     for (const image of fetchedSocialImages) {
+      content.push({
+        type: "input_text",
+        text: `画像${analysisImageIndex}（SNSカルーセル・投稿順）`,
+      });
       content.push({ type: "input_image", image_url: image, detail: "high" });
+      analysisImageIndex++;
     }
 
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -116,10 +139,10 @@ Deno.serve(async (request) => {
         model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
         store: false,
         reasoning: { effort: "low" },
-        max_output_tokens: 2500,
+        max_output_tokens: 4000,
         tools: [{ type: "web_search" }],
         instructions:
-          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。evidenceImageIndexは主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。" +
+          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。evidenceImageIndexは主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。Instagram/TikTokの投稿者名、ユーザー名、アカウント名、プロフィール名は店舗名として候補化しないでください。" +
           "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。複数画像は表示順に別々読み、画像ごとの店名・住所の組み合わせを混ぜないでください。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれか、genresは具体的な種類を最大3件とします。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。候補が0件でURLから取得した投稿情報のis_photo_postがtrueかつphoto_accessがunavailableの場合、raw_summaryは「SNSの画像を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。」としてください。",
         input: [{ role: "user", content }],
         text: { verbosity: "low", format: placeSchema },
@@ -143,12 +166,14 @@ Deno.serve(async (request) => {
       quotaReserved = false;
       return reply({ error: "empty_ai_response" }, 502);
     }
-    const parsedOutput = JSON.parse(output.text);
+    const parsedOutput = sanitizeParsedOutput(JSON.parse(output.text), sharedPage);
     const successfulResult = {
       source_post_id: sourcePostId,
       ...parsedOutput,
       analysis_source: sharedPage?.is_photo_post === true
-        ? (fetchedSocialImages.length > 0
+        ? (selectedImagesOnly && suppliedImages.length > 0
+          ? `ai_${sharedPage.service}_selected_images`
+          : fetchedSocialImages.length > 0
           ? `ai_${sharedPage.service}_photos`
           : `ai_${sharedPage.service}_text_only`)
         : "ai",
@@ -213,7 +238,11 @@ const placeSchema = {
             category: { type: "string", enum: ["飲食店", "観光・レジャー", "宿泊", "買い物", "その他"] },
             genres: { type: "array", maxItems: 3, items: { type: "string" } },
             evidenceSummary: { type: ["string", "null"] },
-            evidenceImageIndex: { type: ["integer", "null"], minimum: 0, maximum: 4 },
+            evidenceImageIndex: {
+              type: ["integer", "null"],
+              minimum: 0,
+              maximum: maxSocialImages - 1,
+            },
             confidencePercent: { type: "integer", minimum: 0, maximum: 100 },
             match: { type: "string", enum: ["high", "needsReview", "unresolved"] },
             postAddress: { type: ["string", "null"] },
@@ -232,7 +261,17 @@ function validImages(value: unknown) {
     .filter((item): item is string =>
       typeof item === "string" && /^data:image\/(jpeg|png|webp);base64,/i.test(item)
     )
-    .slice(0, 5);
+    .slice(0, maxSocialImages);
+}
+
+function validImageIndexes(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => Number(item))
+    .filter((item) =>
+      Number.isInteger(item) && item >= 0 && item < maxSocialImages
+    )
+    .slice(0, maxSocialImages);
 }
 
 function isAllowedSocialUrl(url: URL) {
@@ -302,14 +341,39 @@ async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
       };
     }
     const html = (await response.text()).slice(0, 2_000_000);
+    // 通常ページは代表画像しか含まない場合があるため、Instagram公式の
+    // 公開埋め込みページも読み、カルーセルを投稿順で最大10枚まで復元する。
+    const instagramEmbedHtml = isInstagram
+      ? await fetchInstagramEmbedHtml(final)
+      : null;
+    const indexedInstagramImages = isInstagram && isPhotoPost
+      ? await fetchInstagramIndexedImages(final)
+      : [];
     const imageUrls = isTikTok
       ? (isPhotoPost ? extractTikTokPhotoUrls(html) : [])
-      : extractInstagramPhotoUrls(html);
+      : mergeInstagramImages(
+        indexedInstagramImages,
+        extractInstagramPhotoUrls(instagramEmbedHtml ?? ""),
+        extractInstagramPhotoUrls(html),
+      );
+    const rawDescription = meta(html, "og:description") ??
+      meta(html, "description") ??
+      meta(instagramEmbedHtml ?? "", "og:description") ??
+      meta(instagramEmbedHtml ?? "", "description");
+    console.info(
+      "shared_media_resolved",
+      service,
+      `images=${imageUrls.length}`,
+      `embed=${instagramEmbedHtml != null}`,
+    );
     const metadata: SharedPage = {
       service,
       canonical_url: finalUrl,
-      title: meta(html, "og:title") ?? pageTitle(html),
-      description: meta(html, "og:description") ?? meta(html, "description"),
+      // Instagramのog:titleは投稿者名であり、店名の根拠にはしない。
+      title: isInstagram ? null : meta(html, "og:title") ?? pageTitle(html),
+      description: isInstagram
+        ? instagramCaption(rawDescription)
+        : rawDescription,
       is_photo_post: isPhotoPost,
       photo_access: isPhotoPost
         ? (imageUrls.length > 0 ? "available" : "unavailable")
@@ -346,6 +410,118 @@ async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
   }
 }
 
+async function fetchInstagramEmbedHtml(postUrl: URL) {
+  try {
+    const path = postUrl.pathname.replace(/\/+$/, "");
+    if (!/^\/(p|reel)\/[^/]+$/i.test(path)) return null;
+    const embedUrl = new URL(`${path}/embed/captioned/`, postUrl.origin);
+    const { response } = await fetchSocialPage(embedUrl);
+    if (!response.ok) {
+      console.warn("instagram_embed_http_failed", response.status);
+      return null;
+    }
+    return (await response.text()).slice(0, 3_000_000);
+  } catch (error) {
+    console.warn("instagram_embed_failed", String(error));
+    return null;
+  }
+}
+
+/// Instagramの共有URLには、現在表示していた画像番号が
+/// `img_index=10` のように付くことがある。通常HTML・埋め込みHTMLが
+/// その1枚だけを代表画像として返す場合に備え、1〜10枚目を投稿順で
+/// 明示的に問い合わせる。AI APIは呼ばず、公開ページの画像取得だけを行う。
+async function fetchInstagramIndexedImages(postUrl: URL) {
+  const path = postUrl.pathname.replace(/\/+$/, "");
+  if (!/^\/(p|reel)\/[^/]+$/i.test(path)) return [];
+
+  const results = await Promise.all(
+    Array.from({ length: maxSocialImages }, async (_, offset) => {
+      const index = offset + 1;
+      try {
+        const indexedUrl = new URL(`${path}/`, postUrl.origin);
+        indexedUrl.searchParams.set("img_index", String(index));
+        const { response } = await fetchSocialPage(indexedUrl);
+        if (!response.ok) return [] as string[];
+        const indexedHtml = (await response.text()).slice(0, 2_000_000);
+        const representative = meta(indexedHtml, "og:image");
+        return mergeInstagramImages(
+          representative && isAllowedInstagramImage(representative)
+            ? [representative]
+            : [],
+          extractInstagramPhotoUrls(indexedHtml),
+        );
+      } catch (error) {
+        console.warn("instagram_indexed_image_failed", index, String(error));
+        return [] as string[];
+      }
+    }),
+  );
+
+  const ordered = mergeInstagramImages(...results);
+  console.info("instagram_indexed_images_resolved", `images=${ordered.length}`);
+  return ordered;
+}
+
+function mergeInstagramImages(...groups: string[][]) {
+  const merged: string[] = [];
+  for (const group of groups) {
+    for (const url of group) {
+      if (!hasSameImage(merged, url)) merged.push(url);
+      if (merged.length >= maxSocialImages) return merged;
+    }
+  }
+  return merged;
+}
+
+function instagramCaption(value: string | null) {
+  if (!value) return null;
+  const cleaned = decodeHtml(value).trim();
+  // 例: "123 likes ... - user on Instagram: \"投稿本文\""
+  const quoted = cleaned.match(/\bon Instagram\s*:\s*[“\"]([\s\S]*?)[”\"]\s*$/i)?.[1];
+  if (quoted?.trim()) return quoted.trim().slice(0, 4000);
+  if (/^(?:Instagram|Login\s*[•|-]\s*Instagram)$/i.test(cleaned)) return null;
+  if (/\bon Instagram\b/i.test(cleaned) && !/[#〒]|(?:都|道|府|県|市|区)/.test(cleaned)) {
+    return null;
+  }
+  return cleaned.slice(0, 4000);
+}
+
+function cleanSharedText(value: unknown, sharedPage: SharedPage | null) {
+  const text = String(value ?? "").trim();
+  if (sharedPage?.service !== "instagram") return text;
+  return text.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !/^Instagramの投稿$/i.test(line))
+    .filter((line) => !/\bon Instagram\b/i.test(line))
+    .filter((line) => !/^[^\n]{1,80}\s*[•|｜-]\s*Instagram/i.test(line))
+    .join("\n");
+}
+
+function sanitizeParsedOutput(
+  value: unknown,
+  sharedPage: SharedPage | null,
+): Record<string, unknown> {
+  if (value == null || typeof value !== "object") {
+    throw new Error("invalid_ai_output");
+  }
+  const output = value as Record<string, unknown>;
+  if (!Array.isArray(output.candidates)) return output;
+  output.candidates = output.candidates.filter((candidate) => {
+    if (candidate == null || typeof candidate !== "object") return false;
+    const name = String((candidate as Record<string, unknown>).name ?? "").trim();
+    if (name.length < 2) return false;
+    if (/^(Instagram|TikTok|共有された投稿|Instagramの投稿)$/i.test(name)) return false;
+    if (/\bon Instagram\b/i.test(name)) return false;
+    if (/^[＠@]?[A-Za-z0-9._]{2,30}$/.test(name) && sharedPage?.service === "instagram") {
+      return false;
+    }
+    return true;
+  });
+  return output;
+}
+
 /// Instagramの公開HTMLから、投稿本体の代表画像とカルーセル画像だけを抽出する。
 /// 非公開・ログイン必須投稿は無理に回避せず、取得不可として返す。
 function extractInstagramPhotoUrls(html: string) {
@@ -361,18 +537,20 @@ function extractInstagramPhotoUrls(html: string) {
     } catch {
       collectInstagramUrlsFromMarkedBlocks(decoded, candidates);
     }
-    if (candidates.length >= 5) break;
+    if (candidates.length >= maxSocialImages) break;
   }
   if (candidates.length === 0 && representative &&
     isAllowedInstagramImage(representative)) {
     candidates.push(representative);
   }
-  return candidates.slice(0, 5);
+  return candidates.slice(0, maxSocialImages);
 }
 
 function looksLikeInstagramPostMedia(value: string) {
   return value.includes("carousel_media") ||
     value.includes("edge_sidecar_to_children") ||
+    value.includes("shortcode_media") ||
+    value.includes("gql_data") ||
     value.includes("xdt_api__v1__media__shortcode__web_info") ||
     value.includes("image_versions2");
 }
@@ -382,7 +560,17 @@ function collectInstagramPostImages(
   output: string[],
   insidePostMedia = false,
 ) {
-  if (output.length >= 5 || value == null) return;
+  if (output.length >= maxSocialImages || value == null) return;
+  if (typeof value === "string") {
+    const decoded = normalizeEmbeddedJson(value);
+    if (!looksLikeInstagramPostMedia(decoded)) return;
+    try {
+      collectInstagramPostImages(JSON.parse(decoded), output, insidePostMedia);
+    } catch {
+      collectInstagramUrlsFromMarkedBlocks(decoded, output);
+    }
+    return;
+  }
   if (Array.isArray(value)) {
     for (const item of value) {
       collectInstagramPostImages(item, output, insidePostMedia);
@@ -394,12 +582,20 @@ function collectInstagramPostImages(
   const mediaKeys = [
     "carousel_media",
     "edge_sidecar_to_children",
+    "shortcode_media",
+    "gql_data",
     "xdt_api__v1__media__shortcode__web_info",
     "image_versions2",
   ];
   const isMediaNode = insidePostMedia || mediaKeys.some((key) => key in record);
   if (isMediaNode) {
-    for (const key of ["display_url", "image_url", "thumbnail_url", "url"]) {
+    for (const key of [
+      "display_url",
+      "media_url",
+      "image_url",
+      "thumbnail_url",
+      "url",
+    ]) {
       addInstagramImage(record[key], output);
     }
     const candidates = record.candidates;
@@ -410,7 +606,7 @@ function collectInstagramPostImages(
             (candidate as Record<string, unknown>).url,
             output,
           );
-          if (output.length >= 5) return;
+          if (output.length >= maxSocialImages) return;
         }
       }
     }
@@ -421,12 +617,12 @@ function collectInstagramPostImages(
       output,
       isMediaNode || mediaKeys.includes(key),
     );
-    if (output.length >= 5) return;
+    if (output.length >= maxSocialImages) return;
   }
 }
 
 function addInstagramImage(value: unknown, output: string[]) {
-  if (typeof value !== "string" || output.length >= 5) return;
+  if (typeof value !== "string" || output.length >= maxSocialImages) return;
   const normalized = normalizeEmbeddedJson(value);
   const url = normalized.match(/https:\/\/[^\s"'<>\\]+/)?.[0]
     ?.replace(/[),\]]+$/, "");
@@ -439,11 +635,13 @@ function collectInstagramUrlsFromMarkedBlocks(value: string, output: string[]) {
   const markers = [
     "carousel_media",
     "edge_sidecar_to_children",
+    "shortcode_media",
+    "gql_data",
     "image_versions2",
   ];
   for (const marker of markers) {
     let offset = 0;
-    while (output.length < 5) {
+    while (output.length < maxSocialImages) {
       const index = value.indexOf(marker, offset);
       if (index < 0) break;
       const block = value.slice(index, Math.min(value.length, index + 250_000));
@@ -452,7 +650,7 @@ function collectInstagramUrlsFromMarkedBlocks(value: string, output: string[]) {
         if (isAllowedInstagramImage(url) && !hasSameImage(output, url)) {
           output.push(url);
         }
-        if (output.length >= 5) break;
+        if (output.length >= maxSocialImages) break;
       }
       offset = index + marker.length;
     }
@@ -481,17 +679,17 @@ function extractTikTokPhotoUrls(html: string) {
         collectAllowedUrls(block[1] ?? "", candidates);
       }
     }
-    if (candidates.length >= 5) break;
+    if (candidates.length >= maxSocialImages) break;
   }
   if (candidates.length === 0 && representative &&
     isAllowedTikTokImage(representative)) {
     candidates.push(representative);
   }
-  return [...new Set(candidates)].slice(0, 5);
+  return [...new Set(candidates)].slice(0, maxSocialImages);
 }
 
 function collectPhotoUrls(value: unknown, output: string[]) {
-  if (output.length >= 5 || value == null) return;
+  if (output.length >= maxSocialImages || value == null) return;
   if (Array.isArray(value)) {
     for (const item of value) collectPhotoUrls(item, output);
     return;
@@ -530,7 +728,7 @@ function normalizeEmbeddedJson(value: string) {
 }
 
 function collectAllowedUrls(value: unknown, output: string[]) {
-  if (output.length >= 5 || value == null) return;
+  if (output.length >= maxSocialImages || value == null) return;
   if (typeof value === "string") {
     const normalized = decodeHtml(value)
       .replaceAll("\\u002F", "/")
@@ -541,7 +739,7 @@ function collectAllowedUrls(value: unknown, output: string[]) {
       if (isAllowedTikTokImage(url) && !hasSameImage(output, url)) {
         output.push(url);
       }
-      if (output.length >= 5) return;
+      if (output.length >= maxSocialImages) return;
     }
     return;
   }
@@ -616,7 +814,8 @@ async function fetchSocialImages(
   urls: string[],
   service: SharedPage["service"] | null,
 ) {
-  const results = await Promise.all(urls.slice(0, 5).map(async (rawUrl) => {
+  const results = await Promise.all(
+    urls.slice(0, maxSocialImages).map(async (rawUrl) => {
     const isTikTok = service === "tiktok" && isAllowedTikTokImage(rawUrl);
     const isInstagram = service === "instagram" &&
       isAllowedInstagramImage(rawUrl);
@@ -651,7 +850,8 @@ async function fetchSocialImages(
       console.warn("social_image_fetch_failed", service, String(error));
       return null;
     }
-  }));
+    }),
+  );
   return results.filter((value): value is string => value != null);
 }
 

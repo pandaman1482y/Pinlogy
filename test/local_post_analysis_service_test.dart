@@ -49,4 +49,17 @@ void main() {
 
     expect(result.candidates, isEmpty);
   });
+
+  test('Instagram投稿者名を店舗候補にしない', () async {
+    for (final text in [
+      'food_osaka on Instagram',
+      'food_osaka • Instagram photos and videos',
+      '@food_osaka',
+    ]) {
+      final result = await LocalPostAnalysisService().analyze(
+        PostAnalysisRequest(sourcePostId: 'instagram-user', text: text),
+      );
+      expect(result.candidates, isEmpty, reason: text);
+    }
+  });
 }

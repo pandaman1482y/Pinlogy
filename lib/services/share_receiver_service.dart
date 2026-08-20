@@ -150,7 +150,15 @@ class LocalShareReceiverService implements ShareReceiverService {
         PostAnalysisRequest(sourcePostId: post.id, url: post.url),
       );
       if (previews.isNotEmpty) {
-        final persisted = await _mediaStore.persist(post.id, previews);
+        // 複数枚を公式ページから取得できた場合は、その投稿順を優先する。
+        // Share Extensionの1枚は現在表示中のスライドの場合があり、先頭へ
+        // 混ぜると順番のずれや重複が起きるため置き換える。
+        final sources = previews.length > 1
+            ? previews.take(SourceMediaStore.maxImages)
+            : post.imagePaths.isNotEmpty
+            ? post.imagePaths
+            : previews;
+        final persisted = await _mediaStore.persist(post.id, sources);
         if (persisted.isEmpty) {
           throw StateError('取得した画像を端末に保存できませんでした');
         }
@@ -314,12 +322,17 @@ class LocalShareReceiverService implements ShareReceiverService {
   Future<void> _analyze(AnalysisJob job, SourcePost post) async {
     try {
       await analysis.update(job.copyWith(status: AnalysisJobStatus.processing));
+      final analysisImages = _analysisImages(post);
       final result = await analysisService.analyze(
         PostAnalysisRequest(
           sourcePostId: post.id,
           url: post.url,
           text: _analysisText(post),
-          imageUrls: post.imagePaths,
+          imageUrls: analysisImages,
+          imageIndexes: analysisImages
+              .map((path) => post.imagePaths.indexOf(path))
+              .toList(),
+          selectedImagesOnly: post.analysisImagePaths.isNotEmpty,
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
@@ -401,16 +414,34 @@ class AnalysisRunner {
     if (storedPost == null) return;
     var post = storedPost;
 
+    final requiresSelection =
+        post.imagePaths.isNotEmpty &&
+        (post.service == 'Instagram' || post.service == 'TikTok');
+    if (requiresSelection && post.analysisImagePaths.isEmpty) {
+      await hub.analysis.update(
+        job.copyWith(
+          status: AnalysisJobStatus.failed,
+          errorMessage: '解析する投稿画像を選択してください',
+        ),
+      );
+      return;
+    }
+
     await hub.analysis.update(
       job.copyWith(status: AnalysisJobStatus.processing, errorMessage: null),
     );
     try {
+      final analysisImages = _analysisImages(post);
       final result = await analysisService.analyze(
         PostAnalysisRequest(
           sourcePostId: post.id,
           url: post.url,
           text: _analysisText(post),
-          imageUrls: post.imagePaths,
+          imageUrls: analysisImages,
+          imageIndexes: analysisImages
+              .map((path) => post.imagePaths.indexOf(path))
+              .toList(),
+          selectedImagesOnly: post.analysisImagePaths.isNotEmpty,
         ),
       );
       final mergedImages = _mergedAnalysisImages(post, result);
@@ -489,7 +520,19 @@ List<String> _mergedAnalysisImages(
   if (fetched.isEmpty) return post.imagePaths;
   // AIへ送信した既存画像→SNS取得画像の順番を維持する。
   // evidenceImageIndexはこの配列の順番を参照する。
-  return {...post.imagePaths, ...fetched}.take(5).toList(growable: false);
+  return {
+    ...post.imagePaths,
+    ...fetched,
+  }.take(SourceMediaStore.maxImages).toList(growable: false);
+}
+
+List<String> _analysisImages(SourcePost post) {
+  if (post.analysisImagePaths.isEmpty) return post.imagePaths;
+  final available = post.imagePaths.toSet();
+  return post.analysisImagePaths
+      .where(available.contains)
+      .take(SourceMediaStore.maxImages)
+      .toList(growable: false);
 }
 
 bool _samePaths(List<String> left, List<String> right) {
@@ -508,6 +551,12 @@ String? _analysisText(SourcePost post) {
           title.isEmpty ||
           title == '共有された投稿' ||
           title == '共有された画像' ||
+          title == 'Instagramの投稿' ||
+          RegExp(r'\bon Instagram\b', caseSensitive: false).hasMatch(title) ||
+          RegExp(
+            r'^[^\n]{1,80}\s*[•|｜-]\s*Instagram',
+            caseSensitive: false,
+          ).hasMatch(title) ||
           title.startsWith('http://') ||
           title.startsWith('https://')
       ? null

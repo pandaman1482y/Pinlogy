@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../app/app_scope.dart';
 import '../core/theme.dart';
@@ -134,10 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _enqueueSharePrompt(SourcePost post) {
     _queuedSharePrompts.add(post);
-    final dialogContext = _activeShareDialogContext;
-    if (dialogContext != null && Navigator.of(dialogContext).canPop()) {
-      Navigator.pop(dialogContext, '');
-    }
+    // 解析画像の選択中に次の共有が届いても、現在のダイアログを閉じない。
+    // 閉じると未選択のまま旧自動解析ルートへ流れるため、順番に確認する。
     unawaited(_drainSharePrompts());
   }
 
@@ -149,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
       while (mounted && _queuedSharePrompts.isNotEmpty) {
         final post = _queuedSharePrompts.removeAt(0);
         // さらに共有が待っている場合は先頭をメモなしで確定し、最後の1件だけ入力を待つ。
-        if (_queuedSharePrompts.isNotEmpty) {
+        if (_queuedSharePrompts.isNotEmpty && !_requiresImageSelection(post)) {
           await controller.analyzeSharedPost(post);
           continue;
         }
@@ -174,22 +173,30 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final controller = AppScope.read(context);
     var displayPost = await controller.sourcePosts.getById(post.id) ?? post;
-    if (displayPost.imagePaths.isEmpty && displayPost.url != null) {
+    final shouldRefreshSocialImages =
+        displayPost.url != null &&
+        (displayPost.imagePaths.isEmpty ||
+            displayPost.service == 'Instagram' ||
+            displayPost.service == 'TikTok');
+    if (shouldRefreshSocialImages) {
       try {
         displayPost = await controller.shareReceiver.refreshOfficialPreview(
           displayPost,
+          force: true,
         );
       } catch (_) {
         // サムネイル取得に失敗してもURLとメモ入力で取り込みを続ける。
       }
     }
     if (!mounted) return;
-    if (_queuedSharePrompts.isNotEmpty) {
+    if (_queuedSharePrompts.isNotEmpty &&
+        !_requiresImageSelection(displayPost)) {
       await controller.analyzeSharedPost(displayPost);
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
     final memoController = TextEditingController();
+    final selectedImagePaths = <String>{};
     String? memo;
     try {
       memo = await showDialog<String>(
@@ -197,66 +204,205 @@ class _HomeScreenState extends State<HomeScreen> {
         barrierDismissible: false,
         builder: (dialogContext) {
           _activeShareDialogContext = dialogContext;
-          return AlertDialog(
-            scrollable: true,
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 24,
-            ),
-            icon: const Icon(Icons.edit_note_rounded),
-            title: const Text('取り込みメモ'),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (displayPost.displayThumbnailPath != null) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: PlacePhoto(
-                          path: displayPost.displayThumbnailPath!,
-                          fallback: const ColoredBox(
-                            color: Color(0xFFE8F1EC),
-                            child: Center(
-                              child: Icon(Icons.movie_outlined, size: 36),
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) => AlertDialog(
+              scrollable: true,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              icon: const Icon(Icons.edit_note_rounded),
+              title: const Text('取り込みメモ'),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (displayPost.imagePaths.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${displayPost.imagePaths.length}枚取得 · '
+                              '${selectedImagePaths.length}枚を解析対象に選択',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
+                          TextButton(
+                            onPressed: () => setDialogState(() {
+                              if (selectedImagePaths.length ==
+                                  displayPost.imagePaths.length) {
+                                selectedImagePaths.clear();
+                              } else {
+                                selectedImagePaths
+                                  ..clear()
+                                  ..addAll(displayPost.imagePaths);
+                              }
+                            }),
+                            child: Text(
+                              selectedImagePaths.length ==
+                                      displayPost.imagePaths.length
+                                  ? '選択解除'
+                                  : 'すべて選択',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: displayPost.imagePaths.length,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                              childAspectRatio: 1,
+                            ),
+                        itemBuilder: (context, index) {
+                          final path = displayPost.imagePaths[index];
+                          final isSelected = selectedImagePaths.contains(path);
+                          return Semantics(
+                            button: true,
+                            selected: isSelected,
+                            label: '${index + 1}枚目を解析対象にする',
+                            child: InkWell(
+                              onTap: () => setDialogState(() {
+                                if (!selectedImagePaths.add(path)) {
+                                  selectedImagePaths.remove(path);
+                                }
+                              }),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: PlacePhoto(
+                                      path: path,
+                                      fallback: const ColoredBox(
+                                        color: Color(0xFFE8F1EC),
+                                        child: Icon(Icons.image_outlined),
+                                      ),
+                                    ),
+                                  ),
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.primary
+                                            : Colors.transparent,
+                                        width: 3,
+                                      ),
+                                      color: isSelected
+                                          ? Colors.black.withValues(alpha: .08)
+                                          : null,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 6,
+                                    left: 6,
+                                    child: CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: Colors.black54,
+                                      child: Text(
+                                        '${index + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    const Positioned(
+                                      top: 5,
+                                      right: 5,
+                                      child: Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '選んだ画像だけをまとめて1回のAI解析に使用します。',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      if (displayPost.imagePaths.length < 10) ...[
+                        const SizedBox(height: 4),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final remaining =
+                                10 - displayPost.imagePaths.length;
+                            final picked = await ImagePicker().pickMultiImage(
+                              imageQuality: 92,
+                              limit: remaining,
+                            );
+                            if (picked.isEmpty || !dialogContext.mounted)
+                              return;
+                            final updated = await controller.addImagesToPost(
+                              displayPost,
+                              picked.map((image) => image.path).toList(),
+                            );
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() => displayPost = updated);
+                          },
+                          icon: const Icon(Icons.add_photo_alternate_outlined),
+                          label: const Text('不足画像をスクショから追加'),
                         ),
+                      ],
+                      const SizedBox(height: 12),
+                    ],
+                    SourcePostTile(post: displayPost, compact: true),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: memoController,
+                      autofocus: false,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        hintText: '店名や住所など（任意）',
+                        helperText: '入力すると場所を検索しやすくなります',
+                        helperMaxLines: 2,
                       ),
                     ),
-                    const SizedBox(height: 12),
                   ],
-                  SourcePostTile(post: displayPost, compact: true),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: memoController,
-                    autofocus: false,
-                    minLines: 3,
-                    maxLines: 6,
-                    decoration: const InputDecoration(
-                      hintText: '店名や住所など（任意）',
-                      helperText: '入力すると場所を検索しやすくなります',
-                      helperMaxLines: 2,
-                    ),
-                  ),
-                ],
+                ),
               ),
+              actionsOverflowDirection: VerticalDirection.down,
+              actions: [
+                TextButton(
+                  onPressed:
+                      displayPost.imagePaths.isNotEmpty &&
+                          selectedImagePaths.isEmpty
+                      ? null
+                      : () => Navigator.pop(dialogContext, ''),
+                  child: const Text('メモなしで追加'),
+                ),
+                FilledButton(
+                  onPressed:
+                      displayPost.imagePaths.isNotEmpty &&
+                          selectedImagePaths.isEmpty
+                      ? null
+                      : () => Navigator.pop(dialogContext, memoController.text),
+                  child: const Text('追加して検索'),
+                ),
+              ],
             ),
-            actionsOverflowDirection: VerticalDirection.down,
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, ''),
-                child: const Text('メモなしで追加'),
-              ),
-              FilledButton(
-                onPressed: () =>
-                    Navigator.pop(dialogContext, memoController.text),
-                child: const Text('追加して検索'),
-              ),
-            ],
           );
         },
       );
@@ -265,7 +411,13 @@ class _HomeScreenState extends State<HomeScreen> {
       disposeAfterFrame([memoController]);
     }
     if (!mounted || memo == null) return;
-    await AppScope.read(context).analyzeSharedPost(displayPost, memo: memo);
+    await AppScope.read(context).analyzeSharedPost(
+      displayPost,
+      memo: memo,
+      selectedImagePaths: displayPost.imagePaths.isEmpty
+          ? null
+          : selectedImagePaths.toList(growable: false),
+    );
     if (!mounted) return;
     final message = AppScope.read(context).consumeShareToast() ?? '受信箱に保存しました';
     final messenger = ScaffoldMessenger.of(context);
@@ -273,6 +425,11 @@ class _HomeScreenState extends State<HomeScreen> {
     messenger.showSnackBar(
       SnackBar(duration: const Duration(seconds: 2), content: Text(message)),
     );
+  }
+
+  bool _requiresImageSelection(SourcePost post) {
+    return post.imagePaths.isNotEmpty &&
+        (post.service == 'Instagram' || post.service == 'TikTok');
   }
 
   Future<void> _listenForMapShares() async {

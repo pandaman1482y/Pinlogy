@@ -210,7 +210,11 @@ class PinlogyController extends ChangeNotifier {
     _pendingSharedPosts.removeWhere((post) => post.id == sourcePostId);
   }
 
-  Future<void> analyzeSharedPost(SourcePost post, {String? memo}) async {
+  Future<void> analyzeSharedPost(
+    SourcePost post, {
+    String? memo,
+    List<String>? selectedImagePaths,
+  }) async {
     var currentPost = await sourcePosts.getById(post.id) ?? post;
     if (currentPost.imagePaths.isEmpty && currentPost.url != null) {
       try {
@@ -220,14 +224,15 @@ class PinlogyController extends ChangeNotifier {
       }
     }
     final trimmedMemo = memo?.trim() ?? '';
-    if (trimmedMemo.isNotEmpty) {
+    if (trimmedMemo.isNotEmpty || selectedImagePaths != null) {
       final categories = <String>{
         ...categoriesForPost(post.id),
         ...suggestPostCategories(trimmedMemo),
       }.toList()..sort();
       await sourcePosts.update(
         currentPost.copyWith(
-          userMemo: trimmedMemo,
+          userMemo: trimmedMemo.isEmpty ? currentPost.userMemo : trimmedMemo,
+          analysisImagePaths: selectedImagePaths,
           userCategories: categories,
           userCategoriesSet:
               currentPost.userCategoriesSet || categories.isNotEmpty,
@@ -235,10 +240,40 @@ class PinlogyController extends ChangeNotifier {
         ),
       );
     }
+    final latestPost = await sourcePosts.getById(post.id) ?? currentPost;
+    final requiresSelection =
+        latestPost.imagePaths.isNotEmpty &&
+        (latestPost.service == 'Instagram' || latestPost.service == 'TikTok');
+    if (requiresSelection && latestPost.analysisImagePaths.isEmpty) {
+      // SNS画像投稿は選択画面を通過するまでAIへ送らない。
+      return;
+    }
     final job = await analysis.getBySourcePostId(post.id);
     if (job != null) {
       await analysisRunner.runJob(job.id);
     }
+  }
+
+  Future<SourcePost> addImagesToPost(
+    SourcePost post,
+    List<String> imagePaths,
+  ) async {
+    final current = await sourcePosts.getById(post.id) ?? post;
+    final persisted = await sourceMedia.persist(
+      current.id,
+      <String>{
+        ...current.imagePaths,
+        ...imagePaths,
+      }.take(SourceMediaStore.maxImages),
+    );
+    if (persisted.isEmpty) return current;
+    return sourcePosts.update(
+      current.copyWith(
+        imagePaths: persisted,
+        thumbnailPath: persisted.first,
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   Future<bool> consumeAiQuotaNotice() async {

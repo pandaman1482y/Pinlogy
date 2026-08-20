@@ -16,7 +16,7 @@ void main() {
     expect(restored.confidencePercent, 91);
   });
 
-  test('TikTok写真投稿の最大5枚の保存先を応答で受け取れる', () {
+  test('SNS写真投稿の最大10枚の保存先を応答で受け取れる', () {
     final response = PostAnalysisResponse.fromJson({
       'source_post_id': 'post-1',
       'candidates': const [],
@@ -30,5 +30,17 @@ void main() {
 
     expect(response.previewImagePath, '/tmp/photo_0.jpg');
     expect(response.previewImagePaths, hasLength(3));
+  });
+
+  test('選択画像の元投稿番号を解析リクエストへ保持する', () {
+    const request = PostAnalysisRequest(
+      sourcePostId: 'post-selected',
+      imageUrls: ['/tmp/photo_2.jpg', '/tmp/photo_8.jpg'],
+      imageIndexes: [2, 8],
+      selectedImagesOnly: true,
+    );
+
+    expect(request.toJson()['image_indexes'], [2, 8]);
+    expect(request.toJson()['selected_images_only'], isTrue);
   });
 }

@@ -156,7 +156,7 @@ final class ShareViewController: UIViewController {
        let rawUrl = urlString,
        guessService(rawUrl) == "Instagram"
     {
-      for provider in providers where imagePaths.count < 5 {
+      for provider in providers where imagePaths.count < 10 {
         if let saved = await savePreviewImage(provider: provider) {
           imagePaths.append(saved)
           break
@@ -166,11 +166,8 @@ final class ShareViewController: UIViewController {
          let url = URL(string: rawUrl),
          let metadata = await fetchLinkMetadata(url: url)
       {
-        if let title = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !title.isEmpty
-        {
-          texts.append(title)
-        }
+        // InstagramのLPMetadata.titleは投稿者名になることが多いため、
+        // 店舗検索用テキストへは混ぜない。
         if let imageProvider = metadata.imageProvider,
            let saved = await saveImage(provider: imageProvider)
         {
@@ -180,9 +177,14 @@ final class ShareViewController: UIViewController {
     }
 
     var seenTexts = Set<String>()
+    let service = urlString.map { guessService($0) } ?? "その他"
     let joined = texts
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty && seenTexts.insert($0).inserted }
+      .filter {
+        !$0.isEmpty &&
+        !isGenericSocialText($0, service: service) &&
+        seenTexts.insert($0).inserted
+      }
       .joined(separator: "\n")
     if urlString == nil, let first = joined.split(whereSeparator: \.isWhitespace).first,
        first.hasPrefix("http") {
@@ -199,9 +201,15 @@ final class ShareViewController: UIViewController {
     if !imagePaths.isEmpty {
       payload["imagePaths"] = imagePaths
     }
-    payload["title"] = texts.first(where: {
-      !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }) ?? urlString ?? "共有された投稿"
+    // Instagramのリンクメタデータ先頭は投稿者名であることが多い。
+    // 店名として誤表示しないよう、解析結果が出るまでは汎用タイトルにする。
+    if payload["service"] as? String == "Instagram" {
+      payload["title"] = "Instagramの投稿"
+    } else {
+      payload["title"] = texts.first(where: {
+        !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }) ?? urlString ?? "共有された投稿"
+    }
     return payload
   }
 
@@ -366,5 +374,17 @@ final class ShareViewController: UIViewController {
     if hay.contains("tiktok.com") { return "TikTok" }
     if hay.contains("youtube.com") || hay.contains("youtu.be") { return "YouTube" }
     return "URL"
+  }
+
+  private func isGenericSocialText(_ value: String, service: String) -> Bool {
+    guard service == "Instagram" else { return false }
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if ["instagram", "instagramの投稿", "login • instagram", "ログイン • instagram"]
+      .contains(normalized) {
+      return true
+    }
+    return normalized.contains(" on instagram") ||
+      normalized.range(of: #"^[^\n]{1,80}\s*[•|｜-]\s*instagram"#,
+                       options: .regularExpression) != nil
   }
 }

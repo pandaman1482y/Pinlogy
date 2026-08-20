@@ -389,7 +389,7 @@ class MapsTab extends StatelessWidget {
                       Navigator.pop(dialogContext);
                     },
                     icon: const Icon(Icons.add_photo_alternate_outlined),
-                    label: const Text('AIでスクショから追加（最大5枚）'),
+                    label: const Text('AIでスクショから追加（最大10枚）'),
                   ),
                 ),
                 const SizedBox(height: 6),

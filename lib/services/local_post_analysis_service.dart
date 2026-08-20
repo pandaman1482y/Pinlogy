@@ -18,7 +18,12 @@ class LocalPostAnalysisService implements PostAnalysisService {
     }
     for (var i = 0; i < request.imageUrls.length; i++) {
       final text = await _readImage(request.imageUrls[i]);
-      if (text.trim().isNotEmpty) parts.add(_TextPart(text, '画像${i + 1}枚目'));
+      final originalIndex = i < request.imageIndexes.length
+          ? request.imageIndexes[i]
+          : i;
+      if (text.trim().isNotEmpty) {
+        parts.add(_TextPart(text, '画像${originalIndex + 1}枚目'));
+      }
     }
 
     final drafts = parts.expand(_extract);
@@ -246,6 +251,14 @@ class LocalPostAnalysisService implements PostAnalysisService {
       return false;
     }
     if (RegExp(r'^(共有された|TikTok|Instagram|おすすめ|PR|広告)').hasMatch(value)) {
+      return false;
+    }
+    if (RegExp(r'\bon Instagram\b', caseSensitive: false).hasMatch(value) ||
+        RegExp(
+          r'^[^\n]{1,80}\s*[•|｜-]\s*Instagram',
+          caseSensitive: false,
+        ).hasMatch(value) ||
+        RegExp(r'^[＠@]?[A-Za-z0-9._]{2,30}$').hasMatch(value)) {
       return false;
     }
     if (_addressFrom(value) != null) return false;

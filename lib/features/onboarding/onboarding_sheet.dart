@@ -51,7 +51,8 @@ class PinlogyHowToPage extends StatelessWidget {
           number: '3',
           icon: Icons.add_photo_alternate_outlined,
           title: '見つからないときはスクショ追加',
-          body: '「手動で追加」→「AIでスクショから追加」から、関連するスクリーンショットを最大5枚選べます。画像内の文字も読み取ります。',
+          body:
+              '「手動で追加」→「AIでスクショから追加」から、関連するスクリーンショットを最大10枚選べます。画像内の文字も読み取ります。',
         ),
         _HowToCard(
           number: '4',
@@ -194,7 +195,7 @@ class _OnboardingSheetState extends State<_OnboardingSheet> {
     (
       Icons.add_photo_alternate_outlined,
       '足りない場面はスクショで',
-      '投稿が6枚以上ある場合や動画の途中に店名が出る場合は、対象の場面をスクショして最大5枚まで追加できます。',
+      'SNSから取得できない画像や動画の途中に店名が出る場合は、対象の場面をスクショして最大10枚まで追加できます。',
     ),
     (Icons.map_outlined, '自分の地図に保存', '場所を選んで保存。あとから経路、旅行プラン、共有に使えます。'),
   ];

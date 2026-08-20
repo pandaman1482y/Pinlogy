@@ -177,6 +177,8 @@ class PostAnalysisRequest {
     this.url,
     this.text,
     this.imageUrls = const [],
+    this.imageIndexes = const [],
+    this.selectedImagesOnly = false,
     this.locale = 'ja-JP',
   });
 
@@ -184,6 +186,8 @@ class PostAnalysisRequest {
   final String? url;
   final String? text;
   final List<String> imageUrls;
+  final List<int> imageIndexes;
+  final bool selectedImagesOnly;
   final String locale;
 
   Map<String, dynamic> toJson() => {
@@ -191,6 +195,8 @@ class PostAnalysisRequest {
     'url': url,
     'text': text,
     'image_urls': imageUrls,
+    'image_indexes': imageIndexes,
+    'selected_images_only': selectedImagesOnly,
     'locale': locale,
   };
 }

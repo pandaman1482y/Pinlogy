@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../models/models.dart';
 import 'ai_analysis_consent.dart';
 import 'location_services.dart';
+import 'source_media_store.dart';
 
 /// 明示同意時だけEdge Functionで解析し、未同意・障害時は端末解析へ戻す。
 class AiPostAnalysisService implements PostAnalysisService {
@@ -20,8 +21,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  static const _cachePrefix = 'ai_analysis_cache_v2_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v2';
+  static const _cachePrefix = 'ai_analysis_cache_v3_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v3';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -72,8 +73,8 @@ class AiPostAnalysisService implements PostAnalysisService {
               'analysis_key': cacheKey,
             }),
           )
-          // 5枚画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
-          .timeout(const Duration(seconds: 55));
+          // 最大10枚の画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
+          .timeout(const Duration(seconds: 90));
       if (response.statusCode == 401 || response.statusCode == 403) {
         return _asFallback(local, analysisSource: 'auth_fallback');
       }
@@ -101,11 +102,10 @@ class AiPostAnalysisService implements PostAnalysisService {
       final analysisImagePaths = {
         ...encodedImages.sourcePaths,
         ...fetchedPreviewPaths,
-      }.take(5).toList(growable: false);
+      }.take(SourceMediaStore.maxImages).toList(growable: false);
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
-        'preview_image_path':
-            fetchedPreviewPaths.firstOrNull ?? analysisImagePaths.firstOrNull,
+        'preview_image_path': analysisImagePaths.firstOrNull,
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
@@ -203,7 +203,10 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (media is! Map) return const [];
       final rawImages = media['image_data_urls'];
       final dataUrls = rawImages is List
-          ? rawImages.whereType<String>().take(5).toList()
+          ? rawImages
+                .whereType<String>()
+                .take(SourceMediaStore.maxImages)
+                .toList()
           : [
               if (media['thumbnail_data_url'] case final String thumbnail)
                 thumbnail,
@@ -266,9 +269,12 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
+      'instagram-selected-carousel-v21',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',
+      request.selectedImagesOnly.toString(),
+      ...request.imageIndexes.map((index) => 'index:$index'),
       ...request.imageUrls,
     ].join('\u001f').trim().toLowerCase();
     // Stable FNV-1a hash avoids adding a cryptography dependency for a local cache key.
@@ -365,7 +371,7 @@ class AiPostAnalysisService implements PostAnalysisService {
       sources.add(sourcePath);
     }
 
-    for (final rawPath in paths.take(5)) {
+    for (final rawPath in paths.take(SourceMediaStore.maxImages)) {
       try {
         final remote = Uri.tryParse(rawPath);
         if (remote?.scheme == 'https' && _isAllowedPreviewHost(remote!.host)) {

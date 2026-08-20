@@ -270,9 +270,12 @@ class _InboxTabState extends State<InboxTab> {
                     final namedCandidate = candidates
                         .where(controller.isIdentifiedPlaceCandidate)
                         .firstOrNull;
+                    final genericSocialTitle =
+                        post.title == '共有されたURL' ||
+                        _isInstagramAccountTitle(post);
                     final resolvedTitle = namedCandidate != null
                         ? namedCandidate.name.trim()
-                        : post.title == '共有されたURL'
+                        : genericSocialTitle
                         ? '${post.service ?? 'SNS'}の投稿'
                         : post.title ?? post.url ?? '無題の投稿';
                     return Dismissible(
@@ -771,6 +774,18 @@ class _InboxTabState extends State<InboxTab> {
       ),
     );
   }
+}
+
+bool _isInstagramAccountTitle(SourcePost post) {
+  if (post.service != 'Instagram') return false;
+  final title = post.title?.trim() ?? '';
+  if (title.isEmpty || title == 'Instagramの投稿') return true;
+  return RegExp(r'\bon Instagram\b', caseSensitive: false).hasMatch(title) ||
+      RegExp(
+        r'^[^\n]{1,80}\s*[•|｜-]\s*Instagram',
+        caseSensitive: false,
+      ).hasMatch(title) ||
+      RegExp(r'^[＠@]?[A-Za-z0-9._]{2,30}$').hasMatch(title);
 }
 
 enum _InboxView {
