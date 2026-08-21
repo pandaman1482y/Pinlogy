@@ -177,7 +177,9 @@ class AiPostAnalysisService implements PostAnalysisService {
               'preview_only': true,
             }),
           )
-          .timeout(const Duration(seconds: 20));
+          // 通常HTMLの後に複数画像取得へフォールバックする場合を考慮する。
+          // これは画像取得だけで、AI利用回数は消費しない。
+          .timeout(const Duration(seconds: 40));
       if (response.statusCode != 200) return const [];
       final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) return const [];

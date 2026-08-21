@@ -346,17 +346,28 @@ async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
     const instagramEmbedHtml = isInstagram
       ? await fetchInstagramEmbedHtml(final)
       : null;
-    const indexedInstagramImages = isInstagram && isPhotoPost
-      ? await fetchInstagramIndexedImages(final)
-      : [];
-    const imageUrls = isTikTok
+    let imageUrls = isTikTok
       ? (isPhotoPost ? extractTikTokPhotoUrls(html) : [])
       : mergeInstagramImages(
-        indexedInstagramImages,
         extractInstagramPhotoUrls(instagramEmbedHtml ?? ""),
         extractInstagramPhotoUrls(html),
       );
-    const rawDescription = meta(html, "og:description") ??
+    let externalDescription: string | null = null;
+    if (isInstagram && isPhotoPost && imageUrls.length <= 1) {
+      if (hasBrightDataInstagramAccess()) {
+        const external = await fetchBrightDataInstagramPost(final);
+        if (external != null) {
+          imageUrls = mergeInstagramImages(external.imageUrls, imageUrls);
+          externalDescription = external.description;
+        }
+      } else {
+        // 外部取得を設定していない開発環境では、従来の公開URL探索を維持する。
+        const indexed = await fetchInstagramIndexedImages(final);
+        imageUrls = mergeInstagramImages(indexed, imageUrls);
+      }
+    }
+    const rawDescription = externalDescription ??
+      meta(html, "og:description") ??
       meta(html, "description") ??
       meta(instagramEmbedHtml ?? "", "og:description") ??
       meta(instagramEmbedHtml ?? "", "description");
@@ -461,6 +472,110 @@ async function fetchInstagramIndexedImages(postUrl: URL) {
   const ordered = mergeInstagramImages(...results);
   console.info("instagram_indexed_images_resolved", `images=${ordered.length}`);
   return ordered;
+}
+
+type ExternalInstagramPost = {
+  imageUrls: string[];
+  description: string | null;
+};
+
+function hasBrightDataInstagramAccess() {
+  return (Deno.env.get("BRIGHT_DATA_API_TOKEN") ?? "").trim().length > 0;
+}
+
+/// 通常の公開HTMLで0〜1枚しか取得できない場合だけ利用する予備経路。
+/// トークンはSupabase Secretsから読み、クライアントやログへ公開しない。
+async function fetchBrightDataInstagramPost(
+  postUrl: URL,
+): Promise<ExternalInstagramPost | null> {
+  const token = (Deno.env.get("BRIGHT_DATA_API_TOKEN") ?? "").trim();
+  if (!token) return null;
+
+  const path = postUrl.pathname.replace(/\/+$/, "");
+  if (!/^\/(p|reel)\/[^/]+$/i.test(path)) return null;
+  const canonicalUrl = new URL(`${path}/`, postUrl.origin);
+  const endpoint = new URL("https://api.brightdata.com/datasets/v3/scrape");
+  endpoint.searchParams.set("dataset_id", "gd_lk5ns7kz21pck8jpis");
+  endpoint.searchParams.set("include_errors", "true");
+  endpoint.searchParams.set("format", "json");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ input: [{ url: canonicalUrl.toString() }] }),
+      // アプリ側のプレビュー取得期限より先に必ず応答へ戻す。
+      signal: AbortSignal.timeout(14_000),
+    });
+    if (response.status === 202) {
+      console.info("bright_data_instagram_pending");
+      return null;
+    }
+    if (!response.ok) {
+      console.warn("bright_data_instagram_http_failed", response.status);
+      return null;
+    }
+    const decoded = await response.json();
+    const rows = Array.isArray(decoded) ? decoded : [decoded];
+    const row = rows.find((value) => value != null && typeof value === "object");
+    if (row == null || typeof row !== "object") return null;
+    const record = row as Record<string, unknown>;
+    const images: string[] = [];
+
+    const photos = record.photos;
+    if (Array.isArray(photos)) {
+      for (const value of photos) addExternalInstagramUrl(value, images);
+    }
+
+    const postContent = record.post_content;
+    if (Array.isArray(postContent)) {
+      const ordered = [...postContent].sort((left, right) =>
+        externalImageIndex(left) - externalImageIndex(right)
+      );
+      for (const value of ordered) addExternalInstagramUrl(value, images);
+    }
+
+    const imageRecords = record.images;
+    if (Array.isArray(imageRecords)) {
+      for (const value of imageRecords) addExternalInstagramUrl(value, images);
+    }
+
+    if (images.length === 0) addExternalInstagramUrl(record.thumbnail, images);
+    const description = typeof record.description === "string"
+      ? record.description.trim().slice(0, 4000)
+      : null;
+    console.info("bright_data_instagram_resolved", `images=${images.length}`);
+    return {
+      imageUrls: images.slice(0, maxSocialImages),
+      description: description && description.length > 0 ? description : null,
+    };
+  } catch (error) {
+    console.warn("bright_data_instagram_failed", String(error));
+    return null;
+  }
+}
+
+function externalImageIndex(value: unknown) {
+  if (value == null || typeof value !== "object") return 1_000_000;
+  const index = Number((value as Record<string, unknown>).index);
+  return Number.isInteger(index) ? index : 1_000_000;
+}
+
+function addExternalInstagramUrl(value: unknown, output: string[]) {
+  if (output.length >= maxSocialImages || value == null) return;
+  const raw = typeof value === "string"
+    ? value
+    : typeof value === "object"
+    ? (value as Record<string, unknown>).url
+    : null;
+  if (typeof raw !== "string") return;
+  const url = normalizeEmbeddedJson(raw.trim());
+  if (isAllowedInstagramImage(url) && !hasSameImage(output, url)) {
+    output.push(url);
+  }
 }
 
 function mergeInstagramImages(...groups: string[][]) {
