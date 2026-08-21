@@ -593,11 +593,7 @@ class _InboxTabState extends State<InboxTab> {
                     leading: const Icon(Icons.refresh),
                     title: const Text('解析を再試行'),
                     subtitle: job?.errorMessage != null
-                        ? Text(
-                            job!.errorMessage!,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          )
+                        ? Text(job!.errorMessage!)
                         : null,
                     onTap: () async {
                       Navigator.pop(ctx);

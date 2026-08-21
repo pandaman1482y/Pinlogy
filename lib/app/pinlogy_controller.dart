@@ -428,7 +428,9 @@ class PinlogyController extends ChangeNotifier {
       return candidates.isEmpty ? '場所は見つかりませんでした' : '場所候補を確認してください';
     }
     if (job.status == AnalysisJobStatus.failed) {
-      return job.errorMessage ?? '解析に失敗';
+      // 一覧の小さなステータス表示へ長いエラー全文を詰め込まない。
+      // 全文は投稿の操作シートで省略せず表示する。
+      return '解析に失敗';
     }
     return job.status.label;
   }
