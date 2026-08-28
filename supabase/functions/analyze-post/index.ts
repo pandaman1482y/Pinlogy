@@ -142,7 +142,7 @@ Deno.serve(async (request) => {
         max_output_tokens: 4000,
         tools: [{ type: "web_search" }],
         instructions:
-          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。evidenceImageIndexは主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。Instagram/TikTokの投稿者名、ユーザー名、アカウント名、プロフィール名は店舗名として候補化しないでください。" +
+          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。最初に入力された全画像を画像番号順に1枚ずつ確認し、各画像に店名・施設名・住所・アクセス情報があれば、その画像ごとに場所候補を作ってください。表紙やまとめ画像は候補数に含めず、同じ場所が複数画像に登場する場合だけ1候補へ統合してください。異なる店名または異なる住所の場所を代表1件へまとめたり、省略したりしないでください。たとえば9枚中7枚が別々の7店舗を紹介していれば、candidatesを7件返してください。evidenceImageIndexは各候補の主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。Instagram/TikTokの投稿者名、ユーザー名、アカウント名、プロフィール名は店舗名として候補化しないでください。" +
           "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。複数画像は表示順に別々読み、画像ごとの店名・住所の組み合わせを混ぜないでください。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれか、genresは具体的な種類を最大3件とします。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。候補が0件でURLから取得した投稿情報のis_photo_postがtrueかつphoto_accessがunavailableの場合、raw_summaryは「SNSの画像を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。」としてください。",
         input: [{ role: "user", content }],
         text: { verbosity: "low", format: placeSchema },
@@ -623,7 +623,7 @@ function sanitizeParsedOutput(
   }
   const output = value as Record<string, unknown>;
   if (!Array.isArray(output.candidates)) return output;
-  output.candidates = output.candidates.filter((candidate) => {
+  const filtered = output.candidates.filter((candidate) => {
     if (candidate == null || typeof candidate !== "object") return false;
     const name = String((candidate as Record<string, unknown>).name ?? "").trim();
     if (name.length < 2) return false;
@@ -634,7 +634,49 @@ function sanitizeParsedOutput(
     }
     return true;
   });
+  // The model may mention the same store once from the caption and once from
+  // an image. Keep one candidate per real place without collapsing distinct
+  // branches or stores from the same carousel.
+  const unique = new Map<string, Record<string, unknown>>();
+  for (const candidate of filtered) {
+    const record = candidate as Record<string, unknown>;
+    const key = candidateIdentity(record);
+    const previous = unique.get(key);
+    if (previous == null || candidateScore(record) > candidateScore(previous)) {
+      unique.set(key, record);
+    }
+  }
+  output.candidates = [...unique.values()];
   return output;
+}
+
+function candidateIdentity(candidate: Record<string, unknown>) {
+  const normalize = (value: unknown) => String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s\u3000・･,，.。'’"“”()（）\-ー]/g, "");
+  const name = normalize(candidate.name);
+  const address = normalize(candidate.address ?? candidate.postAddress);
+  if (address) return `${name}|${address}`;
+  const hasRawCoordinates = candidate.latitude != null && candidate.longitude != null;
+  const latitude = Number(candidate.latitude);
+  const longitude = Number(candidate.longitude);
+  if (hasRawCoordinates && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    return `${name}|${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+  }
+  // Name-only candidates are merged only when their normalized names match.
+  return `name:${name}`;
+}
+
+function candidateScore(candidate: Record<string, unknown>) {
+  const confidence = Number(candidate.confidencePercent) || 0;
+  const hasAddress = String(candidate.address ?? "").trim().length > 0 ? 20 : 0;
+  const hasCoordinates = candidate.latitude != null && candidate.longitude != null &&
+      Number.isFinite(Number(candidate.latitude)) &&
+      Number.isFinite(Number(candidate.longitude))
+    ? 20
+    : 0;
+  return confidence + hasAddress + hasCoordinates;
 }
 
 /// Instagramの公開HTMLから、投稿本体の代表画像とカルーセル画像だけを抽出する。

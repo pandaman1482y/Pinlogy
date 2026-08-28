@@ -21,8 +21,10 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  static const _cachePrefix = 'ai_analysis_cache_v3_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v3';
+  // v4: carousel analysis returns every distinct place instead of reusing
+  // results cached before multi-place extraction was tightened.
+  static const _cachePrefix = 'ai_analysis_cache_v4_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v4';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -271,7 +273,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      'instagram-selected-carousel-v21',
+      'instagram-selected-carousel-v22-multi-place',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',

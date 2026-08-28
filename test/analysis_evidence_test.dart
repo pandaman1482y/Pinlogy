@@ -43,4 +43,38 @@ void main() {
     expect(request.toJson()['image_indexes'], [2, 8]);
     expect(request.toJson()['selected_images_only'], isTrue);
   });
+
+  test('1投稿から返った複数店舗をすべて解析候補として保持する', () {
+    final response = PostAnalysisResponse.fromJson({
+      'source_post_id': 'carousel-post',
+      'candidates': [
+        {
+          'name': '店舗A',
+          'address': '大阪府大阪市北区1-1',
+          'evidenceImageIndex': 1,
+        },
+        {
+          'name': '店舗B',
+          'address': '大阪府大阪市中央区2-2',
+          'evidenceImageIndex': 2,
+        },
+        {
+          'name': '店舗C',
+          'address': '大阪府大阪市西区3-3',
+          'evidenceImageIndex': 3,
+        },
+      ],
+    });
+
+    expect(response.candidates, hasLength(3));
+    expect(response.candidates.map((candidate) => candidate.name), [
+      '店舗A',
+      '店舗B',
+      '店舗C',
+    ]);
+    expect(
+      response.candidates.map((candidate) => candidate.evidenceImageIndex),
+      [1, 2, 3],
+    );
+  });
 }

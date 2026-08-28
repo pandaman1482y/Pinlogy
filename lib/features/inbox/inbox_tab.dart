@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
+import '../../app/pinlogy_controller.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/source_link_service.dart';
@@ -139,6 +140,10 @@ class _InboxTabState extends State<InboxTab> {
       }
       return true;
     }).toList();
+    final entries = <_InboxEntry>[
+      for (final post in posts)
+        ..._entriesForPost(controller, post),
+    ];
     final areaOptions = areas.toList()..sort();
     final categoryOptions = categories.toList()..sort();
 
@@ -260,16 +265,14 @@ class _InboxTabState extends State<InboxTab> {
                 )
               : ListView.separated(
                   padding: const EdgeInsets.fromLTRB(18, 4, 18, 110),
-                  itemCount: posts.length,
+                  itemCount: entries.length,
                   separatorBuilder: (_, index) => const SizedBox(height: 12),
                   itemBuilder: (context, i) {
-                    final post = posts[i];
+                    final entry = entries[i];
+                    final post = entry.post;
                     final job = controller.jobForPost(post.id);
                     final retryable = controller.isRetryableAnalysis(post.id);
-                    final candidates = controller.candidatesForPost(post.id);
-                    final namedCandidate = candidates
-                        .where(controller.isIdentifiedPlaceCandidate)
-                        .firstOrNull;
+                    final namedCandidate = entry.candidate;
                     final genericSocialTitle =
                         post.title == '共有されたURL' ||
                         _isInstagramAccountTitle(post);
@@ -278,8 +281,25 @@ class _InboxTabState extends State<InboxTab> {
                         : genericSocialTitle
                         ? '${post.service ?? 'SNS'}の投稿'
                         : post.title ?? post.url ?? '無題の投稿';
+                    final candidateCategories = <String>{
+                      ...(postCategories[post.id] ?? const <String>{}),
+                      if (namedCandidate?.category?.trim().isNotEmpty == true)
+                        namedCandidate!.category!.trim(),
+                      ...?namedCandidate?.genres,
+                    }.toList()..sort();
+                    final candidateImageIndex =
+                        namedCandidate?.evidenceImageIndex;
+                    final candidateThumbnail = candidateImageIndex != null &&
+                            candidateImageIndex >= 0 &&
+                            candidateImageIndex < post.imagePaths.length
+                        ? post.imagePaths[candidateImageIndex]
+                        : post.displayThumbnailPath;
+                    final candidateStatus = namedCandidate != null &&
+                            entry.candidateCount > 1
+                        ? '場所候補 ${entry.candidatePosition}/${entry.candidateCount}'
+                        : controller.statusLabelForPost(post);
                     return Dismissible(
-                      key: ValueKey(post.id),
+                      key: ValueKey('${post.id}:${namedCandidate?.id ?? 'post'}'),
                       direction: _selectedPostIds.isEmpty
                           ? DismissDirection.endToStart
                           : DismissDirection.none,
@@ -297,19 +317,16 @@ class _InboxTabState extends State<InboxTab> {
                         selected: _selectedPostIds.contains(post.id),
                         unread: controller.isInboxPostUnread(post.id),
                         icon: _iconFor(post.service),
-                        thumbnailPath: post.displayThumbnailPath,
+                        thumbnailPath: candidateThumbnail,
                         source: post.service ?? 'その他',
                         title: resolvedTitle,
                         memo: post.userMemo,
-                        categories:
-                            (postCategories[post.id] ?? const <String>{})
-                                .toList()
-                              ..sort(),
+                        categories: candidateCategories,
                         status: savedPostIds.contains(post.id)
                             ? '保存済み'
                             : duplicatePostIds.contains(post.id)
                             ? '重複候補'
-                            : controller.statusLabelForPost(post),
+                            : candidateStatus,
                         statusColor:
                             savedPostIds.contains(post.id) ||
                                 duplicatePostIds.contains(post.id)
@@ -352,6 +369,27 @@ class _InboxTabState extends State<InboxTab> {
         ),
       ],
     );
+  }
+
+  List<_InboxEntry> _entriesForPost(
+    PinlogyController controller,
+    SourcePost post,
+  ) {
+    final candidates = controller
+        .candidatesForPost(post.id)
+        .where(controller.isIdentifiedPlaceCandidate)
+        .cast<ExtractionCandidate>()
+        .toList(growable: false);
+    if (candidates.isEmpty) return [_InboxEntry(post: post)];
+    return [
+      for (var index = 0; index < candidates.length; index++)
+        _InboxEntry(
+          post: post,
+          candidate: candidates[index],
+          candidatePosition: index + 1,
+          candidateCount: candidates.length,
+        ),
+    ];
   }
 
   Set<String> _areasFrom(String text) {
@@ -770,6 +808,20 @@ class _InboxTabState extends State<InboxTab> {
       ),
     );
   }
+}
+
+class _InboxEntry {
+  const _InboxEntry({
+    required this.post,
+    this.candidate,
+    this.candidatePosition = 1,
+    this.candidateCount = 1,
+  });
+
+  final SourcePost post;
+  final ExtractionCandidate? candidate;
+  final int candidatePosition;
+  final int candidateCount;
 }
 
 bool _isInstagramAccountTitle(SourcePost post) {
