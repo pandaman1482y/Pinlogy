@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyDPyYiS4ZPOk8UtDqU__u2ea-UF-Bn6LlM</string>
+	<key>GCM_SENDER_ID</key>
+	<string>1078881314545</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.yuya.FlowStream</string>
+	<key>PROJECT_ID</key>
+	<string>flowstream-6002b</string>
+	<key>STORAGE_BUCKET</key>
+	<string>flowstream-6002b.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:1078881314545:ios:50bf4aa99078f37e836b50</string>
+</dict>
+</plist>
