@@ -5,7 +5,7 @@ import LinkPresentation
 /// iOS Share Extension 本体。
 /// 共有元アプリ内では保存だけを行い、詳細編集と解析はPinlogy本体へ引き継ぐ。
 final class ShareViewController: UIViewController {
-  private let appGroupId = "group.com.pinlogy.shared"
+  private let appGroupId = "group.com.pinlogy.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private let titleLabel = UILabel()

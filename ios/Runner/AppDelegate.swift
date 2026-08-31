@@ -4,7 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private let channelName = "com.pinlogy/share"
-  private let appGroupId = "group.com.pinlogy.shared"
+  private let appGroupId = "group.com.pinlogy.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private var methodChannel: FlutterMethodChannel?
