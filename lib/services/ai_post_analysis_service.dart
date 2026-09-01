@@ -179,9 +179,10 @@ class AiPostAnalysisService implements PostAnalysisService {
               'preview_only': true,
             }),
           )
-          // 通常HTMLの後に複数画像取得へフォールバックする場合を考慮する。
+          // InstagramカルーセルはBright Data側で1分以上かかる場合がある。
+          // 画像選択画面を1枚で確定させず、サーバーの取得完了を待つ。
           // これは画像取得だけで、AI利用回数は消費しない。
-          .timeout(const Duration(seconds: 40));
+          .timeout(const Duration(seconds: 115));
       if (response.statusCode != 200) return const [];
       final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) return const [];

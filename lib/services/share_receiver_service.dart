@@ -320,6 +320,14 @@ class LocalShareReceiverService implements ShareReceiverService {
       host == domain || host.endsWith('.$domain');
 
   Future<void> _analyze(AnalysisJob job, SourcePost post) async {
+    final requiresImageSelection = post.imagePaths.isNotEmpty &&
+        (post.service == 'Instagram' || post.service == 'TikTok');
+    if (requiresImageSelection && post.analysisImagePaths.isEmpty) {
+      // Share Extensionからは現在表示中の1枚だけが先に届くことがある。
+      // カルーセル取得とユーザー選択が終わる前に、その1枚で解析を
+      // 開始しない。選択後はPinlogyControllerから同じジョブを再開する。
+      return;
+    }
     try {
       await analysis.update(job.copyWith(status: AnalysisJobStatus.processing));
       final analysisImages = _analysisImages(post);

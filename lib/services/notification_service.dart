@@ -23,6 +23,7 @@ class PinlogyNotificationService {
     _enabled = preferences.getBool(_enabledKey) ?? false;
     try {
       await Firebase.initializeApp();
+      await FirebaseMessaging.instance.setAutoInitEnabled(true);
       _firebaseReady = true;
       if (_enabled) {
         await FirebaseMessaging.instance.requestPermission(
@@ -56,10 +57,20 @@ class PinlogyNotificationService {
 
   Future<String?> tokenForAnalysis() async {
     if (!_enabled || !_firebaseReady) return null;
-    try {
-      return await FirebaseMessaging.instance.getToken();
-    } catch (_) {
-      return null;
+    // iOSではAPNs tokenの登録より先にFCM tokenを要求すると失敗する。
+    // 実機登録を少し待ってから再試行し、通知付きジョブにtokenを確実に載せる。
+    for (var attempt = 0; attempt < 8; attempt++) {
+      try {
+        final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        if (apnsToken != null && apnsToken.isNotEmpty) {
+          final token = await FirebaseMessaging.instance.getToken();
+          if (token != null && token.isNotEmpty) return token;
+        }
+      } catch (_) {
+        // APNs登録直後は一時的に失敗するため次の試行へ進む。
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 750));
     }
+    return null;
   }
 }
