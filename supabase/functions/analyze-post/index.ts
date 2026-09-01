@@ -355,7 +355,8 @@ async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
     let externalDescription: string | null = null;
     if (isInstagram && isPhotoPost && imageUrls.length <= 1) {
       if (hasBrightDataInstagramAccess()) {
-        const external = await fetchBrightDataInstagramPost(final);
+        // 9枚取得に成功したv28の取得経路を固定して使用する。
+        const external = await fetchBrightDataInstagramPostV28(final);
         if (external != null) {
           imageUrls = mergeInstagramImages(external.imageUrls, imageUrls);
           externalDescription = external.description;
@@ -478,6 +479,78 @@ type ExternalInstagramPost = {
   imageUrls: string[];
   description: string | null;
 };
+
+/// 9枚カルーセル取得に成功したv28のBright Data処理。
+/// 後続機能の変更から独立させ、取得部分だけを当時の挙動に固定する。
+async function fetchBrightDataInstagramPostV28(
+  postUrl: URL,
+): Promise<ExternalInstagramPost | null> {
+  const token = (Deno.env.get("BRIGHT_DATA_API_TOKEN") ?? "").trim();
+  if (!token) return null;
+
+  const path = postUrl.pathname.replace(/\/+$/, "");
+  if (!/^\/(p|reel)\/[^/]+$/i.test(path)) return null;
+  const canonicalUrl = new URL(`${path}/`, postUrl.origin);
+  const endpoint = new URL("https://api.brightdata.com/datasets/v3/scrape");
+  endpoint.searchParams.set("dataset_id", "gd_lk5ns7kz21pck8jpis");
+  endpoint.searchParams.set("include_errors", "true");
+  endpoint.searchParams.set("format", "json");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ input: [{ url: canonicalUrl.toString() }] }),
+      signal: AbortSignal.timeout(14_000),
+    });
+    if (response.status === 202) {
+      console.info("bright_data_instagram_v28_pending");
+      return null;
+    }
+    if (!response.ok) {
+      console.warn("bright_data_instagram_v28_http_failed", response.status);
+      return null;
+    }
+    const decoded = await response.json();
+    const rows = Array.isArray(decoded) ? decoded : [decoded];
+    const row = rows.find((value) => value != null && typeof value === "object");
+    if (row == null || typeof row !== "object") return null;
+    const record = row as Record<string, unknown>;
+    const images: string[] = [];
+
+    const photos = record.photos;
+    if (Array.isArray(photos)) {
+      for (const value of photos) addExternalInstagramUrl(value, images);
+    }
+    const postContent = record.post_content;
+    if (Array.isArray(postContent)) {
+      const ordered = [...postContent].sort((left, right) =>
+        externalImageIndex(left) - externalImageIndex(right)
+      );
+      for (const value of ordered) addExternalInstagramUrl(value, images);
+    }
+    const imageRecords = record.images;
+    if (Array.isArray(imageRecords)) {
+      for (const value of imageRecords) addExternalInstagramUrl(value, images);
+    }
+    if (images.length === 0) addExternalInstagramUrl(record.thumbnail, images);
+
+    const description = typeof record.description === "string"
+      ? record.description.trim().slice(0, 4000)
+      : null;
+    console.info("bright_data_instagram_v28_resolved", `images=${images.length}`);
+    return {
+      imageUrls: images.slice(0, maxSocialImages),
+      description: description && description.length > 0 ? description : null,
+    };
+  } catch (error) {
+    console.warn("bright_data_instagram_v28_failed", String(error));
+    return null;
+  }
+}
 
 function hasBrightDataInstagramAccess() {
   return (Deno.env.get("BRIGHT_DATA_API_TOKEN") ?? "").trim().length > 0;
