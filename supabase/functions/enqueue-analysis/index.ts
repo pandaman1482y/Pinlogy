@@ -95,7 +95,8 @@ async function processJob(jobId: string) {
         "X-Pinlogy-Async-Job": jobId,
       },
       body: JSON.stringify(job.request_json),
-      signal: AbortSignal.timeout(120_000),
+      // Instagram snapshotの完了待ちと、その後の画像別AI解析を許容する。
+      signal: AbortSignal.timeout(240_000),
     });
     const body = await response.json().catch(() => ({ error: "invalid_response" }));
     if (!response.ok) {

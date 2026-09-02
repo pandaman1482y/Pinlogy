@@ -21,10 +21,10 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  // v4: carousel analysis returns every distinct place instead of reusing
-  // results cached before multi-place extraction was tightened.
-  static const _cachePrefix = 'ai_analysis_cache_v4_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v4';
+  // v7: Bright Data snapshot completion + caption/address evidence priority.
+  // v6の1枚結果を再利用せず、修正後に必ず再取得・再解析する。
+  static const _cachePrefix = 'ai_analysis_cache_v7_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v7';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -179,9 +179,9 @@ class AiPostAnalysisService implements PostAnalysisService {
               'preview_only': true,
             }),
           )
-          // v28で9枚取得に成功した待機設定を維持する。
+          // Bright Dataが非同期snapshotへ切り替わっても全画像を待つ。
           // これは画像取得だけで、AI利用回数は消費しない。
-          .timeout(const Duration(seconds: 40));
+          .timeout(const Duration(seconds: 110));
       if (response.statusCode != 200) return const [];
       final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) return const [];

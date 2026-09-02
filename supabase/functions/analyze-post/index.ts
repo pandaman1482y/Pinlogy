@@ -87,8 +87,11 @@ Deno.serve(async (request) => {
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
       text: [
-        `投稿文:\n${cleanSharedText(input.text, sharedPage)}`,
-        `端末OCR:\n${String(input.ocr_text ?? "")}`,
+        `最優先の投稿文・コメント:\n${[
+          cleanSharedText(input.text, sharedPage),
+          sharedPage?.description,
+        ].filter(Boolean).join("\n")}`,
+        `補助根拠の端末OCR（投稿文・コメントと矛盾する場合は採用禁止）:\n${String(input.ocr_text ?? "")}`,
         `共有URL:\n${String(input.url ?? "")}`,
         `URLから取得した投稿情報:\n${JSON.stringify(
           sharedPage == null ? {} : { ...sharedPage, image_urls: undefined },
@@ -142,6 +145,7 @@ Deno.serve(async (request) => {
         max_output_tokens: 4000,
         tools: [{ type: "web_search" }],
         instructions:
+          "根拠の優先順位は厳守してください。第1優先は投稿文・キャプション・取得できたコメントに明記された店名と住所、第2優先はURL由来の構造化情報、第3優先が画像・動画OCRです。投稿文またはコメントに店名や住所が明記されている場合、それを検索語と場所確定の主根拠にし、動画内の不鮮明・装飾的・途中で切れた文字で上書きしてはいけません。OCRが投稿文・コメントと矛盾する場合はOCRを捨ててください。OCRだけから別店舗を追加するのは、文字が明瞭でWeb検索でも住所まで一致するときだけです。" +
           "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。最初に入力された全画像を画像番号順に1枚ずつ確認し、各画像に店名・施設名・住所・アクセス情報があれば、その画像ごとに場所候補を作ってください。表紙やまとめ画像は候補数に含めず、同じ場所が複数画像に登場する場合だけ1候補へ統合してください。異なる店名または異なる住所の場所を代表1件へまとめたり、省略したりしないでください。たとえば9枚中7枚が別々の7店舗を紹介していれば、candidatesを7件返してください。evidenceImageIndexは各候補の主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。Instagram/TikTokの投稿者名、ユーザー名、アカウント名、プロフィール名は店舗名として候補化しないでください。" +
           "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。複数画像は表示順に別々読み、画像ごとの店名・住所の組み合わせを混ぜないでください。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。categoryは飲食店、観光・レジャー、宿泊、買い物、その他のいずれか、genresは具体的な種類を最大3件とします。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。候補が0件でURLから取得した投稿情報のis_photo_postがtrueかつphoto_accessがunavailableの場合、raw_summaryは「SNSの画像を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。」としてください。",
         input: [{ role: "user", content }],
@@ -480,8 +484,8 @@ type ExternalInstagramPost = {
   description: string | null;
 };
 
-/// 9枚カルーセル取得に成功したv28のBright Data処理。
-/// 後続機能の変更から独立させ、取得部分だけを当時の挙動に固定する。
+/// v28で成功したデータ解釈を維持しつつ、現在のBright Data仕様に合わせて
+/// snapshotがreadyになるまで待つ。202を1枚フォールバック扱いにしない。
 async function fetchBrightDataInstagramPostV28(
   postUrl: URL,
 ): Promise<ExternalInstagramPost | null> {
@@ -491,10 +495,9 @@ async function fetchBrightDataInstagramPostV28(
   const path = postUrl.pathname.replace(/\/+$/, "");
   if (!/^\/(p|reel)\/[^/]+$/i.test(path)) return null;
   const canonicalUrl = new URL(`${path}/`, postUrl.origin);
-  const endpoint = new URL("https://api.brightdata.com/datasets/v3/scrape");
+  const endpoint = new URL("https://api.brightdata.com/datasets/v3/trigger");
   endpoint.searchParams.set("dataset_id", "gd_lk5ns7kz21pck8jpis");
   endpoint.searchParams.set("include_errors", "true");
-  endpoint.searchParams.set("format", "json");
 
   try {
     const response = await fetch(endpoint, {
@@ -503,53 +506,129 @@ async function fetchBrightDataInstagramPostV28(
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ input: [{ url: canonicalUrl.toString() }] }),
-      signal: AbortSignal.timeout(14_000),
+      body: JSON.stringify([{ url: canonicalUrl.toString() }]),
+      signal: AbortSignal.timeout(15_000),
     });
-    if (response.status === 202) {
-      console.info("bright_data_instagram_v28_pending");
-      return null;
-    }
     if (!response.ok) {
       console.warn("bright_data_instagram_v28_http_failed", response.status);
       return null;
     }
-    const decoded = await response.json();
-    const rows = Array.isArray(decoded) ? decoded : [decoded];
-    const row = rows.find((value) => value != null && typeof value === "object");
-    if (row == null || typeof row !== "object") return null;
-    const record = row as Record<string, unknown>;
-    const images: string[] = [];
-
-    const photos = record.photos;
-    if (Array.isArray(photos)) {
-      for (const value of photos) addExternalInstagramUrl(value, images);
+    const trigger = await response.json();
+    const snapshotId = String(trigger?.snapshot_id ?? "").trim();
+    if (!/^s[_-][A-Za-z0-9_-]+$/.test(snapshotId)) {
+      console.warn("bright_data_instagram_snapshot_missing");
+      return null;
     }
-    const postContent = record.post_content;
-    if (Array.isArray(postContent)) {
-      const ordered = [...postContent].sort((left, right) =>
-        externalImageIndex(left) - externalImageIndex(right)
+    console.info("bright_data_instagram_snapshot_started", snapshotId);
+
+    // 5秒間隔、最大90秒。完了前に代表画像へ戻さず、readyだけを採用する。
+    for (let attempt = 0; attempt < 18; attempt++) {
+      if (attempt > 0) await delay(5_000);
+      const progress = await fetch(
+        `https://api.brightdata.com/datasets/v3/progress/${encodeURIComponent(snapshotId)}`,
+        {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(12_000),
+        },
       );
-      for (const value of ordered) addExternalInstagramUrl(value, images);
-    }
-    const imageRecords = record.images;
-    if (Array.isArray(imageRecords)) {
-      for (const value of imageRecords) addExternalInstagramUrl(value, images);
-    }
-    if (images.length === 0) addExternalInstagramUrl(record.thumbnail, images);
+      if (!progress.ok) {
+        console.warn("bright_data_instagram_progress_failed", progress.status);
+        continue;
+      }
+      const progressJson = await progress.json();
+      const status = String(progressJson?.status ?? "").toLowerCase();
+      if (status === "failed") {
+        console.warn(
+          "bright_data_instagram_snapshot_failed",
+          String(progressJson?.error_message ?? "unknown").slice(0, 300),
+        );
+        return null;
+      }
+      if (status !== "ready") continue;
 
-    const description = typeof record.description === "string"
-      ? record.description.trim().slice(0, 4000)
-      : null;
-    console.info("bright_data_instagram_v28_resolved", `images=${images.length}`);
-    return {
-      imageUrls: images.slice(0, maxSocialImages),
-      description: description && description.length > 0 ? description : null,
-    };
+      const snapshot = await fetch(
+        `https://api.brightdata.com/datasets/v3/snapshot/${encodeURIComponent(snapshotId)}?format=json`,
+        {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      if (!snapshot.ok) {
+        console.warn("bright_data_instagram_snapshot_http_failed", snapshot.status);
+        return null;
+      }
+      const result = parseExternalInstagramPost(await snapshot.json());
+      console.info(
+        "bright_data_instagram_snapshot_resolved",
+        `images=${result?.imageUrls.length ?? 0}`,
+      );
+      return result;
+    }
+    console.warn("bright_data_instagram_snapshot_timeout", snapshotId);
+    return null;
   } catch (error) {
     console.warn("bright_data_instagram_v28_failed", String(error));
     return null;
   }
+}
+
+function parseExternalInstagramPost(decoded: unknown): ExternalInstagramPost | null {
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  const row = rows.find((value) => value != null && typeof value === "object");
+  if (row == null || typeof row !== "object") return null;
+  const record = row as Record<string, unknown>;
+  const images: string[] = [];
+
+  if (Array.isArray(record.photos)) {
+    for (const value of record.photos) addExternalInstagramUrl(value, images);
+  }
+  if (Array.isArray(record.post_content)) {
+    const ordered = [...record.post_content].sort((left, right) =>
+      externalImageIndex(left) - externalImageIndex(right)
+    );
+    for (const value of ordered) addExternalInstagramUrl(value, images);
+  }
+  if (Array.isArray(record.images)) {
+    for (const value of record.images) addExternalInstagramUrl(value, images);
+  }
+  if (images.length === 0) addExternalInstagramUrl(record.thumbnail, images);
+
+  const authoritativeText = collectExternalInstagramText(record);
+  return {
+    imageUrls: images.slice(0, maxSocialImages),
+    description: authoritativeText || null,
+  };
+}
+
+/// 投稿本文と取得できたコメントだけを高優先根拠として渡す。
+/// 画像URLやユーザー名などの無関係な文字列は混ぜない。
+function collectExternalInstagramText(record: Record<string, unknown>) {
+  const output: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const text = value.trim();
+    if (text.length < 2 || /^https?:\/\//i.test(text)) return;
+    if (!output.includes(text)) output.push(text);
+  };
+  for (const key of ["description", "caption", "post_text", "text"]) {
+    add(record[key]);
+  }
+  const comments = record.comments;
+  if (Array.isArray(comments)) {
+    for (const comment of comments.slice(0, 50)) {
+      if (typeof comment === "string") {
+        add(comment);
+      } else if (comment != null && typeof comment === "object") {
+        const value = comment as Record<string, unknown>;
+        add(value.text ?? value.comment ?? value.body ?? value.content);
+      }
+    }
+  }
+  return output.join("\n").slice(0, 12_000);
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function hasBrightDataInstagramAccess() {
