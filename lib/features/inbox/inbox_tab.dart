@@ -281,12 +281,24 @@ class _InboxTabState extends State<InboxTab> {
                         : genericSocialTitle
                         ? '${post.service ?? 'SNS'}の投稿'
                         : post.title ?? post.url ?? '無題の投稿';
-                    final candidateCategories = <String>{
-                      ...(postCategories[post.id] ?? const <String>{}),
-                      if (namedCandidate?.category?.trim().isNotEmpty == true)
-                        namedCandidate!.category!.trim(),
-                      ...?namedCandidate?.genres,
-                    }.toList()..sort();
+                    final candidateGenres = namedCandidate?.genres
+                            .map((value) => value.trim())
+                            .where((value) => value.isNotEmpty)
+                            .toSet() ??
+                        const <String>{};
+                    final candidateCategory = namedCandidate?.category?.trim();
+                    // 候補行には投稿全体の分類を混ぜず、この場所自身の分類だけを表示する。
+                    final candidateCategories = namedCandidate != null
+                        ? <String>{
+                            ...candidateGenres,
+                            if (candidateGenres.isEmpty &&
+                                candidateCategory != null &&
+                                candidateCategory.isNotEmpty)
+                              candidateCategory,
+                          }.toList()
+                        : (postCategories[post.id] ?? const <String>{})
+                            .toList();
+                    candidateCategories.sort();
                     final candidateImageIndex =
                         namedCandidate?.evidenceImageIndex;
                     final candidateThumbnail = candidateImageIndex != null &&

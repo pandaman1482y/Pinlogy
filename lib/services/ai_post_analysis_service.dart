@@ -21,10 +21,10 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  // v9: snapshot完了待ち＋全画像取得＋通知初期ON後の結果だけを使う。
-  // 過去の代表画像1枚だけのキャッシュは再利用しない。
-  static const _cachePrefix = 'ai_analysis_cache_v9_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v9';
+  // v10: 各候補を個別分類した結果だけを使う。
+  // 投稿全体のカテゴリを全候補へ流用した旧結果は再利用しない。
+  static const _cachePrefix = 'ai_analysis_cache_v10_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v10';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -273,7 +273,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      'instagram-selected-carousel-v22-multi-place',
+      'instagram-selected-carousel-v23-per-candidate-category',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',
