@@ -21,10 +21,10 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  // v7: Bright Data snapshot completion + caption/address evidence priority.
-  // v6の1枚結果を再利用せず、修正後に必ず再取得・再解析する。
-  static const _cachePrefix = 'ai_analysis_cache_v7_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v7';
+  // v9: snapshot完了待ち＋全画像取得＋通知初期ON後の結果だけを使う。
+  // 過去の代表画像1枚だけのキャッシュは再利用しない。
+  static const _cachePrefix = 'ai_analysis_cache_v9_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v9';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>

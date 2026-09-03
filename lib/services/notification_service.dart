@@ -10,17 +10,19 @@ class PinlogyNotificationService {
   PinlogyNotificationService._();
 
   static final instance = PinlogyNotificationService._();
-  static const _enabledKey = 'analysis_completion_notifications_v1';
+  // v2は解析完了通知を初期ONにする。ユーザーが設定画面でOFFにした後は
+  // 保存済みのv2設定を優先し、次回起動時にもOFFを維持する。
+  static const _enabledKey = 'analysis_completion_notifications_v2';
 
   bool _firebaseReady = false;
-  bool _enabled = false;
+  bool _enabled = true;
 
   bool get enabled => _enabled;
   bool get firebaseReady => _firebaseReady;
 
   Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
-    _enabled = preferences.getBool(_enabledKey) ?? false;
+    _enabled = preferences.getBool(_enabledKey) ?? true;
     try {
       await Firebase.initializeApp();
       await FirebaseMessaging.instance.setAutoInitEnabled(true);
