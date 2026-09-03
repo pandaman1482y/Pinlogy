@@ -515,7 +515,9 @@ async function fetchBrightDataInstagramPostV28(
     }
     const trigger = await response.json();
     const snapshotId = String(trigger?.snapshot_id ?? "").trim();
-    if (!/^s[_-][A-Za-z0-9_-]+$/.test(snapshotId)) {
+    // Bright Dataの現行IDは `sd_...`。英数字・`_`・`-`だけを許可し、
+    // URL組み立て時の安全性を保ったまま新旧snapshot IDへ対応する。
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) {
       console.warn("bright_data_instagram_snapshot_missing");
       return null;
     }
