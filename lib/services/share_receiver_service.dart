@@ -320,14 +320,6 @@ class LocalShareReceiverService implements ShareReceiverService {
       host == domain || host.endsWith('.$domain');
 
   Future<void> _analyze(AnalysisJob job, SourcePost post) async {
-    final requiresImageSelection = post.imagePaths.isNotEmpty &&
-        (post.service == 'Instagram' || post.service == 'TikTok');
-    if (requiresImageSelection && post.analysisImagePaths.isEmpty) {
-      // Share Extensionからは現在表示中の1枚だけが先に届くことがある。
-      // カルーセル取得とユーザー選択が終わる前に、その1枚で解析を
-      // 開始しない。選択後はPinlogyControllerから同じジョブを再開する。
-      return;
-    }
     try {
       await analysis.update(job.copyWith(status: AnalysisJobStatus.processing));
       final analysisImages = _analysisImages(post);
@@ -425,19 +417,6 @@ class AnalysisRunner {
     if (storedPost == null) return;
     var post = storedPost;
 
-    final requiresSelection =
-        post.imagePaths.isNotEmpty &&
-        (post.service == 'Instagram' || post.service == 'TikTok');
-    if (requiresSelection && post.analysisImagePaths.isEmpty) {
-      await hub.analysis.update(
-        job.copyWith(
-          status: AnalysisJobStatus.failed,
-          errorMessage: '解析する投稿画像を選択してください',
-        ),
-      );
-      return;
-    }
-
     await hub.analysis.update(
       job.copyWith(status: AnalysisJobStatus.processing, errorMessage: null),
     );
@@ -532,11 +511,11 @@ List<String> _mergedAnalysisImages(
       ? result.previewImagePaths
       : [if (result.previewImagePath != null) result.previewImagePath!];
   if (fetched.isEmpty) return post.imagePaths;
-  // AIへ送信した既存画像→SNS取得画像の順番を維持する。
-  // evidenceImageIndexはこの配列の順番を参照する。
+  // previewImagePathsはAIへ送信した順番そのもの。
+  // これを先頭に置き、候補のevidenceImageIndexと一覧画像を一致させる。
   return {
-    ...post.imagePaths,
     ...fetched,
+    ...post.imagePaths,
   }.take(SourceMediaStore.maxImages).toList(growable: false);
 }
 

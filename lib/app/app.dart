@@ -148,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
       while (mounted && _queuedSharePrompts.isNotEmpty) {
         final post = _queuedSharePrompts.removeAt(0);
         // さらに共有が待っている場合は先頭をメモなしで確定し、最後の1件だけ入力を待つ。
-        if (_queuedSharePrompts.isNotEmpty && !_requiresImageSelection(post)) {
+        if (_queuedSharePrompts.isNotEmpty) {
           await controller.analyzeSharedPost(post);
           continue;
         }
@@ -173,24 +173,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final controller = AppScope.read(context);
     var displayPost = await controller.sourcePosts.getById(post.id) ?? post;
-    final shouldRefreshSocialImages =
-        displayPost.url != null &&
-        (displayPost.imagePaths.isEmpty ||
-            displayPost.service == 'Instagram' ||
-            displayPost.service == 'TikTok');
-    if (shouldRefreshSocialImages) {
-      try {
-        displayPost = await controller.shareReceiver.refreshOfficialPreview(
-          displayPost,
-          force: true,
-        );
-      } catch (_) {
-        // サムネイル取得に失敗してもURLとメモ入力で取り込みを続ける。
-      }
-    }
-    if (!mounted) return;
-    if (_queuedSharePrompts.isNotEmpty &&
-        !_requiresImageSelection(displayPost)) {
+    // SNS画像の取得は、メモ確定後にサーバー側の解析ジョブで行う。
+    // ここで待つと、アプリを閉じた時点で取得も解析も止まるため、
+    // 共有時点で端末に届いた画像だけを先に表示する。
+    if (_queuedSharePrompts.isNotEmpty) {
       await controller.analyzeSharedPost(displayPost);
       return;
     }
@@ -339,7 +325,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        '選んだ画像だけをまとめて1回のAI解析に使用します。',
+                        '未選択なら、投稿の全画像をバックグラウンドで取得して解析します。'
+                        '画像を選ぶと、選んだ画像だけを解析します。',
                         style: TextStyle(fontSize: 12),
                       ),
                       if (displayPost.imagePaths.length < 10) ...[
@@ -386,19 +373,12 @@ class _HomeScreenState extends State<HomeScreen> {
               actionsOverflowDirection: VerticalDirection.down,
               actions: [
                 TextButton(
-                  onPressed:
-                      displayPost.imagePaths.isNotEmpty &&
-                          selectedImagePaths.isEmpty
-                      ? null
-                      : () => Navigator.pop(dialogContext, ''),
+                  onPressed: () => Navigator.pop(dialogContext, ''),
                   child: const Text('メモなしで追加'),
                 ),
                 FilledButton(
-                  onPressed:
-                      displayPost.imagePaths.isNotEmpty &&
-                          selectedImagePaths.isEmpty
-                      ? null
-                      : () => Navigator.pop(dialogContext, memoController.text),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, memoController.text),
                   child: const Text('追加して検索'),
                 ),
               ],
@@ -414,7 +394,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await AppScope.read(context).analyzeSharedPost(
       displayPost,
       memo: memo,
-      selectedImagePaths: displayPost.imagePaths.isEmpty
+      selectedImagePaths: selectedImagePaths.isEmpty
           ? null
           : selectedImagePaths.toList(growable: false),
     );
@@ -425,11 +405,6 @@ class _HomeScreenState extends State<HomeScreen> {
     messenger.showSnackBar(
       SnackBar(duration: const Duration(seconds: 2), content: Text(message)),
     );
-  }
-
-  bool _requiresImageSelection(SourcePost post) {
-    return post.imagePaths.isNotEmpty &&
-        (post.service == 'Instagram' || post.service == 'TikTok');
   }
 
   Future<void> _listenForMapShares() async {

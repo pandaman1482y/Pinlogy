@@ -345,7 +345,7 @@ class _InboxTabState extends State<InboxTab> {
                             ? moss
                             : _statusColor(job?.status),
                         onTap: () => _selectedPostIds.isEmpty
-                            ? _onTap(context, post, job)
+                            ? _onTap(context, post, job, namedCandidate)
                             : _toggleSelected(post.id),
                         onLongPress: () => _toggleSelected(post.id),
                         actionLabel: retryable
@@ -359,7 +359,7 @@ class _InboxTabState extends State<InboxTab> {
                         onAction: retryable
                             ? () => _retryAnalysis(context, job)
                             : job?.status == AnalysisJobStatus.completed
-                            ? () => _onTap(context, post, job)
+                            ? () => _onTap(context, post, job, namedCandidate)
                             : null,
                         onMore: () => _showActions(
                           context,
@@ -491,6 +491,7 @@ class _InboxTabState extends State<InboxTab> {
     BuildContext context,
     SourcePost post,
     AnalysisJob? job,
+    [ExtractionCandidate? candidate],
   ) async {
     await AppScope.read(context).markInboxPostSeen(post.id);
     if (!context.mounted) return;
@@ -499,7 +500,10 @@ class _InboxTabState extends State<InboxTab> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ExtractionScreen(sourcePostId: post.id),
+          builder: (_) => ExtractionScreen(
+            sourcePostId: post.id,
+            candidateId: candidate?.id,
+          ),
         ),
       );
       return;

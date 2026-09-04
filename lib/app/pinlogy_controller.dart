@@ -85,6 +85,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   bool loading = true;
   String? loadError;
   bool busy = false;
+  final Set<String> _resumingAnalysisJobIds = {};
   final Set<String> _seenInboxPostIds = {};
   final Set<String> _archivedInboxPostIds = {};
   static const _seenInboxPostIdsKey = 'pinlogy_seen_inbox_post_ids_v1';
@@ -155,11 +156,20 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _resumeProcessingAnalyses() async {
     final processing = hub.snapshot.analysisJobs
-        .where((job) => job.status == AnalysisJobStatus.processing)
+        .where(
+          (job) =>
+              job.status == AnalysisJobStatus.processing ||
+              job.status == AnalysisJobStatus.pending,
+        )
         .map((job) => job.id)
         .toList(growable: false);
     for (final jobId in processing) {
-      await analysisRunner.runJob(jobId);
+      if (!_resumingAnalysisJobIds.add(jobId)) continue;
+      try {
+        await analysisRunner.runJob(jobId);
+      } finally {
+        _resumingAnalysisJobIds.remove(jobId);
+      }
     }
   }
 
@@ -235,14 +245,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     String? memo,
     List<String>? selectedImagePaths,
   }) async {
-    var currentPost = await sourcePosts.getById(post.id) ?? post;
-    if (currentPost.imagePaths.isEmpty && currentPost.url != null) {
-      try {
-        currentPost = await shareReceiver.refreshOfficialPreview(currentPost);
-      } catch (_) {
-        // 画像取得に失敗しても投稿文・URL・メモで解析を続ける。
-      }
-    }
+    final currentPost = await sourcePosts.getById(post.id) ?? post;
     final trimmedMemo = memo?.trim() ?? '';
     if (trimmedMemo.isNotEmpty || selectedImagePaths != null) {
       final categories = <String>{
@@ -259,14 +262,6 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
           updatedAt: DateTime.now(),
         ),
       );
-    }
-    final latestPost = await sourcePosts.getById(post.id) ?? currentPost;
-    final requiresSelection =
-        latestPost.imagePaths.isNotEmpty &&
-        (latestPost.service == 'Instagram' || latestPost.service == 'TikTok');
-    if (requiresSelection && latestPost.analysisImagePaths.isEmpty) {
-      // SNS画像投稿は選択画面を通過するまでAIへ送らない。
-      return;
     }
     final job = await analysis.getBySourcePostId(post.id);
     if (job != null) {
