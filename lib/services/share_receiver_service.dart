@@ -382,6 +382,9 @@ class LocalShareReceiverService implements ShareReceiverService {
           }),
         ),
       );
+    } on AnalysisPendingException {
+      // サーバー側では解析継続中。復帰時に同じジョブから結果を回収する。
+      return;
     } catch (e) {
       await analysis.update(
         job.copyWith(
@@ -491,6 +494,9 @@ class AnalysisRunner {
           }),
         ),
       );
+    } on AnalysisPendingException {
+      // processingのまま保持し、再起動後も同じリモートジョブを再開する。
+      return;
     } catch (e) {
       await hub.analysis.update(
         job.copyWith(

@@ -40,6 +40,12 @@ Deno.serve(async (request) => {
     }
 
     const jobId = String(data.id);
+    console.info(
+      "async_job_enqueued",
+      jobId,
+      `notification=${input.notification_enabled === true}`,
+      `token=${validFcmToken(input.notification_token) != null}`,
+    );
     EdgeRuntime.waitUntil(processJob(jobId));
     return reply({ job_id: jobId, status: "pending" }, 202);
   } catch (error) {
@@ -185,6 +191,8 @@ async function sendCompletionNotification(token: string, jobId: string) {
     );
     if (!response.ok) {
       console.warn("fcm_send_failed", response.status, (await response.text()).slice(0, 300));
+    } else {
+      console.info("fcm_send_succeeded", jobId);
     }
   } catch (error) {
     console.warn("fcm_send_failed", String(error));

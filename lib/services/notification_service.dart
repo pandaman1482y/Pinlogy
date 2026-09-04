@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,12 @@ class PinlogyNotificationService {
     try {
       await Firebase.initializeApp();
       await FirebaseMessaging.instance.setAutoInitEnabled(true);
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
       _firebaseReady = true;
       if (_enabled) {
         await FirebaseMessaging.instance.requestPermission(
@@ -34,8 +41,10 @@ class PinlogyNotificationService {
           sound: true,
         );
       }
-    } catch (_) {
+      debugPrint('pinlogy_notifications_ready enabled=$_enabled');
+    } catch (error) {
       _firebaseReady = false;
+      debugPrint('pinlogy_notifications_init_failed $error');
     }
   }
 
@@ -66,13 +75,17 @@ class PinlogyNotificationService {
         final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
         if (apnsToken != null && apnsToken.isNotEmpty) {
           final token = await FirebaseMessaging.instance.getToken();
-          if (token != null && token.isNotEmpty) return token;
+          if (token != null && token.isNotEmpty) {
+            debugPrint('pinlogy_notification_token_ready');
+            return token;
+          }
         }
       } catch (_) {
         // APNs登録直後は一時的に失敗するため次の試行へ進む。
       }
       await Future<void>.delayed(const Duration(milliseconds: 750));
     }
+    debugPrint('pinlogy_notification_token_unavailable');
     return null;
   }
 }

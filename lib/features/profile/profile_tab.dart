@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_scope.dart';
 import '../../core/theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../services/notification_service.dart';
 import '../onboarding/onboarding_sheet.dart';
 import '../plans/plans_tab.dart';
 import '../saved/saved_tab.dart';
@@ -95,6 +96,7 @@ class ProfileTab extends StatelessWidget {
                 subtitle: 'バックアップ・共有マップ',
                 onTap: () => _open(context, const CloudSyncPage()),
               ),
+              const _AnalysisNotificationCard(),
             ],
           ),
         ),
@@ -105,6 +107,67 @@ class ProfileTab extends StatelessWidget {
   void _open(BuildContext context, Widget page) {
     if (ModalRoute.of(context)?.isCurrent != true) return;
     Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
+  }
+}
+
+class _AnalysisNotificationCard extends StatefulWidget {
+  const _AnalysisNotificationCard();
+
+  @override
+  State<_AnalysisNotificationCard> createState() =>
+      _AnalysisNotificationCardState();
+}
+
+class _AnalysisNotificationCardState
+    extends State<_AnalysisNotificationCard> {
+  bool _saving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = PinlogyNotificationService.instance;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.white.withValues(alpha: .82),
+        borderRadius: BorderRadius.circular(18),
+        child: SwitchListTile.adaptive(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 3,
+          ),
+          secondary: CircleAvatar(
+            backgroundColor: mint,
+            foregroundColor: mossDeep,
+            child: const Icon(Icons.notifications_outlined),
+          ),
+          title: const Text(
+            '解析完了を通知',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            service.firebaseReady
+                ? 'アプリを閉じていても完了をお知らせ'
+                : 'Firebase設定後に利用できます',
+          ),
+          value: service.enabled,
+          onChanged: _saving || !service.firebaseReady
+              ? null
+              : (value) async {
+                  setState(() => _saving = true);
+                  final changed = await service.setEnabled(value);
+                  if (!mounted) return;
+                  setState(() => _saving = false);
+                  if (!changed && value) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('iPhoneの設定でPinlogyの通知を許可してください'),
+                      ),
+                    );
+                  }
+                },
+        ),
+      ),
+    );
   }
 }
 

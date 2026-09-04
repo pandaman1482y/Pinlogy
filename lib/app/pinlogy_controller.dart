@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/errors.dart';
@@ -24,7 +25,7 @@ import '../services/source_link_service.dart';
 import '../services/source_media_store.dart';
 
 /// UIから参照するアプリ状態。
-class PinlogyController extends ChangeNotifier {
+class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   PinlogyController({
     LocalDataStore? store,
     PostAnalysisService? analysisService,
@@ -109,6 +110,7 @@ class PinlogyController extends ChangeNotifier {
     notifyListeners();
     try {
       hub.addListener(notifyListeners);
+      WidgetsBinding.instance.addObserver(this);
       final preferences = await SharedPreferences.getInstance();
       _seenInboxPostIds.addAll(
         preferences.getStringList(_seenInboxPostIdsKey) ?? const [],
@@ -142,11 +144,29 @@ class PinlogyController extends ChangeNotifier {
         unawaited(shareIntake.start());
         unawaited(_repairMissingThumbnails(preferences));
       }
+      unawaited(_resumeProcessingAnalyses());
     } catch (error) {
       loadError = toUserMessage(error);
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _resumeProcessingAnalyses() async {
+    final processing = hub.snapshot.analysisJobs
+        .where((job) => job.status == AnalysisJobStatus.processing)
+        .map((job) => job.id)
+        .toList(growable: false);
+    for (final jobId in processing) {
+      await analysisRunner.runJob(jobId);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !loading) {
+      unawaited(_resumeProcessingAnalyses());
     }
   }
 
@@ -307,6 +327,7 @@ class PinlogyController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     hub.removeListener(notifyListeners);
     unawaited(shareIntake.dispose());
     super.dispose();

@@ -11,6 +11,11 @@ import '../models/models.dart';
 import 'ai_analysis_consent.dart';
 import 'location_services.dart';
 import 'source_media_store.dart';
+import 'notification_service.dart';
+
+class AnalysisPendingException implements Exception {
+  const AnalysisPendingException();
+}
 
 /// 明示同意時だけEdge Functionで解析し、未同意・障害時は端末解析へ戻す。
 class AiPostAnalysisService implements PostAnalysisService {
@@ -51,11 +56,25 @@ class AiPostAnalysisService implements PostAnalysisService {
     }
     try {
       final uri = Uri.parse(
-        '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
+        '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/enqueue-analysis',
       );
       final encodedImages = await _readImages(request.imageUrls);
       final deviceId = await _deviceId();
-      final response = await _client
+      final preferences = await SharedPreferences.getInstance();
+      final pendingKey = _pendingJobKey(request.sourcePostId);
+      final existingJobId = preferences.getString(pendingKey);
+      http.Response response;
+      if (existingJobId != null && existingJobId.isNotEmpty) {
+        response = await _waitForRemoteJob(
+          uri: uri,
+          jobId: existingJobId,
+          deviceId: deviceId,
+          sourcePostId: request.sourcePostId,
+        );
+      } else {
+        final notification = PinlogyNotificationService.instance;
+        final notificationToken = await notification.tokenForAnalysis();
+        final enqueueResponse = await _client
           .post(
             uri,
             headers: {
@@ -65,6 +84,7 @@ class AiPostAnalysisService implements PostAnalysisService {
               'X-Pinlogy-Device': deviceId,
             },
             body: jsonEncode({
+              'action': 'enqueue',
               ...request.toJson(),
               'local_candidates': local.candidates
                   .map((e) => e.toJson())
@@ -73,10 +93,31 @@ class AiPostAnalysisService implements PostAnalysisService {
               'ocr_text': local.evidenceText,
               'image_data_urls': encodedImages.dataUrls,
               'analysis_key': cacheKey,
+              'notification_enabled': notification.enabled,
+              'notification_token': notificationToken,
             }),
           )
-          // 最大10枚の画像 + Web照合を1回で行うため、短すぎる端末側タイムアウトを避ける。
-          .timeout(const Duration(seconds: 90));
+          .timeout(const Duration(seconds: 20));
+        if (enqueueResponse.statusCode == 202) {
+          final queued = jsonDecode(enqueueResponse.body);
+          final jobId = queued is Map ? queued['job_id']?.toString() : null;
+          if (jobId == null || jobId.isEmpty) {
+            return _asFallback(
+              local,
+              analysisSource: 'invalid_response_fallback',
+            );
+          }
+          await preferences.setString(pendingKey, jobId);
+          response = await _waitForRemoteJob(
+            uri: uri,
+            jobId: jobId,
+            deviceId: deviceId,
+            sourcePostId: request.sourcePostId,
+          );
+        } else {
+          response = enqueueResponse;
+        }
+      }
       if (response.statusCode == 401 || response.statusCode == 403) {
         return _asFallback(local, analysisSource: 'auth_fallback');
       }
@@ -121,6 +162,8 @@ class AiPostAnalysisService implements PostAnalysisService {
       }
       await _writeCache(cacheKey, result);
       return result;
+    } on AnalysisPendingException {
+      rethrow;
     } on TimeoutException {
       return _asFallback(local, analysisSource: 'timeout_fallback');
     } on SocketException {
@@ -128,6 +171,57 @@ class AiPostAnalysisService implements PostAnalysisService {
     } catch (_) {
       return _fallbackWithPreview(local, request, 'invalid_response_fallback');
     }
+  }
+
+  static String _pendingJobKey(String sourcePostId) =>
+      'pinlogy_async_analysis_job_v1_$sourcePostId';
+
+  Future<http.Response> _waitForRemoteJob({
+    required Uri uri,
+    required String jobId,
+    required String deviceId,
+    required String sourcePostId,
+  }) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 80));
+    while (DateTime.now().isBefore(deadline)) {
+      final response = await _client
+          .post(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $_key',
+              'apikey': _key,
+              'Content-Type': 'application/json',
+              'X-Pinlogy-Device': deviceId,
+            },
+            body: jsonEncode({'action': 'status', 'job_id': jobId}),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) {
+          final status = decoded['status']?.toString();
+          if (status == 'completed' && decoded['result'] is Map) {
+            final preferences = await SharedPreferences.getInstance();
+            await preferences.remove(_pendingJobKey(sourcePostId));
+            return http.Response(jsonEncode(decoded['result']), 200);
+          }
+          if (status == 'failed') {
+            final preferences = await SharedPreferences.getInstance();
+            await preferences.remove(_pendingJobKey(sourcePostId));
+            return http.Response(
+              jsonEncode({'error': decoded['error'] ?? 'analysis_failed'}),
+              500,
+            );
+          }
+        }
+      } else if (response.statusCode == 404) {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.remove(_pendingJobKey(sourcePostId));
+        return response;
+      }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+    throw const AnalysisPendingException();
   }
 
   Future<PostAnalysisResponse> _fallbackWithPreview(
