@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
+import '../../app/pinlogy_controller.dart';
 import '../../core/theme.dart';
 import '../../models/models.dart';
 import '../../services/geocoding_privacy_consent.dart';
@@ -13,9 +14,14 @@ import '../../widgets/sheet_layout.dart';
 import '../maps/maps_tab.dart';
 
 class ExtractionScreen extends StatefulWidget {
-  const ExtractionScreen({super.key, required this.sourcePostId});
+  const ExtractionScreen({
+    super.key,
+    required this.sourcePostId,
+    this.candidateId,
+  });
 
   final String sourcePostId;
+  final String? candidateId;
 
   @override
   State<ExtractionScreen> createState() => _ExtractionScreenState();
@@ -94,7 +100,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final controller = AppScope.of(context);
-    final candidates = controller.candidatesForPost(widget.sourcePostId);
+    final candidates = _visibleCandidates(controller);
     if (selected.isEmpty) {
       for (final c in candidates) {
         if (c.match != PlaceMatchConfidence.unresolved && !_requiresReview(c)) {
@@ -113,7 +119,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     final post = controller.hub.snapshot.sourcePosts
         .where((item) => item.id == widget.sourcePostId)
         .firstOrNull;
-    final candidates = controller.candidatesForPost(widget.sourcePostId);
+    final candidates = _visibleCandidates(controller);
     final maps = controller.hub.snapshot.maps;
     final analysisSource = _analysisSource(controller);
     final identifiedCount = candidates
@@ -455,8 +461,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
 
   Future<void> _submit(BuildContext context) async {
     final controller = AppScope.read(context);
-    final candidates = controller
-        .candidatesForPost(widget.sourcePostId)
+    final candidates = _visibleCandidates(controller)
         .where((c) => selected.contains(c.id))
         .map((c) => resolved[c.id] ?? c)
         .toList();
@@ -547,6 +552,15 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     } finally {
       if (mounted) setState(() => submitting = false);
     }
+  }
+
+  List<ExtractionCandidate> _visibleCandidates(PinlogyController controller) {
+    final candidates = controller.candidatesForPost(widget.sourcePostId);
+    final candidateId = widget.candidateId;
+    if (candidateId == null) return candidates;
+    return candidates
+        .where((candidate) => candidate.id == candidateId)
+        .toList(growable: false);
   }
 
   bool _hasUnreviewed(List<ExtractionCandidate> candidates) => candidates.any(

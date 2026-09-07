@@ -85,6 +85,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   bool loading = true;
   String? loadError;
   bool busy = false;
+  final Set<String> _resumingAnalysisJobIds = {};
   final Set<String> _seenInboxPostIds = {};
   final Set<String> _archivedInboxPostIds = {};
   static const _seenInboxPostIdsKey = 'pinlogy_seen_inbox_post_ids_v1';
@@ -159,7 +160,12 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
         .map((job) => job.id)
         .toList(growable: false);
     for (final jobId in processing) {
-      await analysisRunner.runJob(jobId);
+      if (!_resumingAnalysisJobIds.add(jobId)) continue;
+      try {
+        await analysisRunner.runJob(jobId);
+      } finally {
+        _resumingAnalysisJobIds.remove(jobId);
+      }
     }
   }
 
