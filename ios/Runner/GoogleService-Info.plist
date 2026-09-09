@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyDPyYiS4ZPOk8UtDqU__u2ea-UF-Bn6LlM</string>
+	<string>AIzaSyA-1Dh8_xuMlMTph2vaqsyAtyvKlszUCcM</string>
 	<key>GCM_SENDER_ID</key>
-	<string>1078881314545</string>
+	<string>556241051905</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.yuya.FlowStream</string>
+	<string>com.pinlogy.pinlogy</string>
 	<key>PROJECT_ID</key>
-	<string>flowstream-6002b</string>
+	<string>pinlogy-a59f3</string>
 	<key>STORAGE_BUCKET</key>
-	<string>flowstream-6002b.firebasestorage.app</string>
+	<string>pinlogy-a59f3.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1078881314545:ios:50bf4aa99078f37e836b50</string>
+	<string>1:556241051905:ios:b4f404c189e7206c22bb00</string>
 </dict>
 </plist>
