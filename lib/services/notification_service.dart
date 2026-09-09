@@ -70,7 +70,7 @@ class PinlogyNotificationService {
     if (!_enabled || !_firebaseReady) return null;
     // iOSではAPNs tokenの登録より先にFCM tokenを要求すると失敗する。
     // 実機登録を少し待ってから再試行し、通知付きジョブにtokenを確実に載せる。
-    for (var attempt = 0; attempt < 8; attempt++) {
+    for (var attempt = 0; attempt < 20; attempt++) {
       try {
         final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
         if (apnsToken != null && apnsToken.isNotEmpty) {

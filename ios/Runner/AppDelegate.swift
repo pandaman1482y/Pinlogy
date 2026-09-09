@@ -10,6 +10,7 @@ import UIKit
   private var methodChannel: FlutterMethodChannel?
   private var setupAttempts = 0
   private var dartReady = false
+  private var intakeBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
   override func application(
     _ application: UIApplication,
@@ -30,6 +31,9 @@ import UIKit
       )
     }
     let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    // FCM token取得より前にAPNs登録を明示し、共有直後のバックグラウンド
+    // 解析ジョブにも通知tokenを載せられるようにする。
+    application.registerForRemoteNotifications()
     setupShareChannel()
     return launched
   }
@@ -69,7 +73,24 @@ import UIKit
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
+    endIntakeBackgroundTask(application)
     dispatchPendingShareIfReady()
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    super.applicationDidEnterBackground(application)
+    guard intakeBackgroundTask == .invalid else { return }
+    // 共有直後に閉じても、Dartが解析ジョブをサーバーへ渡し終えるまでの
+    // 短い猶予を確保する。実際の画像取得・解析はサーバー側で継続する。
+    intakeBackgroundTask = application.beginBackgroundTask(withName: "PinlogyShareIntake") {
+      self.endIntakeBackgroundTask(application)
+    }
+  }
+
+  private func endIntakeBackgroundTask(_ application: UIApplication) {
+    guard intakeBackgroundTask != .invalid else { return }
+    application.endBackgroundTask(intakeBackgroundTask)
+    intakeBackgroundTask = .invalid
   }
 
   override func application(

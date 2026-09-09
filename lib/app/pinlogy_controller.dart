@@ -242,9 +242,16 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     List<String>? selectedImagePaths,
   }) async {
     var currentPost = await sourcePosts.getById(post.id) ?? post;
-    if (currentPost.imagePaths.isEmpty && currentPost.url != null) {
+    final isSocialPost =
+        currentPost.service == 'Instagram' || currentPost.service == 'TikTok';
+    if (currentPost.url != null &&
+        (currentPost.imagePaths.isEmpty ||
+            (isSocialPost && currentPost.imagePaths.length <= 1))) {
       try {
-        currentPost = await shareReceiver.refreshOfficialPreview(currentPost);
+        currentPost = await shareReceiver.refreshOfficialPreview(
+          currentPost,
+          force: isSocialPost,
+        );
       } catch (_) {
         // 画像取得に失敗しても投稿文・URL・メモで解析を続ける。
       }
@@ -268,7 +275,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     }
     final latestPost = await sourcePosts.getById(post.id) ?? currentPost;
     final requiresSelection =
-        latestPost.imagePaths.isNotEmpty &&
+        latestPost.imagePaths.length > 1 &&
         (latestPost.service == 'Instagram' || latestPost.service == 'TikTok');
     if (requiresSelection && latestPost.analysisImagePaths.isEmpty) {
       // SNS画像投稿は選択画面を通過するまでAIへ送らない。

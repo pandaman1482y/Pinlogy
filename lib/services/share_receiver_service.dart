@@ -320,7 +320,7 @@ class LocalShareReceiverService implements ShareReceiverService {
       host == domain || host.endsWith('.$domain');
 
   Future<void> _analyze(AnalysisJob job, SourcePost post) async {
-    final requiresImageSelection = post.imagePaths.isNotEmpty &&
+    final requiresImageSelection = post.imagePaths.length > 1 &&
         (post.service == 'Instagram' || post.service == 'TikTok');
     if (requiresImageSelection && post.analysisImagePaths.isEmpty) {
       // Share Extensionからは現在表示中の1枚だけが先に届くことがある。
@@ -426,7 +426,7 @@ class AnalysisRunner {
     var post = storedPost;
 
     final requiresSelection =
-        post.imagePaths.isNotEmpty &&
+        post.imagePaths.length > 1 &&
         (post.service == 'Instagram' || post.service == 'TikTok');
     if (requiresSelection && post.analysisImagePaths.isEmpty) {
       await hub.analysis.update(
@@ -613,9 +613,11 @@ class ShareIntakeCoordinator {
 
   Future<SourcePost?> _handleShared(SharedContent content) async {
     try {
-      // OS共有では、ユーザーが補足メモを入力してから解析を開始する。
-      final post = await shareReceiver.receive(content, analyze: false);
-      lastSavedMessage = '受信箱に保存しました';
+      // URL共有直後にサーバーへ解析ジョブを渡す。Share Extensionから
+      // 1枚だけ届いた場合も、サーバー側がSNSカルーセル全体を取得する。
+      // 2枚以上が端末へ届いた場合は従来どおり画像選択を待つ。
+      final post = await shareReceiver.receive(content, analyze: true);
+      lastSavedMessage = '受信箱に保存し、解析を開始しました';
       if (!_savedController.isClosed) {
         _savedController.add(post);
       }
