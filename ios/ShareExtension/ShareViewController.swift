@@ -8,6 +8,11 @@ final class ShareViewController: UIViewController {
   private let appGroupId = "group.com.pinlogy.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
+  private let backendUrlKey = "pinlogy.share_backend_url"
+  private let backendAnonKey = "pinlogy.share_backend_anon_key"
+  private let notificationEnabledKey = "pinlogy.share_notification_enabled"
+  private let notificationTokenKey = "pinlogy.share_notification_token"
+  private let analysisDeviceIdKey = "pinlogy.analysis_device_id"
   private let titleLabel = UILabel()
   private let messageLabel = UILabel()
   private let saveButton = UIButton(type: .system)
@@ -70,7 +75,16 @@ final class ShareViewController: UIViewController {
   @objc private func saveSharedPost() {
     setBusy(true)
     Task {
-      let payload = await collectPayload()
+      var payload = await collectPayload()
+      let sourcePostId = UUID().uuidString.lowercased()
+      payload["sourcePostId"] = sourcePostId
+      if let remote = await enqueueBackgroundAnalysis(
+        payload: payload,
+        sourcePostId: sourcePostId
+      ) {
+        payload["remoteAnalysisJobId"] = remote.jobId
+        payload["analysisDeviceId"] = remote.deviceId
+      }
       guard persist(payload) else {
         await MainActor.run {
           self.setBusy(false)
@@ -79,13 +93,20 @@ final class ShareViewController: UIViewController {
         }
         return
       }
-      let opened = await openHostApp()
+      // サーバーへ渡せた場合は本体を起動せず共有元へ戻る。
+      // 未設定・通信失敗時だけ従来どおり本体起動を試す。
+      let opened = payload["remoteAnalysisJobId"] == nil
+        ? await openHostApp()
+        : false
+      let queued = payload["remoteAnalysisJobId"] != nil
       await MainActor.run {
         self.activityIndicator.stopAnimating()
         self.titleLabel.text = opened ? "Pinlogyを開きます" : "保存しました"
         self.messageLabel.text = opened
           ? "取り込みメモをPinlogyで入力できます。"
-          : "Pinlogyを開くと、受信箱から続けられます。"
+          : queued
+            ? "画像取得と解析をバックグラウンドで開始しました。"
+            : "Pinlogyを一度開くと、受信箱から解析を続けられます。"
         self.messageLabel.textColor = .secondaryLabel
         self.saveButton.isHidden = true
         self.cancelButton.isHidden = true
@@ -93,6 +114,62 @@ final class ShareViewController: UIViewController {
       try? await Task.sleep(nanoseconds: opened ? 300_000_000 : 1_200_000_000)
       self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
+  }
+
+  private func enqueueBackgroundAnalysis(
+    payload: [String: Any],
+    sourcePostId: String
+  ) async -> (jobId: String, deviceId: String)? {
+    guard
+      let defaults = UserDefaults(suiteName: appGroupId),
+      let base = defaults.string(forKey: backendUrlKey),
+      let key = defaults.string(forKey: backendAnonKey),
+      !base.isEmpty,
+      !key.isEmpty,
+      let endpoint = URL(
+        string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+          + "/functions/v1/enqueue-analysis"
+      )
+    else { return nil }
+
+    let deviceId: String
+    if let saved = defaults.string(forKey: analysisDeviceIdKey), !saved.isEmpty {
+      deviceId = saved
+    } else {
+      deviceId = UUID().uuidString.lowercased()
+      defaults.set(deviceId, forKey: analysisDeviceIdKey)
+    }
+
+    var body: [String: Any] = [
+      "action": "enqueue",
+      "source_post_id": sourcePostId,
+      "url": payload["url"] as? String ?? "",
+      "text": payload["text"] as? String ?? "",
+      "local_candidates": [],
+      "selected_images_only": false,
+      "notification_enabled": defaults.bool(forKey: notificationEnabledKey),
+    ]
+    if let token = defaults.string(forKey: notificationTokenKey), !token.isEmpty {
+      body["notification_token"] = token
+    }
+
+    var request = URLRequest(url: endpoint)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 15
+    request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    request.setValue(key, forHTTPHeaderField: "apikey")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(deviceId, forHTTPHeaderField: "X-Pinlogy-Device")
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    guard
+      let (data, response) = try? await URLSession.shared.data(for: request),
+      let http = response as? HTTPURLResponse,
+      http.statusCode == 202,
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let jobId = json["job_id"] as? String,
+      !jobId.isEmpty
+    else { return nil }
+    return (jobId, deviceId)
   }
 
   @objc private func cancelShare() {

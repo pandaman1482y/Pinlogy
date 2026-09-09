@@ -21,6 +21,28 @@ class PlatformShareBridge {
   /// 共有を受け取るたびに呼ばれる。
   Future<void> Function(SharedContent content)? onShared;
 
+  Future<void> configureBackgroundIntake({
+    required String supabaseUrl,
+    required String supabaseAnonKey,
+    bool? notificationEnabled,
+    String? notificationToken,
+  }) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) return;
+    try {
+      await _channel.invokeMethod<void>('configureBackgroundIntake', {
+        'supabaseUrl': supabaseUrl,
+        'supabaseAnonKey': supabaseAnonKey,
+        if (notificationEnabled != null)
+          'notificationEnabled': notificationEnabled,
+        if (notificationToken != null && notificationToken.isNotEmpty)
+          'notificationToken': notificationToken,
+      });
+    } catch (_) {
+      // 事前設定に失敗しても通常の本体取り込みは継続する。
+    }
+  }
+
   Future<void> attach() async {
     if (_attached) return;
     _attached = true;

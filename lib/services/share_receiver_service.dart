@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/errors.dart';
 import '../models/models.dart';
@@ -14,6 +15,9 @@ import 'source_media_store.dart';
 
 class SharedContent {
   const SharedContent({
+    this.sourcePostId,
+    this.remoteAnalysisJobId,
+    this.analysisDeviceId,
     this.url,
     this.text,
     this.imagePaths = const [],
@@ -21,6 +25,9 @@ class SharedContent {
     this.title,
   });
 
+  final String? sourcePostId;
+  final String? remoteAnalysisJobId;
+  final String? analysisDeviceId;
   final String? url;
   final String? text;
   final List<String> imagePaths;
@@ -34,6 +41,9 @@ class SharedContent {
       (title == null || title!.trim().isEmpty);
 
   Map<String, dynamic> toMap() => {
+    'sourcePostId': sourcePostId,
+    'remoteAnalysisJobId': remoteAnalysisJobId,
+    'analysisDeviceId': analysisDeviceId,
     'url': url,
     'text': text,
     'imagePaths': imagePaths,
@@ -94,6 +104,9 @@ class SharedContent {
     }
 
     final content = SharedContent(
+      sourcePostId: map['sourcePostId']?.toString(),
+      remoteAnalysisJobId: map['remoteAnalysisJobId']?.toString(),
+      analysisDeviceId: map['analysisDeviceId']?.toString(),
       url: (url == null || url.isEmpty) ? null : url,
       text: (text == null || text.isEmpty) ? null : text,
       imagePaths: imagePaths,
@@ -213,12 +226,25 @@ class LocalShareReceiverService implements ShareReceiverService {
           '共有された投稿';
 
       final draft = SourcePost(
+        id: content.sourcePostId,
         url: content.url,
         service: service,
         title: title,
         body: content.text,
         imagePaths: content.imagePaths,
       );
+      final remoteJobId = content.remoteAnalysisJobId?.trim();
+      final sharedDeviceId = content.analysisDeviceId?.trim();
+      if (remoteJobId != null && remoteJobId.isNotEmpty) {
+        final preferences = await SharedPreferences.getInstance();
+        if (sharedDeviceId != null && sharedDeviceId.isNotEmpty) {
+          await preferences.setString('ai_quota_device_id_v1', sharedDeviceId);
+        }
+        await preferences.setString(
+          'pinlogy_async_analysis_job_v1_${draft.id}',
+          remoteJobId,
+        );
+      }
       final persistedImages = await _mediaStore.persist(
         draft.id,
         content.imagePaths,

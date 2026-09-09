@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 
 /// FCMの初期化と「解析完了通知」のユーザー設定を一か所で管理する。
 /// GoogleService-Info.plist未配置の開発環境では静かに無効化する。
@@ -17,6 +18,8 @@ class PinlogyNotificationService {
 
   bool _firebaseReady = false;
   bool _enabled = true;
+  StreamSubscription<String>? _tokenSubscription;
+  static const _shareChannel = MethodChannel('com.pinlogy/share');
 
   bool get enabled => _enabled;
   bool get firebaseReady => _firebaseReady;
@@ -34,6 +37,10 @@ class PinlogyNotificationService {
             sound: true,
           );
       _firebaseReady = true;
+      _tokenSubscription?.cancel();
+      _tokenSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
+        (token) => unawaited(_publishShareSettings(token: token)),
+      );
       if (_enabled) {
         await FirebaseMessaging.instance.requestPermission(
           alert: true,
@@ -42,6 +49,8 @@ class PinlogyNotificationService {
         );
       }
       debugPrint('pinlogy_notifications_ready enabled=$_enabled');
+      unawaited(_publishShareSettings());
+      if (_enabled) unawaited(tokenForAnalysis());
     } catch (error) {
       _firebaseReady = false;
       debugPrint('pinlogy_notifications_init_failed $error');
@@ -63,6 +72,7 @@ class PinlogyNotificationService {
     _enabled = value;
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_enabledKey, value);
+    await _publishShareSettings();
     return true;
   }
 
@@ -77,6 +87,7 @@ class PinlogyNotificationService {
           final token = await FirebaseMessaging.instance.getToken();
           if (token != null && token.isNotEmpty) {
             debugPrint('pinlogy_notification_token_ready');
+            await _publishShareSettings(token: token);
             return token;
           }
         }
@@ -87,5 +98,16 @@ class PinlogyNotificationService {
     }
     debugPrint('pinlogy_notification_token_unavailable');
     return null;
+  }
+
+  Future<void> _publishShareSettings({String? token}) async {
+    try {
+      await _shareChannel.invokeMethod<void>('configureBackgroundIntake', {
+        'notificationEnabled': _enabled,
+        if (token != null && token.isNotEmpty) 'notificationToken': token,
+      });
+    } catch (_) {
+      // iOS以外や起動直後にチャネルが未準備でも通常通知は継続する。
+    }
   }
 }

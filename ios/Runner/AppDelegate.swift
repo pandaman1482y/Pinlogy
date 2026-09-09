@@ -7,6 +7,10 @@ import UIKit
   private let appGroupId = "group.com.pinlogy.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
+  private let backendUrlKey = "pinlogy.share_backend_url"
+  private let backendAnonKey = "pinlogy.share_backend_anon_key"
+  private let notificationEnabledKey = "pinlogy.share_notification_enabled"
+  private let notificationTokenKey = "pinlogy.share_notification_token"
   private var methodChannel: FlutterMethodChannel?
   private var setupAttempts = 0
   private var dartReady = false
@@ -65,6 +69,28 @@ import UIKit
       case "getInitialSharedMedia":
         self.dartReady = true
         result(self.consumePendingShares())
+      case "configureBackgroundIntake":
+        guard
+          let values = call.arguments as? [String: Any],
+          let defaults = UserDefaults(suiteName: self.appGroupId)
+        else {
+          result(false)
+          return
+        }
+        if let value = values["supabaseUrl"] as? String, !value.isEmpty {
+          defaults.set(value, forKey: self.backendUrlKey)
+        }
+        if let value = values["supabaseAnonKey"] as? String, !value.isEmpty {
+          defaults.set(value, forKey: self.backendAnonKey)
+        }
+        if let value = values["notificationEnabled"] as? Bool {
+          defaults.set(value, forKey: self.notificationEnabledKey)
+        }
+        if let value = values["notificationToken"] as? String, !value.isEmpty {
+          defaults.set(value, forKey: self.notificationTokenKey)
+        }
+        defaults.synchronize()
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }

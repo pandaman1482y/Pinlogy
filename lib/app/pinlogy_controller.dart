@@ -19,6 +19,7 @@ import '../services/free_place_search_service.dart';
 import '../services/in_app_route_service.dart';
 import '../services/local_post_analysis_service.dart';
 import '../services/location_services.dart';
+import '../services/notification_service.dart';
 import '../services/post_category_service.dart';
 import '../services/share_receiver_service.dart';
 import '../services/source_link_service.dart';
@@ -142,6 +143,13 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       });
       // ネイティブ共有の待ちで起動をブロックしない
       if (enablePlatformShare) {
+        unawaited(
+          shareIntake.bridge.configureBackgroundIntake(
+            supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
+            supabaseAnonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+            notificationEnabled: PinlogyNotificationService.instance.enabled,
+          ),
+        );
         unawaited(shareIntake.start());
         unawaited(_repairMissingThumbnails(preferences));
       }
