@@ -143,13 +143,16 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       });
       // ネイティブ共有の待ちで起動をブロックしない
       if (enablePlatformShare) {
-        unawaited(
-          shareIntake.bridge.configureBackgroundIntake(
+        unawaited(() async {
+          final notification = PinlogyNotificationService.instance;
+          final notificationToken = await notification.tokenForAnalysis();
+          await shareIntake.bridge.configureBackgroundIntake(
             supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
             supabaseAnonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-            notificationEnabled: PinlogyNotificationService.instance.enabled,
-          ),
-        );
+            notificationEnabled: notification.enabled,
+            notificationToken: notificationToken,
+          );
+        }());
         unawaited(shareIntake.start());
         unawaited(_repairMissingThumbnails(preferences));
       }

@@ -138,9 +138,14 @@ class AiPostAnalysisService implements PostAnalysisService {
         request.sourcePostId,
         decoded,
       );
-      if (fetchedPreviewPaths.isEmpty) {
-        final preview = await fetchSocialPostPreview(request);
-        if (preview != null) fetchedPreviewPaths = [preview];
+      // 非同期ジョブ結果に0〜1枚しか残っていない場合も、URLから全画像を
+      // 再取得する。Bright Data側で9枚解決済みでも、DB応答サイズや一時的な
+      // CDN失敗で一部だけ端末へ届くケースを1枚成功扱いにしない。
+      if (fetchedPreviewPaths.length <= 1) {
+        final refreshed = await fetchSocialPostPreviews(request);
+        if (refreshed.length > fetchedPreviewPaths.length) {
+          fetchedPreviewPaths = refreshed;
+        }
       }
       final analysisImagePaths = {
         ...encodedImages.sourcePaths,

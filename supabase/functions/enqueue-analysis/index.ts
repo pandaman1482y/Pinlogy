@@ -108,7 +108,11 @@ async function processJob(jobId: string) {
     if (!response.ok) {
       throw new Error(String(body.error ?? `analyze_http_${response.status}`));
     }
-    await db.from("async_analysis_jobs").update({
+    const media = body?.shared_media;
+    const returnedImageCount = Array.isArray(media?.image_data_urls)
+      ? media.image_data_urls.length
+      : 0;
+    const { error: completionError } = await db.from("async_analysis_jobs").update({
       status: "completed",
       result_json: body,
       error_message: null,
@@ -118,6 +122,16 @@ async function processJob(jobId: string) {
       device_id: null,
       notification_token: null,
     }).eq("id", jobId);
+    if (completionError) {
+      throw new Error(`job_result_save_failed:${completionError.message}`);
+    }
+    console.info(
+      "async_job_completed",
+      jobId,
+      `images=${returnedImageCount}`,
+      `notification=${job.notification_enabled === true}`,
+      `token=${validFcmToken(job.notification_token) != null}`,
+    );
     if (job.notification_enabled && job.notification_token) {
       await sendCompletionNotification(String(job.notification_token), jobId);
     }
