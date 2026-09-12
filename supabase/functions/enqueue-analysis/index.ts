@@ -8,12 +8,27 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
   try {
     const input = await request.json();
+    const action = String(input.action ?? "enqueue");
+
+    // enqueueとは別のHTTP実行として処理する。共有元のExtensionやenqueue
+    // リクエストが終了しても、このワーカー実行は解析完了まで存続できる。
+    if (action === "process") {
+      if (!isServiceRequest(request)) {
+        return reply({ error: "worker_unauthorized" }, 401);
+      }
+      const jobId = String(input.job_id ?? "");
+      if (!/^[0-9a-f-]{36}$/i.test(jobId)) {
+        return reply({ error: "invalid_job" }, 400);
+      }
+      await processJob(jobId);
+      return reply({ job_id: jobId, status: "finished" });
+    }
+
     const deviceId = request.headers.get("x-pinlogy-device") ?? "";
     if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
       return reply({ error: "device_id_required" }, 400);
     }
     const deviceHash = await sha256(deviceId);
-    const action = String(input.action ?? "enqueue");
     if (action === "status") return status(input, deviceHash);
     if (action !== "enqueue") return reply({ error: "invalid_action" }, 400);
 
@@ -46,13 +61,59 @@ Deno.serve(async (request) => {
       `notification=${input.notification_enabled === true}`,
       `token=${validFcmToken(input.notification_token) != null}`,
     );
-    EdgeRuntime.waitUntil(processJob(jobId));
+    // 重い画像取得・AI解析は独立したHTTPワーカーへ引き渡す。
+    // waitUntil内で解析本体を直接実行すると、enqueue側のisolate終了時に
+    // 画像取得まで中断されることがある。
+    EdgeRuntime.waitUntil(dispatchJob(jobId));
     return reply({ job_id: jobId, status: "pending" }, 202);
   } catch (error) {
     console.error("async_enqueue_failed", String(error));
     return reply({ error: "invalid_request" }, 400);
   }
 });
+
+async function dispatchJob(jobId: string) {
+  try {
+    const baseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
+    const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+    console.info("async_worker_dispatch_started", jobId);
+    const response = await fetch(`${baseUrl}/functions/v1/enqueue-analysis`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action: "process", job_id: jobId }),
+      signal: AbortSignal.timeout(300_000),
+    });
+    if (!response.ok) {
+      console.error(
+        "async_worker_dispatch_failed",
+        jobId,
+        response.status,
+        (await response.text()).slice(0, 300),
+      );
+      await markDispatchFailed(jobId);
+    } else {
+      console.info("async_worker_dispatch_completed", jobId);
+    }
+  } catch (error) {
+    console.error("async_worker_dispatch_failed", jobId, String(error));
+    // dispatch自体に失敗した場合はfailedへ確定し、アプリからの再解析で
+    // 古いpendingジョブを掴み続けないようにする。
+    await markDispatchFailed(jobId);
+  }
+}
+
+async function markDispatchFailed(jobId: string) {
+  await adminClient().from("async_analysis_jobs").update({
+    status: "failed",
+    error_message: "バックグラウンド解析を開始できませんでした",
+    completed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", jobId).eq("status", "pending");
+}
 
 async function status(input: Record<string, unknown>, deviceHash: string) {
   const jobId = String(input.job_id ?? "");
@@ -83,10 +144,21 @@ async function processJob(jobId: string) {
     .select("*").eq("id", jobId).single();
   if (error || job == null) return;
 
-  await db.from("async_analysis_jobs").update({
+  // 同一ジョブの二重解析・AI回数の二重消費を防ぐ。
+  if (job.status !== "pending") {
+    console.info("async_worker_skipped", jobId, `status=${job.status}`);
+    return;
+  }
+
+  const { data: claimed, error: claimError } = await db
+    .from("async_analysis_jobs").update({
     status: "processing",
     updated_at: new Date().toISOString(),
-  }).eq("id", jobId);
+  }).eq("id", jobId).eq("status", "pending").select("id").maybeSingle();
+  if (claimError || claimed == null) {
+    console.info("async_worker_claim_skipped", jobId);
+    return;
+  }
 
   try {
     const baseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
@@ -147,6 +219,12 @@ async function processJob(jobId: string) {
       notification_token: null,
     }).eq("id", jobId);
   }
+}
+
+function isServiceRequest(request: Request) {
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+  if (!serviceKey) return false;
+  return request.headers.get("authorization") === `Bearer ${serviceKey}`;
 }
 
 async function sendCompletionNotification(token: string, jobId: string) {
