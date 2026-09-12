@@ -440,6 +440,20 @@ class AnalysisRunner {
   final LocalRepositoryHub hub;
   final PostAnalysisService analysisService;
 
+  Future<void> retryJob(String jobId) async {
+    final jobs = await hub.analysis.getAll();
+    final job = jobs.cast<AnalysisJob?>().firstWhere(
+      (item) => item!.id == jobId,
+      orElse: () => null,
+    );
+    if (job == null) return;
+    if (analysisService case final AiPostAnalysisService service) {
+      await service.clearPendingJob(job.sourcePostId);
+    }
+    await hub.analysis.retry(jobId);
+    await runJob(jobId);
+  }
+
   Future<void> runJob(String jobId) async {
     final jobs = await hub.analysis.getAll();
     final job = jobs.cast<AnalysisJob?>().firstWhere(
@@ -450,19 +464,6 @@ class AnalysisRunner {
     final storedPost = await hub.sourcePosts.getById(job.sourcePostId);
     if (storedPost == null) return;
     var post = storedPost;
-
-    final requiresSelection =
-        post.imagePaths.length > 1 &&
-        (post.service == 'Instagram' || post.service == 'TikTok');
-    if (requiresSelection && post.analysisImagePaths.isEmpty) {
-      await hub.analysis.update(
-        job.copyWith(
-          status: AnalysisJobStatus.failed,
-          errorMessage: '解析する投稿画像を選択してください',
-        ),
-      );
-      return;
-    }
 
     await hub.analysis.update(
       job.copyWith(status: AnalysisJobStatus.processing, errorMessage: null),

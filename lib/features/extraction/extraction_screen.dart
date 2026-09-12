@@ -424,8 +424,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     final job = controller.jobForPost(widget.sourcePostId);
     if (job == null) return;
     setState(() => retrying = true);
-    await controller.analysis.retry(job.id);
-    await controller.analysisRunner.runJob(job.id);
+    await controller.analysisRunner.retryJob(job.id);
     if (!context.mounted) return;
     setState(() {
       retrying = false;

@@ -181,6 +181,13 @@ class AiPostAnalysisService implements PostAnalysisService {
   static String _pendingJobKey(String sourcePostId) =>
       'pinlogy_async_analysis_job_v1_$sourcePostId';
 
+  /// ユーザーが明示的に再解析した場合は、タイムアウトした古いサーバージョブを
+  /// 再利用せず、新しいジョブを登録できるようにする。
+  Future<void> clearPendingJob(String sourcePostId) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_pendingJobKey(sourcePostId));
+  }
+
   Future<http.Response> _waitForRemoteJob({
     required Uri uri,
     required String jobId,

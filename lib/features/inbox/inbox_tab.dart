@@ -785,8 +785,7 @@ class _InboxTabState extends State<InboxTab> {
         ),
       );
       if (job != null) {
-        await controller.analysis.retry(job.id);
-        await controller.analysisRunner.runJob(job.id);
+        await controller.analysisRunner.retryJob(job.id);
       }
     } finally {
       textController.dispose();
@@ -796,8 +795,7 @@ class _InboxTabState extends State<InboxTab> {
   Future<void> _retryAnalysis(BuildContext context, AnalysisJob? job) async {
     if (job == null) return;
     final controller = AppScope.read(context);
-    await controller.analysis.retry(job.id);
-    await controller.analysisRunner.runJob(job.id);
+    await controller.analysisRunner.retryJob(job.id);
     if (!context.mounted) return;
     final retryable = controller.isRetryableAnalysis(job.sourcePostId);
     ScaffoldMessenger.of(context).showSnackBar(

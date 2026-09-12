@@ -212,7 +212,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 vertical: 24,
               ),
               icon: const Icon(Icons.edit_note_rounded),
-              title: const Text('取り込みメモ'),
+              title: Row(
+                children: [
+                  const Expanded(child: Text('取り込みメモ')),
+                  IconButton(
+                    tooltip: '閉じる',
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
               content: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Column(
