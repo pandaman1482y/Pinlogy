@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const headers = { "Content-Type": "application/json; charset=utf-8" };
 const maxSocialImages = 10;
+const maxVideoFrames = 20;
+const maxAnalysisImages = maxSocialImages + maxVideoFrames;
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
@@ -85,6 +87,10 @@ Deno.serve(async (request) => {
     }
     quotaReserved = true;
 
+    const videoEvidence = await fetchVideoEvidence(
+      sharedPage?.canonical_url ?? String(input.url ?? ""),
+    );
+
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
       text: [
@@ -93,6 +99,11 @@ Deno.serve(async (request) => {
           sharedPage?.description,
         ].filter(Boolean).join("\n")}`,
         `補助根拠の端末OCR（投稿文・コメントと矛盾する場合は採用禁止）:\n${String(input.ocr_text ?? "")}`,
+        `動画の音声文字起こし:\n${videoEvidence?.transcript ?? ""}`,
+        `動画取得元のタイトル・説明:\n${[
+          videoEvidence?.source_title,
+          videoEvidence?.source_description,
+        ].filter(Boolean).join("\n")}`,
         `共有URL:\n${String(input.url ?? "")}`,
         `URLから取得した投稿情報:\n${JSON.stringify(
           sharedPage == null ? {} : { ...sharedPage, image_urls: undefined },
@@ -133,6 +144,16 @@ Deno.serve(async (request) => {
         text: `画像${analysisImageIndex}（SNSカルーセル・投稿順）`,
       });
       content.push({ type: "input_image", image_url: image, detail: "high" });
+      analysisImageIndex++;
+    }
+    const videoFrames = (videoEvidence?.frames ?? [])
+      .slice(0, Math.max(0, maxAnalysisImages - analysisImageIndex));
+    for (const frame of videoFrames) {
+      content.push({
+        type: "input_text",
+        text: `画像${analysisImageIndex}（動画 ${frame.timestamp_seconds}秒地点）`,
+      });
+      content.push({ type: "input_image", image_url: frame.data_url, detail: "high" });
       analysisImageIndex++;
     }
 
@@ -182,14 +203,19 @@ Deno.serve(async (request) => {
     const successfulResult = {
       source_post_id: sourcePostId,
       ...parsedOutput,
-      analysis_source: sharedPage?.is_photo_post === true
+      analysis_source: videoFrames.length > 0
+        ? "ai_video_frames_and_audio"
+        : sharedPage?.is_photo_post === true
         ? (selectedImagesOnly && suppliedImages.length > 0
           ? `ai_${sharedPage.service}_selected_images`
           : fetchedSocialImages.length > 0
           ? `ai_${sharedPage.service}_photos`
           : `ai_${sharedPage.service}_text_only`)
         : "ai",
-      shared_media: sharedMedia(sharedPage, fetchedSocialImages),
+      shared_media: sharedMedia(
+        sharedPage,
+        [...fetchedSocialImages, ...videoFrames.map((frame) => frame.data_url)],
+      ),
     };
     if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
       await writeAnalysisCache(deviceHash, analysisKey, parsedOutput);
@@ -266,7 +292,7 @@ const recipeSchema = {
             cover_image_index: {
               type: ["integer", "null"],
               minimum: 0,
-              maximum: maxSocialImages - 1,
+              maximum: maxAnalysisImages - 1,
             },
             parts: {
               type: "array",
@@ -326,7 +352,7 @@ const recipeSchema = {
                 properties: {
                   kind: { type: "string", enum: ["image", "video", "caption", "author_comment", "audio", "aiInference"] },
                   label: { type: "string" },
-                  image_index: { type: ["integer", "null"], minimum: 0, maximum: maxSocialImages - 1 },
+                  image_index: { type: ["integer", "null"], minimum: 0, maximum: maxAnalysisImages - 1 },
                   timestamp_seconds: { type: ["integer", "null"], minimum: 0, maximum: 21600 },
                   excerpt: { type: ["string", "null"] },
                   confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
@@ -413,6 +439,86 @@ type SharedPage = {
   image_urls: string[];
   fetch_status: number;
 };
+
+type VideoEvidence = {
+  duration_seconds: number;
+  transcript: string;
+  source_title: string;
+  source_description: string;
+  frames: Array<{ data_url: string; timestamp_seconds: number }>;
+};
+
+async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null> {
+  if (!rawUrl) return null;
+  let source: URL;
+  try {
+    source = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (!isAllowedSocialUrl(source)) return null;
+  const likelyVideo = /\/video\/\d+/i.test(source.pathname) ||
+    /\/(reel|p)\/[^/]+/i.test(source.pathname);
+  if (!likelyVideo) return null;
+  const workerUrl = (Deno.env.get("VIDEO_WORKER_URL") ?? "").trim();
+  const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();
+  if (!workerUrl || !workerSecret) {
+    console.warn("video_worker_not_configured");
+    return null;
+  }
+  try {
+    const endpoint = new URL(
+      "/extract",
+      workerUrl.endsWith("/") ? workerUrl : `${workerUrl}/`,
+    );
+    if (endpoint.protocol !== "https:") throw new Error("worker_https_required");
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${workerSecret}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url: source.toString() }),
+      signal: AbortSignal.timeout(230_000),
+    });
+    if (!response.ok) {
+      console.warn(
+        "video_worker_failed",
+        response.status,
+        (await response.text()).slice(0, 300),
+      );
+      return null;
+    }
+    const decoded = await response.json();
+    const frames = Array.isArray(decoded.frames)
+      ? decoded.frames.filter((frame: unknown) => {
+        if (frame == null || typeof frame !== "object") return false;
+        const record = frame as Record<string, unknown>;
+        return typeof record.data_url === "string" &&
+          /^data:image\/jpeg;base64,/i.test(record.data_url) &&
+          Number.isFinite(Number(record.timestamp_seconds));
+      }).slice(0, maxVideoFrames).map((frame: Record<string, unknown>) => ({
+        data_url: String(frame.data_url),
+        timestamp_seconds: Math.max(0, Math.round(Number(frame.timestamp_seconds))),
+      }))
+      : [];
+    console.info(
+      "video_worker_resolved",
+      `frames=${frames.length}`,
+      `transcript=${String(decoded.transcript ?? "").length}`,
+    );
+    return {
+      duration_seconds: Math.max(0, Math.round(Number(decoded.duration_seconds ?? 0))),
+      transcript: String(decoded.transcript ?? "").slice(0, 12000),
+      source_title: String(decoded.source_title ?? "").slice(0, 1000),
+      source_description: String(decoded.source_description ?? "").slice(0, 8000),
+      frames,
+    };
+  } catch (error) {
+    console.warn("video_worker_failed", String(error));
+    return null;
+  }
+}
 
 async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
   if (!rawUrl) return null;

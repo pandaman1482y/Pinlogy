@@ -6,9 +6,9 @@ import 'package:path_provider/path_provider.dart';
 
 /// 共有元画像を一時URLやShare Extensionの作業領域から退避する。
 class SourceMediaStore {
-  static const maxImages = 10;
+  static const maxImages = 30;
   static const maxImageBytes = 2 * 1024 * 1024;
-  static const maxTotalBytes = 8 * 1024 * 1024;
+  static const maxTotalBytes = 20 * 1024 * 1024;
 
   Future<List<String>> persist(
     String sourcePostId,

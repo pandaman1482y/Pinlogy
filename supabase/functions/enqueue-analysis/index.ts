@@ -89,7 +89,7 @@ async function dispatchJob(jobId: string) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ action: "process", job_id: jobId }),
-      signal: AbortSignal.timeout(300_000),
+      signal: AbortSignal.timeout(600_000),
     });
     if (!response.ok) {
       console.error(
@@ -213,7 +213,7 @@ async function processJob(jobId: string) {
       },
       body: JSON.stringify(job.request_json),
       // Instagram snapshotの完了待ちと、その後の画像別AI解析を許容する。
-      signal: AbortSignal.timeout(240_000),
+      signal: AbortSignal.timeout(540_000),
     });
     const body = await response.json().catch(() => ({ error: "invalid_response" }));
     if (!response.ok) {
@@ -284,7 +284,7 @@ async function persistResultImages(
     ? mediaRecord.image_data_urls
     : [];
   const paths: string[] = [];
-  for (let index = 0; index < Math.min(values.length, 10); index++) {
+  for (let index = 0; index < Math.min(values.length, 30); index++) {
     const decoded = decodeImageDataUrl(values[index]);
     if (decoded == null) continue;
     const path = `${deviceHash}/${jobId}/${index}.${decoded.extension}`;
