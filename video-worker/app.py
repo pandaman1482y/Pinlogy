@@ -111,6 +111,87 @@ def _transcribe(audio_path: Path) -> str:
         return ""
 
 
+def _download_video(raw_url: str, root: Path) -> tuple[dict, Path]:
+    output_template = str(root / "source.%(ext)s")
+    base_options = {
+        "format": "bv*[height<=720]+ba/b[height<=720]/b",
+        "merge_output_format": "mp4",
+        "outtmpl": output_template,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "max_filesize": MAX_VIDEO_BYTES,
+        "socket_timeout": 25,
+        "retries": 3,
+        "fragment_retries": 3,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) "
+                "AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
+            ),
+            "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+    }
+    proxy = os.getenv("YTDLP_PROXY", "").strip()
+    if proxy:
+        base_options["proxy"] = proxy
+    cookies_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
+    if cookies_b64:
+        try:
+            cookies_path = root / "cookies.txt"
+            cookies_path.write_bytes(base64.b64decode(cookies_b64, validate=True))
+            base_options["cookiefile"] = str(cookies_path)
+        except Exception:
+            print("video_cookies_invalid", flush=True)
+
+    attempts = [
+        ("default", {}),
+        (
+            "tiktok_mobile_api",
+            {
+                "extractor_args": {
+                    "tiktok": {
+                        "api_hostname": ["api22-normal-c-useast2a.tiktokv.com"],
+                    }
+                }
+            },
+        ),
+    ]
+    last_error = "unknown"
+    for label, overrides in attempts:
+        options = {**base_options, **overrides}
+        try:
+            with YoutubeDL(options) as downloader:
+                info = downloader.extract_info(raw_url, download=True)
+                video_path = Path(
+                    info.get("requested_downloads", [{}])[0].get("filepath")
+                    or info.get("filepath")
+                    or downloader.prepare_filename(info)
+                )
+            if not video_path.exists():
+                candidates = [
+                    path for path in root.glob("source.*")
+                    if path.suffix not in {".part", ".ytdl"}
+                ]
+                if not candidates:
+                    raise RuntimeError("download_completed_without_file")
+                video_path = max(candidates, key=lambda path: path.stat().st_size)
+            print(f"video_download_succeeded strategy={label}", flush=True)
+            return info, video_path
+        except Exception as error:
+            last_error = " ".join(str(error).split())[:1200]
+            print(
+                f"video_download_attempt_failed strategy={label} detail={last_error}",
+                flush=True,
+            )
+            for partial in root.glob("source.*"):
+                try:
+                    partial.unlink()
+                except OSError:
+                    pass
+    raise RuntimeError(last_error)
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
@@ -130,45 +211,15 @@ def extract(
 
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        output_template = str(root / "source.%(ext)s")
-        options = {
-            "format": "best[height<=720]/best",
-            "outtmpl": output_template,
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "max_filesize": MAX_VIDEO_BYTES,
-            "socket_timeout": 20,
-            "retries": 2,
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
-            },
-        }
-        cookies_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
-        if cookies_b64:
-            try:
-                cookies_path = root / "cookies.txt"
-                cookies_path.write_bytes(base64.b64decode(cookies_b64, validate=True))
-                options["cookiefile"] = str(cookies_path)
-            except Exception:
-                print("video_cookies_invalid", flush=True)
         try:
-            with YoutubeDL(options) as downloader:
-                info = downloader.extract_info(request.url, download=True)
-                video_path = Path(
-                    info.get("requested_downloads", [{}])[0].get("filepath")
-                    or info.get("filepath")
-                    or downloader.prepare_filename(info)
-                )
+            info, video_path = _download_video(request.url, root)
         except Exception as error:
-            print(f"video_download_failed {type(error).__name__}", flush=True)
-            raise HTTPException(status_code=422, detail="video_download_failed")
-
-        if not video_path.exists():
-            candidates = list(root.glob("source.*"))
-            if not candidates:
-                raise HTTPException(status_code=422, detail="video_missing")
-            video_path = candidates[0]
+            detail = " ".join(str(error).split())[:500]
+            print(f"video_download_failed detail={detail}", flush=True)
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "video_download_failed", "reason": detail},
+            )
         if video_path.stat().st_size > MAX_VIDEO_BYTES:
             raise HTTPException(status_code=413, detail="video_too_large")
 

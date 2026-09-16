@@ -464,7 +464,7 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
   const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();
   if (!workerUrl || !workerSecret) {
     console.warn("video_worker_not_configured");
-    return null;
+    throw new Error("video_worker_not_configured");
   }
   try {
     const endpoint = new URL(
@@ -482,12 +482,13 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
       signal: AbortSignal.timeout(230_000),
     });
     if (!response.ok) {
+      const detail = (await response.text()).slice(0, 1000);
       console.warn(
         "video_worker_failed",
         response.status,
-        (await response.text()).slice(0, 300),
+        detail,
       );
-      return null;
+      throw new Error(`video_worker_http_${response.status}:${detail}`);
     }
     const decoded = await response.json();
     const frames = Array.isArray(decoded.frames)
@@ -516,7 +517,7 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
     };
   } catch (error) {
     console.warn("video_worker_failed", String(error));
-    return null;
+    throw error;
   }
 }
 
