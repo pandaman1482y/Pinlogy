@@ -193,6 +193,39 @@ class AiPostAnalysisService implements PostAnalysisService {
     await preferences.remove(_pendingJobKey(sourcePostId));
   }
 
+  /// 端末側の表示だけでなく、実行中のサーバージョブも停止状態へ変更する。
+  Future<void> cancelPendingJob(String sourcePostId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final key = _pendingJobKey(sourcePostId);
+    final jobId = preferences.getString(key);
+    if (jobId == null || jobId.isEmpty || !backendConfigured) {
+      await preferences.remove(key);
+      return;
+    }
+    try {
+      final uri = Uri.parse(
+        '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/enqueue-analysis',
+      );
+      final deviceId = await _deviceId();
+      await _client
+          .post(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $_key',
+              'apikey': _key,
+              'Content-Type': 'application/json',
+              'X-Pinlogy-Device': deviceId,
+            },
+            body: jsonEncode({'action': 'cancel', 'job_id': jobId}),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      // ローカルのキャンセル操作は通信障害時も完了させる。
+    } finally {
+      await preferences.remove(key);
+    }
+  }
+
   Future<http.Response> _waitForRemoteJob({
     required Uri uri,
     required String jobId,
@@ -228,6 +261,14 @@ class AiPostAnalysisService implements PostAnalysisService {
             return http.Response(
               jsonEncode({'error': decoded['error'] ?? 'analysis_failed'}),
               500,
+            );
+          }
+          if (status == 'cancelled') {
+            final preferences = await SharedPreferences.getInstance();
+            await preferences.remove(_pendingJobKey(sourcePostId));
+            return http.Response(
+              jsonEncode({'error': 'analysis_cancelled'}),
+              409,
             );
           }
         }
@@ -334,13 +375,11 @@ class AiPostAnalysisService implements PostAnalysisService {
       final safeId = sourcePostId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
       final paths = <String>[];
       for (var index = 0; index < dataUrls.length; index++) {
-        final match = RegExp(
-          r'^data:image/(jpeg|png|webp);base64,(.+)$',
-        ).firstMatch(dataUrls[index]);
-        if (match == null) continue;
-        final bytes = base64Decode(match.group(2)!);
+        final image = await _decodePreviewImage(dataUrls[index]);
+        if (image == null) continue;
+        final bytes = image.bytes;
         if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) continue;
-        final extension = match.group(1) == 'jpeg' ? 'jpg' : match.group(1)!;
+        final extension = image.extension;
         final file = File('${directory.path}/${safeId}_$index.$extension');
         await file.writeAsBytes(bytes, flush: true);
         paths.add(file.path);
@@ -349,6 +388,48 @@ class AiPostAnalysisService implements PostAnalysisService {
     } catch (_) {
       return const [];
     }
+  }
+
+  Future<({List<int> bytes, String extension})?> _decodePreviewImage(
+    String value,
+  ) async {
+    final match = RegExp(
+      r'^data:image/(jpeg|png|webp);base64,(.+)$',
+    ).firstMatch(value);
+    if (match != null) {
+      return (
+        bytes: base64Decode(match.group(2)!),
+        extension: match.group(1) == 'jpeg' ? 'jpg' : match.group(1)!,
+      );
+    }
+    final uri = Uri.tryParse(value);
+    final backend = Uri.tryParse(_url);
+    if (uri == null ||
+        backend == null ||
+        uri.scheme != 'https' ||
+        uri.host.toLowerCase() != backend.host.toLowerCase()) {
+      return null;
+    }
+    final response = await _client
+        .get(uri, headers: const {'Accept': 'image/*'})
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200 ||
+        response.bodyBytes.length > 2 * 1024 * 1024) {
+      return null;
+    }
+    final contentType = (response.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase();
+    final extension = switch (contentType) {
+      'image/jpeg' => 'jpg',
+      'image/png' => 'png',
+      'image/webp' => 'webp',
+      _ => null,
+    };
+    if (extension == null) return null;
+    return (bytes: response.bodyBytes, extension: extension);
   }
 
   Future<String> _deviceId() async {

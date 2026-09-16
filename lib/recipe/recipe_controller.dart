@@ -528,6 +528,10 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> cancelImport(RecipeImport recipeImport) async {
+    final job = legacy.jobForPost(recipeImport.sourcePostId);
+    if (job != null) {
+      await legacy.analysisRunner.cancelJob(job.id);
+    }
     final imports = snapshot.imports.map((item) {
       if (item.id != recipeImport.id) return item;
       return item.copyWith(status: RecipeImportStatus.cancelled);

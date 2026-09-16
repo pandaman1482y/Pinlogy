@@ -28,6 +28,7 @@ Deno.serve(async (request) => {
     }
     const deviceHash = await sha256(deviceId);
     if (action === "status") return status(input, deviceHash);
+    if (action === "cancel") return cancel(input, deviceHash);
     if (action === "test_notification") {
       const token = validFcmToken(input.notification_token);
       if (token == null) return reply({ error: "notification_token_required" }, 400);
@@ -130,13 +131,50 @@ async function status(input: Record<string, unknown>, deviceHash: string) {
     return reply({ error: "status_failed" }, 500);
   }
   if (data == null) return reply({ error: "job_not_found" }, 404);
+  let result = null;
+  if (data.status === "completed") {
+    try {
+      result = await hydrateResultImages(data.result_json);
+    } catch (error) {
+      console.error("async_job_media_sign_failed", jobId, String(error));
+      return reply({ error: "result_media_unavailable" }, 503);
+    }
+  }
   return reply({
     job_id: jobId,
     status: data.status,
-    result: data.status === "completed" ? data.result_json : null,
+    result,
     error: data.status === "failed" ? data.error_message : null,
     updated_at: data.updated_at,
   });
+}
+
+async function cancel(input: Record<string, unknown>, deviceHash: string) {
+  const jobId = String(input.job_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(jobId)) return reply({ error: "invalid_job" }, 400);
+  const now = new Date().toISOString();
+  const { data, error } = await adminClient().from("async_analysis_jobs")
+    .update({
+      status: "cancelled",
+      error_message: null,
+      completed_at: now,
+      updated_at: now,
+      request_json: {},
+      device_id: null,
+      notification_token: null,
+    })
+    .eq("id", jobId)
+    .eq("device_hash", deviceHash)
+    .in("status", ["pending", "processing"])
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("async_job_cancel_failed", jobId, error.message);
+    return reply({ error: "cancel_failed" }, 500);
+  }
+  return data == null
+    ? reply({ error: "job_not_found" }, 404)
+    : reply({ job_id: jobId, status: "cancelled" });
 }
 
 async function processJob(jobId: string) {
@@ -185,18 +223,24 @@ async function processJob(jobId: string) {
     const returnedImageCount = Array.isArray(media?.image_data_urls)
       ? media.image_data_urls.length
       : 0;
-    const { error: completionError } = await db.from("async_analysis_jobs").update({
+    const storedBody = await persistResultImages(jobId, String(job.device_hash), body);
+    const { data: completed, error: completionError } = await db
+      .from("async_analysis_jobs").update({
       status: "completed",
-      result_json: body,
+      result_json: storedBody,
       error_message: null,
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       request_json: {},
       device_id: null,
       notification_token: null,
-    }).eq("id", jobId);
+    }).eq("id", jobId).eq("status", "processing").select("id").maybeSingle();
     if (completionError) {
       throw new Error(`job_result_save_failed:${completionError.message}`);
+    }
+    if (completed == null) {
+      console.info("async_job_completion_skipped", jobId, "cancelled_or_replaced");
+      return;
     }
     console.info(
       "async_job_completed",
@@ -222,7 +266,94 @@ async function processJob(jobId: string) {
       request_json: {},
       device_id: null,
       notification_token: null,
-    }).eq("id", jobId);
+    }).eq("id", jobId).eq("status", "processing");
+  }
+}
+
+const analysisMediaBucket = "recipe-analysis-media";
+
+async function persistResultImages(
+  jobId: string,
+  deviceHash: string,
+  body: Record<string, unknown>,
+) {
+  const media = body.shared_media;
+  if (media == null || typeof media !== "object") return body;
+  const mediaRecord = media as Record<string, unknown>;
+  const values = Array.isArray(mediaRecord.image_data_urls)
+    ? mediaRecord.image_data_urls
+    : [];
+  const paths: string[] = [];
+  for (let index = 0; index < Math.min(values.length, 10); index++) {
+    const decoded = decodeImageDataUrl(values[index]);
+    if (decoded == null) continue;
+    const path = `${deviceHash}/${jobId}/${index}.${decoded.extension}`;
+    const { error } = await adminClient().storage.from(analysisMediaBucket)
+      .upload(path, decoded.bytes, {
+        contentType: decoded.contentType,
+        upsert: true,
+      });
+    if (error) throw new Error(`job_media_save_failed:${error.message}`);
+    paths.push(path);
+  }
+  if (paths.length !== values.length) {
+    throw new Error(`job_media_save_failed:${paths.length}/${values.length}`);
+  }
+  return {
+    ...body,
+    shared_media: {
+      ...mediaRecord,
+      thumbnail_data_url: null,
+      image_data_urls: [],
+      image_storage_paths: paths,
+    },
+  };
+}
+
+async function hydrateResultImages(value: unknown) {
+  if (value == null || typeof value !== "object") return value;
+  const result = value as Record<string, unknown>;
+  const media = result.shared_media;
+  if (media == null || typeof media !== "object") return result;
+  const mediaRecord = media as Record<string, unknown>;
+  const paths = Array.isArray(mediaRecord.image_storage_paths)
+    ? mediaRecord.image_storage_paths.filter((item): item is string => typeof item === "string")
+    : [];
+  if (paths.length === 0) return result;
+  const urls: string[] = [];
+  for (const path of paths) {
+    const { data, error } = await adminClient().storage.from(analysisMediaBucket)
+      .createSignedUrl(path, 60 * 60);
+    if (!error && data?.signedUrl) urls.push(data.signedUrl);
+  }
+  if (urls.length !== paths.length) {
+    throw new Error(`job_media_sign_failed:${urls.length}/${paths.length}`);
+  }
+  return {
+    ...result,
+    shared_media: {
+      ...mediaRecord,
+      thumbnail_data_url: urls[0] ?? null,
+      image_data_urls: urls,
+    },
+  };
+}
+
+function decodeImageDataUrl(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(value);
+  if (match == null) return null;
+  try {
+    const binary = atob(match[2]);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    if (bytes.length === 0 || bytes.length > 2 * 1024 * 1024) return null;
+    return {
+      bytes,
+      extension: match[1] === "jpeg" ? "jpg" : match[1],
+      contentType: `image/${match[1]}`,
+    };
+  } catch {
+    return null;
   }
 }
 

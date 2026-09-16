@@ -437,6 +437,19 @@ class AnalysisRunner {
   final LocalRepositoryHub hub;
   final PostAnalysisService analysisService;
 
+  Future<void> cancelJob(String jobId) async {
+    final jobs = await hub.analysis.getAll();
+    final job = jobs.cast<AnalysisJob?>().firstWhere(
+      (item) => item!.id == jobId,
+      orElse: () => null,
+    );
+    if (job == null) return;
+    if (analysisService case final AiPostAnalysisService service) {
+      await service.cancelPendingJob(job.sourcePostId);
+    }
+    await hub.analysis.cancel(jobId);
+  }
+
   Future<void> retryJob(String jobId) async {
     final jobs = await hub.analysis.getAll();
     final job = jobs.cast<AnalysisJob?>().firstWhere(
