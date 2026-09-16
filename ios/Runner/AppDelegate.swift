@@ -12,6 +12,7 @@ import UIKit
   private let notificationEnabledKey = "pinlogy.share_notification_enabled"
   private let notificationTokenKey = "pinlogy.share_notification_token"
   private var methodChannel: FlutterMethodChannel?
+  private var cookingChannel: FlutterMethodChannel?
   private var setupAttempts = 0
   private var dartReady = false
   private var intakeBackgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -94,6 +95,23 @@ import UIKit
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+
+    let cooking = FlutterMethodChannel(
+      name: "com.pinlogy/cooking",
+      binaryMessenger: controller.binaryMessenger
+    )
+    cookingChannel = cooking
+    cooking.setMethodCallHandler { call, result in
+      guard call.method == "setAwake",
+            let values = call.arguments as? [String: Any],
+            let enabled = values["enabled"] as? Bool
+      else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      UIApplication.shared.isIdleTimerDisabled = enabled
+      result(true)
     }
   }
 

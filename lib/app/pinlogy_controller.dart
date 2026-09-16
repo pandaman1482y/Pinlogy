@@ -176,7 +176,11 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _resumeProcessingAnalyses() async {
     final processing = hub.snapshot.analysisJobs
-        .where((job) => job.status == AnalysisJobStatus.processing)
+        .where(
+          (job) =>
+              job.status == AnalysisJobStatus.pending ||
+              job.status == AnalysisJobStatus.processing,
+        )
         .map((job) => job.id)
         .toList(growable: false);
     for (final jobId in processing) {

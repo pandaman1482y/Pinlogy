@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-const ink = Color(0xFF1A2620);
-const moss = Color(0xFF3A6F56);
-const mossDeep = Color(0xFF244C39);
-const mint = Color(0xFFDCEFE4);
-const mintSoft = Color(0xFFEEF6F1);
-const canvas = Color(0xFFF4F7F5);
-const leafWash = Color(0xFFC5DFD0);
+const ink = Color(0xFF22241F);
+const moss = Color(0xFF39734A);
+const mossDeep = Color(0xFF176B4A);
+const mint = Color(0xFFE9F3ED);
+const mintSoft = Color(0xFFF4F5F2);
+const canvas = Color(0xFFFFFFFF);
+const leafWash = Color(0xFFE9F3ED);
 const accentCoral = Color(0xFFFF6F91);
 const accentIndigo = Color(0xFF6677E8);
 const sunWash = Color(0xFFFFE7A8);
-const borderSubtle = Color(0x00000000); // 枠線をほぼ使わない
+const borderSubtle = Color(0xFFE6E8E3);
 const mist = Color(0x66FFFFFF);
+const secondaryInk = Color(0xFF74776F);
+const warningColor = Color(0xFFD88924);
+const errorColor = Color(0xFFC6534A);
 
 TextStyle _display(
   double size, {
@@ -52,7 +55,7 @@ ThemeData buildPinlogyTheme() {
     titleMedium: _body(15, weight: FontWeight.w700),
     bodyLarge: _body(15),
     bodyMedium: _body(14),
-    bodySmall: _body(12, color: const Color(0xFF66756D)),
+    bodySmall: _body(12, color: secondaryInk),
     labelLarge: _body(13, weight: FontWeight.w700),
   );
 
@@ -68,9 +71,10 @@ ThemeData buildPinlogyTheme() {
       onSurface: ink,
     ),
     textTheme: textTheme,
-    splashFactory: InkSparkle.splashFactory,
+    brightness: Brightness.light,
+    splashFactory: InkRipple.splashFactory,
     appBarTheme: AppBarTheme(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.white,
       foregroundColor: ink,
       elevation: 0,
       scrolledUnderElevation: 0,
@@ -79,14 +83,14 @@ ThemeData buildPinlogyTheme() {
       titleTextStyle: _display(20, weight: FontWeight.w700),
     ),
     cardTheme: CardThemeData(
-      color: Colors.transparent,
+      color: Colors.white,
       elevation: 0,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias,
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: Colors.white.withValues(alpha: 0.55),
+      backgroundColor: mintSoft,
       selectedColor: moss,
       side: BorderSide.none,
       labelStyle: _body(13, weight: FontWeight.w600, color: mossDeep),
@@ -104,7 +108,7 @@ ThemeData buildPinlogyTheme() {
         foregroundColor: Colors.white,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         textStyle: _body(14, weight: FontWeight.w700, color: Colors.white),
       ),
     ),
@@ -113,7 +117,7 @@ ThemeData buildPinlogyTheme() {
         foregroundColor: mossDeep,
         side: BorderSide(color: moss.withValues(alpha: 0.28)),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         textStyle: _body(14, weight: FontWeight.w700),
       ),
     ),
@@ -122,7 +126,7 @@ ThemeData buildPinlogyTheme() {
       foregroundColor: Colors.white,
       elevation: 0,
       highlightElevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       extendedTextStyle: _body(
         14,
         weight: FontWeight.w700,
@@ -131,18 +135,18 @@ ThemeData buildPinlogyTheme() {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.62),
+      fillColor: mintSoft,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderSubtle),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderSubtle),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: moss.withValues(alpha: 0.45), width: 1.2),
       ),
       hintStyle: _body(14, color: const Color(0xFF8A968F)),
@@ -152,24 +156,24 @@ ThemeData buildPinlogyTheme() {
       behavior: SnackBarBehavior.floating,
       backgroundColor: mossDeep,
       contentTextStyle: _body(14, weight: FontWeight.w600, color: Colors.white),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     dividerTheme: const DividerThemeData(
-      color: Color(0x14000000),
+      color: borderSubtle,
       thickness: 1,
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: const Color(0xFFFBFDFB),
+      backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: Color(0xFFFBFDFB),
+      backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
       showDragHandle: true,
       dragHandleColor: Color(0xFFD0D9D4),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
     ),
     listTileTheme: const ListTileThemeData(
@@ -187,36 +191,7 @@ class PinlogyBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFF7FAF8), Color(0xFFEAF3EE), Color(0xFFF3F1EA)],
-          stops: [0, 0.48, 1],
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -95,
-            left: -70,
-            child: _blob(220, const Color(0xFFBFDCCB).withValues(alpha: 0.38)),
-          ),
-          Positioned(
-            top: 220,
-            right: -90,
-            child: _blob(180, const Color(0xFFE8DFD0).withValues(alpha: 0.32)),
-          ),
-          Positioned(
-            bottom: 80,
-            left: 55,
-            child: _blob(120, const Color(0xFFC9E0D2).withValues(alpha: 0.22)),
-          ),
-          child,
-        ],
-      ),
-    );
+    return ColoredBox(color: Colors.white, child: child);
   }
 
   Widget _blob(double size, Color color) {

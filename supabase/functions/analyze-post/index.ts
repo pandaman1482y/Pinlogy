@@ -54,8 +54,9 @@ Deno.serve(async (request) => {
       return reply({
         source_post_id: sourcePostId,
         candidates: [],
+        recipes: [],
         raw_summary:
-          "Instagramの投稿画像と投稿文を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。",
+          "Instagramの投稿画像と投稿文を取得できませんでした。材料や工程が写ったスクリーンショットを追加してください。",
         analysis_source: "instagram_media_unavailable",
         shared_media: sharedMedia(sharedPage, []),
       });
@@ -142,14 +143,21 @@ Deno.serve(async (request) => {
         model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
         store: false,
         reasoning: { effort: "low" },
-        max_output_tokens: 4000,
-        tools: [{ type: "web_search" }],
+        max_output_tokens: 8000,
         instructions:
-          "根拠の優先順位は厳守してください。第1優先は投稿文・キャプション・取得できたコメントに明記された店名と住所、第2優先はURL由来の構造化情報、第3優先が画像・動画OCRです。投稿文またはコメントに店名や住所が明記されている場合、それを検索語と場所確定の主根拠にし、動画内の不鮮明・装飾的・途中で切れた文字で上書きしてはいけません。OCRが投稿文・コメントと矛盾する場合はOCRを捨ててください。OCRだけから別店舗を追加するのは、文字が明瞭でWeb検索でも住所まで一致するときだけです。" +
-          "投稿文、ハッシュタグ、端末OCR、共有画像、共有URL情報のすべてを照合し、複数の場所も一度の応答で抽出してください。最初に入力された全画像を画像番号順に1枚ずつ確認し、各画像に店名・施設名・住所・アクセス情報があれば、その画像ごとに場所候補を作ってください。表紙やまとめ画像は候補数に含めず、同じ場所が複数画像に登場する場合だけ1候補へ統合してください。異なる店名または異なる住所の場所を代表1件へまとめたり、省略したりしないでください。たとえば9枚中7枚が別々の7店舗を紹介していれば、candidatesを7件返してください。evidenceImageIndexは各候補の主根拠となった画像の0始まり番号、画像根拠がない場合はnullです。Instagram/TikTokの投稿者名、ユーザー名、アカウント名、プロフィール名は店舗名として候補化しないでください。" +
-          "日本国内の店舗・観光地を投稿文、端末OCR、共有画像、共有URL情報から抽出してください。店名または住所が書かれている場合は、端末候補が空でも必ずWeb検索し、実在性と正式住所を確認して候補化してください。画像内の手書き・装飾文字も読み取り対象です。複数画像は表示順に別々読み、画像ごとの店名・住所の組み合わせを混ぜないでください。同名店は地域・住所の根拠が一致するまで断定しないでください。特定できた候補は、店舗入口または建物中心のlatitudeとlongitudeをWeb上の公式情報で確認して返してください。候補ごとに独立して分類し、先頭候補や他候補の分類をコピーしないでください。categoryはその候補自身に該当する飲食店、観光・レジャー、宿泊、買い物、その他のいずれかとします。genresはその候補自身の業態・料理・施設種別（例: イタリアン、ワインバー、カフェ、ホテル、美術館）を具体的に最大3件とし、全候補を同じgenresに揃えないでください。住所や座標が不明・矛盾・推測ならneedsReviewまたはunresolvedとし、latitudeとlongitudeはnullにしてください。1投稿に複数場所があれば別候補にし、保存理由は投稿中の表現だけから42文字以内で要約してください。候補が0件でURLから取得した投稿情報のis_photo_postがtrueかつphoto_accessがunavailableの場合、raw_summaryは「SNSの画像を取得できませんでした。店名や住所が写ったスクリーンショットを追加してください。」としてください。",
+          "SNS投稿を日本語の構造化レシピへ整理してください。入力された全画像を番号順に必ず確認してください。" +
+          "根拠の優先順位は、ユーザー修正、投稿文・キャプション、明瞭な画像字幕、投稿者の固定コメント、音声文字起こし、AI推測の順です。上位根拠と矛盾する下位根拠で上書きしないでください。" +
+          "1投稿に完成料理が複数ある場合はrecipesを料理ごとに分けます。一方、本体、出汁、タレ、漬けだれ、衣、トッピングなど同じ完成料理を構成する別作業は、別recipeにせず同じrecipeのpartsへ分けてください。" +
+          "材料は画面に出た『小さじ1』『1/2個』等をoriginal_textへ残し、数値化できる場合だけamountとunitを設定します。適量、少々、いつもの量など曖昧な表現は推測せずoriginal_textへそのまま残しscalable=falseにしてください。" +
+          "工程は実際の表示・音声の順番を保ち、前後の画像や別料理を混ぜません。加熱・待ち時間が明記された場合だけduration_secondsを設定します。" +
+          "一瞬だけの文字、装飾フォント、背景と同化した字幕、音声だけの分量、料理が高速に切り替わる箇所は確信度を下げ、読めない内容を補完せずneeds_review_fieldsへ具体的に記載してください。" +
+          "投稿文に完全な材料・工程があれば画像より優先します。ただし画像にしかない情報も追加し、矛盾はwarningsに残してください。取得できない動画内容は推測しません。" +
+          "evidenceには画像番号・時刻・投稿文抜粋などの根拠を登録し、各材料と工程のevidence_indexから対応させてください。画像番号は入力で示した0始まり番号です。" +
+          "category、cuisine、main_ingredient、methodは料理ごとに個別判断し、複数料理へ同じ値を機械的にコピーしないでください。" +
+          "アレルゲンは明記または一般的な原材料として高い確度で含むものだけを列挙し、安全を保証しないでください。栄養値は十分な分量がある場合だけ概算し、不足時はnullにしてください。" +
+          "後方互換用candidatesは常に空配列にしてください。recipeを特定できない場合はrecipesを空にし、raw_summaryへ不足している根拠を書いてください。",
         input: [{ role: "user", content }],
-        text: { verbosity: "low", format: placeSchema },
+        text: { verbosity: "low", format: recipeSchema },
       }),
     });
     if (!response.ok) {
@@ -218,40 +226,127 @@ function imageFingerprint(dataUrl: string) {
   return `${body.length}:${hash >>> 0}`;
 }
 
-const placeSchema = {
+const recipeSchema = {
   type: "json_schema",
-  name: "pinlogy_places",
+  name: "pinlogy_recipes",
   strict: true,
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["raw_summary", "candidates"],
+    required: ["raw_summary", "candidates", "recipes"],
     properties: {
       raw_summary: { type: "string" },
       candidates: {
         type: "array",
-        maxItems: 10,
+        maxItems: 0,
+        items: { type: "object", additionalProperties: false, properties: {}, required: [] },
+      },
+      recipes: {
+        type: "array",
+        maxItems: 8,
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "address", "reason", "category", "genres", "evidenceSummary", "evidenceImageIndex", "confidencePercent", "match", "postAddress", "latitude", "longitude"],
+          required: [
+            "title", "description", "servings", "total_minutes", "difficulty",
+            "category", "cuisine", "main_ingredient", "method",
+            "cover_image_index", "parts", "evidence", "allergens", "warnings",
+            "needs_review_fields", "nutrition"
+          ],
           properties: {
-            name: { type: "string" },
-            address: { type: ["string", "null"] },
-            reason: { type: ["string", "null"] },
-            category: { type: "string", enum: ["飲食店", "観光・レジャー", "宿泊", "買い物", "その他"] },
-            genres: { type: "array", maxItems: 3, items: { type: "string" } },
-            evidenceSummary: { type: ["string", "null"] },
-            evidenceImageIndex: {
+            title: { type: "string" },
+            description: { type: ["string", "null"] },
+            servings: { type: ["number", "null"], minimum: 0.1, maximum: 100 },
+            total_minutes: { type: ["integer", "null"], minimum: 0, maximum: 2880 },
+            difficulty: { type: ["string", "null"], enum: ["かんたん", "ふつう", "本格的", null] },
+            category: { type: ["string", "null"] },
+            cuisine: { type: ["string", "null"] },
+            main_ingredient: { type: ["string", "null"] },
+            method: { type: ["string", "null"] },
+            cover_image_index: {
               type: ["integer", "null"],
               minimum: 0,
               maximum: maxSocialImages - 1,
             },
-            confidencePercent: { type: "integer", minimum: 0, maximum: 100 },
-            match: { type: "string", enum: ["high", "needsReview", "unresolved"] },
-            postAddress: { type: ["string", "null"] },
-            latitude: { type: ["number", "null"], minimum: -90, maximum: 90 },
-            longitude: { type: ["number", "null"], minimum: -180, maximum: 180 },
+            parts: {
+              type: "array",
+              minItems: 1,
+              maxItems: 12,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "ingredients", "steps"],
+                properties: {
+                  name: { type: "string" },
+                  ingredients: {
+                    type: "array",
+                    maxItems: 80,
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["name", "amount", "unit", "original_text", "note", "scalable", "evidence_index", "confidence_percent"],
+                      properties: {
+                        name: { type: "string" },
+                        amount: { type: ["number", "null"] },
+                        unit: { type: ["string", "null"] },
+                        original_text: { type: ["string", "null"] },
+                        note: { type: ["string", "null"] },
+                        scalable: { type: "boolean" },
+                        evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
+                        confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
+                      },
+                    },
+                  },
+                  steps: {
+                    type: "array",
+                    maxItems: 80,
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["order", "instruction", "duration_seconds", "evidence_index", "confidence_percent"],
+                      properties: {
+                        order: { type: "integer", minimum: 1, maximum: 100 },
+                        instruction: { type: "string" },
+                        duration_seconds: { type: ["integer", "null"], minimum: 0, maximum: 86400 },
+                        evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
+                        confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            evidence: {
+              type: "array",
+              maxItems: 100,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "label", "image_index", "timestamp_seconds", "excerpt", "confidence_percent"],
+                properties: {
+                  kind: { type: "string", enum: ["image", "video", "caption", "author_comment", "audio", "aiInference"] },
+                  label: { type: "string" },
+                  image_index: { type: ["integer", "null"], minimum: 0, maximum: maxSocialImages - 1 },
+                  timestamp_seconds: { type: ["integer", "null"], minimum: 0, maximum: 21600 },
+                  excerpt: { type: ["string", "null"] },
+                  confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
+                },
+              },
+            },
+            allergens: { type: "array", maxItems: 30, items: { type: "string" } },
+            warnings: { type: "array", maxItems: 30, items: { type: "string" } },
+            needs_review_fields: { type: "array", maxItems: 50, items: { type: "string" } },
+            nutrition: {
+              type: "object",
+              additionalProperties: false,
+              required: ["calories", "protein_grams", "fat_grams", "carbohydrate_grams"],
+              properties: {
+                calories: { type: ["integer", "null"], minimum: 0, maximum: 10000 },
+                protein_grams: { type: ["number", "null"], minimum: 0, maximum: 1000 },
+                fat_grams: { type: ["number", "null"], minimum: 0, maximum: 1000 },
+                carbohydrate_grams: { type: ["number", "null"], minimum: 0, maximum: 2000 },
+              },
+            },
           },
         },
       },

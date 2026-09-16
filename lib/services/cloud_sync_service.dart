@@ -134,6 +134,22 @@ class CloudSyncService {
     await _client.auth.signInWithPassword(email: email, password: password);
   }
 
+  Future<void> signInWithApple() async {
+    await _initialize();
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.apple,
+      redirectTo: authCallbackUrl,
+    );
+  }
+
+  Future<void> signInWithGoogle() async {
+    await _initialize();
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: authCallbackUrl,
+    );
+  }
+
   Future<void> sendPasswordReset(String email) async {
     await _initialize();
     await _client.auth.resetPasswordForEmail(
@@ -163,6 +179,26 @@ class CloudSyncService {
     }
     await _client.rpc('delete_my_account');
     await _client.auth.signOut(scope: SignOutScope.local);
+  }
+
+  Future<Map<String, dynamic>?> loadRecipeSnapshot() async {
+    await connect();
+    final row = await _client
+        .from('recipe_snapshots')
+        .select('payload')
+        .eq('owner_id', user!.id)
+        .maybeSingle();
+    final payload = row?['payload'];
+    return payload is Map ? Map<String, dynamic>.from(payload) : null;
+  }
+
+  Future<void> saveRecipeSnapshot(Map<String, dynamic> payload) async {
+    await connect();
+    await _client.from('recipe_snapshots').upsert({
+      'owner_id': user!.id,
+      'payload': payload,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
   }
 
   Future<void> sync(LocalRepositoryHub hub) async {

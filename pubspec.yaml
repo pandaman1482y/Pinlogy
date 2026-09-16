@@ -1,5 +1,5 @@
 name: pinlogy
-description: "SNSで見つけた場所を、投稿ごと自分のマップに残すFlutterアプリ"
+description: "SNSで見つけた料理動画を、再現できるレシピとして保存すFlutterアプリ"
 publish_to: 'none'
 version: 1.0.0+1
 

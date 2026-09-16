@@ -26,10 +26,9 @@ class AiPostAnalysisService implements PostAnalysisService {
   final http.Client _client;
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
-  // v10: 各候補を個別分類した結果だけを使う。
-  // 投稿全体のカテゴリを全候補へ流用した旧結果は再利用しない。
-  static const _cachePrefix = 'ai_analysis_cache_v10_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v10';
+  // v11: 場所候補だけの旧結果を再利用せず、構造化レシピを必ず取得する。
+  static const _cachePrefix = 'ai_analysis_cache_v11_recipe_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v11_recipe';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -52,6 +51,7 @@ class AiPostAnalysisService implements PostAnalysisService {
         analysisSource: 'ai_cache',
         previewImagePath: cached.previewImagePath,
         previewImagePaths: cached.previewImagePaths,
+        recipes: cached.recipes,
       );
     }
     try {
@@ -157,7 +157,12 @@ class AiPostAnalysisService implements PostAnalysisService {
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
-      if (result.candidates.isEmpty && local.candidates.isNotEmpty) {
+      // The recipe backend intentionally keeps the legacy place candidates
+      // empty. A valid structured recipe result must never be discarded just
+      // because the old on-device place detector found something.
+      if (result.recipes.isEmpty &&
+          result.candidates.isEmpty &&
+          local.candidates.isNotEmpty) {
         return _asFallback(local, analysisSource: 'ai_no_match');
       }
       // 画像・本文未取得は一時的なSNS側制限の可能性があるため、
@@ -374,12 +379,13 @@ class AiPostAnalysisService implements PostAnalysisService {
           : previewImagePath == null
           ? local.previewImagePaths
           : [previewImagePath],
+      recipes: local.recipes,
     );
   }
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      'instagram-selected-carousel-v23-per-candidate-category',
+      'recipe-extraction-v1-all-social-images',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',
@@ -440,6 +446,7 @@ class AiPostAnalysisService implements PostAnalysisService {
           'analysis_source': result.analysisSource,
           'preview_image_path': result.previewImagePath,
           'preview_image_paths': result.previewImagePaths,
+          'recipes': result.recipes,
         },
       }),
     );

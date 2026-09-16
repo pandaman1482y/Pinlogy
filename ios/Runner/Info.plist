@@ -39,10 +39,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>マップに現在地を表示し、目的地までの経路を案内するために位置情報を使用します。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>選択した画像から店名や住所を端末内で読み取るために写真を使用します。</string>
+	<string>選択した画像から材料や作り方を読み取り、レシピとして保存するために写真を使用します。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
@@ -58,8 +56,6 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>

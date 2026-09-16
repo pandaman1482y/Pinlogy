@@ -9,9 +9,8 @@ Deno.serve(async (request) => {
   try {
     const input = await request.json();
     const action = String(input.action ?? "enqueue");
-
-    // enqueueとは別のHTTP実行として処理する。共有元のExtensionやenqueue
-    // リクエストが終了しても、このワーカー実行は解析完了まで存続できる。
+    // Run the expensive task in an independent HTTP invocation. The Share
+    // Extension and enqueue request may end immediately after this handoff.
     if (action === "process") {
       if (!isServiceRequest(request)) {
         return reply({ error: "worker_unauthorized" }, 401);
@@ -23,13 +22,20 @@ Deno.serve(async (request) => {
       await processJob(jobId);
       return reply({ job_id: jobId, status: "finished" });
     }
-
     const deviceId = request.headers.get("x-pinlogy-device") ?? "";
     if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
       return reply({ error: "device_id_required" }, 400);
     }
     const deviceHash = await sha256(deviceId);
     if (action === "status") return status(input, deviceHash);
+    if (action === "test_notification") {
+      const token = validFcmToken(input.notification_token);
+      if (token == null) return reply({ error: "notification_token_required" }, 400);
+      const sent = await sendCompletionNotification(token, "test", null);
+      return sent
+        ? reply({ sent: true })
+        : reply({ error: "notification_send_failed" }, 502);
+    }
     if (action !== "enqueue") return reply({ error: "invalid_action" }, 400);
 
     const sourcePostId = String(input.source_post_id ?? "");
@@ -61,9 +67,6 @@ Deno.serve(async (request) => {
       `notification=${input.notification_enabled === true}`,
       `token=${validFcmToken(input.notification_token) != null}`,
     );
-    // 重い画像取得・AI解析は独立したHTTPワーカーへ引き渡す。
-    // waitUntil内で解析本体を直接実行すると、enqueue側のisolate終了時に
-    // 画像取得まで中断されることがある。
     EdgeRuntime.waitUntil(dispatchJob(jobId));
     return reply({ job_id: jobId, status: "pending" }, 202);
   } catch (error) {
@@ -100,8 +103,6 @@ async function dispatchJob(jobId: string) {
     }
   } catch (error) {
     console.error("async_worker_dispatch_failed", jobId, String(error));
-    // dispatch自体に失敗した場合はfailedへ確定し、アプリからの再解析で
-    // 古いpendingジョブを掴み続けないようにする。
     await markDispatchFailed(jobId);
   }
 }
@@ -144,17 +145,17 @@ async function processJob(jobId: string) {
     .select("*").eq("id", jobId).single();
   if (error || job == null) return;
 
-  // 同一ジョブの二重解析・AI回数の二重消費を防ぐ。
   if (job.status !== "pending") {
     console.info("async_worker_skipped", jobId, `status=${job.status}`);
     return;
   }
-
   const { data: claimed, error: claimError } = await db
-    .from("async_analysis_jobs").update({
-    status: "processing",
-    updated_at: new Date().toISOString(),
-  }).eq("id", jobId).eq("status", "pending").select("id").maybeSingle();
+    .from("async_analysis_jobs")
+    .update({ status: "processing", updated_at: new Date().toISOString() })
+    .eq("id", jobId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
   if (claimError || claimed == null) {
     console.info("async_worker_claim_skipped", jobId);
     return;
@@ -205,7 +206,11 @@ async function processJob(jobId: string) {
       `token=${validFcmToken(job.notification_token) != null}`,
     );
     if (job.notification_enabled && job.notification_token) {
-      await sendCompletionNotification(String(job.notification_token), jobId);
+      await sendCompletionNotification(
+        String(job.notification_token),
+        jobId,
+        String(job.source_post_id),
+      );
     }
   } catch (error) {
     console.error("async_job_failed", jobId, String(error));
@@ -223,18 +228,22 @@ async function processJob(jobId: string) {
 
 function isServiceRequest(request: Request) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
-  if (!serviceKey) return false;
-  return request.headers.get("authorization") === `Bearer ${serviceKey}`;
+  return serviceKey != null && serviceKey.length > 0 &&
+    request.headers.get("authorization") === `Bearer ${serviceKey}`;
 }
 
-async function sendCompletionNotification(token: string, jobId: string) {
+async function sendCompletionNotification(
+  token: string,
+  jobId: string,
+  sourcePostId: string | null,
+) {
   const projectId = Deno.env.get("FIREBASE_PROJECT_ID")?.trim();
   const clientEmail = Deno.env.get("FIREBASE_CLIENT_EMAIL")?.trim();
   const privateKey = Deno.env.get("FIREBASE_PRIVATE_KEY")
     ?.replaceAll("\\n", "\n").trim();
   if (!projectId || !clientEmail || !privateKey) {
     console.info("fcm_skipped_not_configured");
-    return;
+    return false;
   }
   try {
     const key = await importPKCS8(privateKey, "RS256");
@@ -272,10 +281,16 @@ async function sendCompletionNotification(token: string, jobId: string) {
           message: {
             token,
             notification: {
-              title: "Pinlogy",
-              body: "投稿の解析が完了しました",
+              title: "レシピの取り込みが完了しました",
+              body: jobId === "test"
+                ? "テスト通知を受信できました"
+                : "材料と作り方を確認できます",
             },
-            data: { type: "analysis_completed", job_id: jobId },
+            data: {
+              type: "analysis_completed",
+              job_id: jobId,
+              source_post_id: sourcePostId ?? "",
+            },
             apns: { payload: { aps: { sound: "default" } } },
           },
         }),
@@ -283,11 +298,14 @@ async function sendCompletionNotification(token: string, jobId: string) {
     );
     if (!response.ok) {
       console.warn("fcm_send_failed", response.status, (await response.text()).slice(0, 300));
+      return false;
     } else {
       console.info("fcm_send_succeeded", jobId);
+      return true;
     }
   } catch (error) {
     console.warn("fcm_send_failed", String(error));
+    return false;
   }
 }
 

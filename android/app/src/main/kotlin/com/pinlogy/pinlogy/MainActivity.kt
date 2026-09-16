@@ -3,6 +3,7 @@ package com.pinlogy.pinlogy
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import java.io.File
 import java.util.UUID
 import io.flutter.embedding.android.FlutterActivity
@@ -34,6 +35,24 @@ class MainActivity : FlutterActivity() {
                     pendingShare = null
                 }
                 else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.pinlogy/cooking",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "setAwake") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val enabled = call.argument<Boolean>("enabled") == true
+            runOnUiThread {
+                if (enabled) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+                result.success(true)
             }
         }
         flutterReady = true

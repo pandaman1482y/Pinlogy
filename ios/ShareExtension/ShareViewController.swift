@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import LinkPresentation
 
 /// iOS Share Extension 本体。
-/// 共有元アプリ内では保存だけを行い、詳細編集と解析はPinlogy本体へ引き継ぐ。
+/// 共有元アプリ内では受付だけを行い、画像取得とレシピ解析はサーバーで継続する。
 final class ShareViewController: UIViewController {
   private let appGroupId = "group.com.pinlogy.pinlogy.shared"
   private let pendingKey = "pinlogy.pending_share"
@@ -27,12 +27,12 @@ final class ShareViewController: UIViewController {
   private func configureView() {
     view.backgroundColor = .systemBackground
 
-    titleLabel.text = "Pinlogyに保存"
+    titleLabel.text = "レシピに保存"
     titleLabel.font = .preferredFont(forTextStyle: .title2)
     titleLabel.adjustsFontForContentSizeCategory = true
     titleLabel.textAlignment = .center
 
-    messageLabel.text = "投稿を受信箱へ保存します。\nPinlogyを開くと、AI解析と場所候補の確認が始まります。"
+    messageLabel.text = "投稿を受け付け、画像・材料・工程をバックグラウンドで解析します。"
     messageLabel.font = .preferredFont(forTextStyle: .body)
     messageLabel.adjustsFontForContentSizeCategory = true
     messageLabel.textColor = .secondaryLabel
@@ -40,7 +40,7 @@ final class ShareViewController: UIViewController {
     messageLabel.numberOfLines = 0
 
     saveButton.configuration = .filled()
-    saveButton.configuration?.title = "Pinlogyに保存"
+    saveButton.configuration?.title = "レシピに保存"
     saveButton.configuration?.cornerStyle = .large
     saveButton.addTarget(self, action: #selector(saveSharedPost), for: .touchUpInside)
 
@@ -103,10 +103,10 @@ final class ShareViewController: UIViewController {
         self.activityIndicator.stopAnimating()
         self.titleLabel.text = opened ? "Pinlogyを開きます" : "保存しました"
         self.messageLabel.text = opened
-          ? "取り込みメモをPinlogyで入力できます。"
+          ? "アプリで取り込み内容を確認できます。"
           : queued
-            ? "画像取得と解析をバックグラウンドで開始しました。"
-            : "Pinlogyを一度開くと、受信箱から解析を続けられます。"
+            ? "画像取得とレシピ解析をバックグラウンドで開始しました。"
+            : "アプリを一度開くと、取り込み状況から解析を続けられます。"
         self.messageLabel.textColor = .secondaryLabel
         self.saveButton.isHidden = true
         self.cancelButton.isHidden = true

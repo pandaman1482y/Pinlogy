@@ -210,6 +210,7 @@ class PostAnalysisResponse {
     this.analysisSource = 'local',
     this.previewImagePath,
     this.previewImagePaths = const [],
+    this.recipes = const [],
   });
 
   final String sourcePostId;
@@ -221,6 +222,11 @@ class PostAnalysisResponse {
   final String analysisSource;
   final String? previewImagePath;
   final List<String> previewImagePaths;
+
+  /// Structured recipes returned by the recipe extraction backend. Kept as
+  /// JSON-compatible maps so the proven place pipeline remains backwards
+  /// compatible while the product transitions to recipes.
+  final List<Map<String, dynamic>> recipes;
 
   factory PostAnalysisResponse.fromJson(Map<String, dynamic> json) {
     final list = (json['candidates'] as List? ?? const [])
@@ -235,6 +241,10 @@ class PostAnalysisResponse {
       previewImagePath: json['preview_image_path'] as String?,
       previewImagePaths: ((json['preview_image_paths'] as List?) ?? const [])
           .whereType<String>()
+          .toList(),
+      recipes: ((json['recipes'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
           .toList(),
     );
   }
