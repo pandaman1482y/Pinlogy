@@ -54,10 +54,8 @@ class RecipeFilters {
 /// completing durable background jobs. This controller only interprets and
 /// presents those results as recipes.
 class RecipeController extends ChangeNotifier {
-  RecipeController({
-    required this.legacy,
-    RecipeStore? store,
-  }) : store = store ?? SharedPreferencesRecipeStore();
+  RecipeController({required this.legacy, RecipeStore? store})
+    : store = store ?? SharedPreferencesRecipeStore();
 
   final PinlogyController legacy;
   final RecipeStore store;
@@ -73,17 +71,17 @@ class RecipeController extends ChangeNotifier {
   List<Recipe> get savedRecipes =>
       snapshot.recipes.where((recipe) => recipe.isSaved).toList();
 
-  List<RecipeImport> get activeImports => snapshot.imports
-      .where(
-        (item) =>
-            item.status != RecipeImportStatus.completed &&
-            item.status != RecipeImportStatus.cancelled,
-      )
-      .toList()
-    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  List<RecipeImport> get activeImports =>
+      snapshot.imports
+          .where(
+            (item) =>
+                item.status != RecipeImportStatus.completed &&
+                item.status != RecipeImportStatus.cancelled,
+          )
+          .toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
-  bool get notificationsEnabled =>
-      PinlogyNotificationService.instance.enabled;
+  bool get notificationsEnabled => PinlogyNotificationService.instance.enabled;
   bool get notificationsReady =>
       PinlogyNotificationService.instance.firebaseReady;
 
@@ -235,14 +233,15 @@ class RecipeController extends ChangeNotifier {
     await _persist();
   }
 
-  RecipeImportStatus _importStatus(AnalysisJobStatus? status) => switch (status) {
-    null => RecipeImportStatus.queued,
-    AnalysisJobStatus.pending => RecipeImportStatus.queued,
-    AnalysisJobStatus.processing => RecipeImportStatus.analyzing,
-    AnalysisJobStatus.completed => RecipeImportStatus.completed,
-    AnalysisJobStatus.failed => RecipeImportStatus.failed,
-    AnalysisJobStatus.cancelled => RecipeImportStatus.cancelled,
-  };
+  RecipeImportStatus _importStatus(AnalysisJobStatus? status) =>
+      switch (status) {
+        null => RecipeImportStatus.queued,
+        AnalysisJobStatus.pending => RecipeImportStatus.queued,
+        AnalysisJobStatus.processing => RecipeImportStatus.analyzing,
+        AnalysisJobStatus.completed => RecipeImportStatus.completed,
+        AnalysisJobStatus.failed => RecipeImportStatus.failed,
+        AnalysisJobStatus.cancelled => RecipeImportStatus.cancelled,
+      };
 
   List<Recipe> _parseAnalysisResult(SourcePost post, String? raw) {
     if (raw == null || raw.isEmpty) return const [];
@@ -298,7 +297,10 @@ class RecipeController extends ChangeNotifier {
           RecipeEvidence(
             id: '${post.id}_recipe_${recipeIndex}_evidence_$index',
             kind: EvidenceKind.fromName(
-              _text(record, 'kind')?.replaceAll('author_comment', 'authorComment'),
+              _text(
+                record,
+                'kind',
+              )?.replaceAll('author_comment', 'authorComment'),
             ),
             label: _text(record, 'label') ?? '根拠 ${index + 1}',
             imagePath: _coverFor(post, imageIndex),
@@ -328,9 +330,11 @@ class RecipeController extends ChangeNotifier {
         final ingredients = <RecipeIngredient>[];
         final rawIngredients = record['ingredients'];
         if (rawIngredients is List) {
-          for (var ingredientIndex = 0;
-              ingredientIndex < rawIngredients.length;
-              ingredientIndex++) {
+          for (
+            var ingredientIndex = 0;
+            ingredientIndex < rawIngredients.length;
+            ingredientIndex++
+          ) {
             final rawIngredient = rawIngredients[ingredientIndex];
             if (rawIngredient is! Map) continue;
             final ingredient = Map<String, dynamic>.from(rawIngredient);
@@ -402,7 +406,9 @@ class RecipeController extends ChangeNotifier {
           parts.add(
             RecipePart(
               id: '${post.id}_recipe_${recipeIndex}_part_$partIndex',
-              name: _text(record, 'name') ?? (partIndex == 0 ? '本体' : 'パート ${partIndex + 1}'),
+              name:
+                  _text(record, 'name') ??
+                  (partIndex == 0 ? '本体' : 'パート ${partIndex + 1}'),
               ingredients: ingredients,
               steps: steps,
             ),
@@ -578,31 +584,33 @@ class RecipeController extends ChangeNotifier {
       .toList();
 
   List<Recipe> relatedRecipes(Recipe recipe, {int limit = 6}) {
-    final scored = savedRecipes
-        .where((item) => item.id != recipe.id)
-        .map((item) {
-          var score = 0;
-          if (item.category != null && item.category == recipe.category) {
-            score += 2;
-          }
-          if (item.cuisine != null && item.cuisine == recipe.cuisine) {
-            score += 2;
-          }
-          if (item.mainIngredient != null &&
-              item.mainIngredient == recipe.mainIngredient) {
-            score += 3;
-          }
-          if (item.method != null && item.method == recipe.method) score += 1;
-          return (recipe: item, score: score);
-        })
-        .where((item) => item.score > 0)
-        .toList()
-      ..sort((a, b) {
-        final byScore = b.score.compareTo(a.score);
-        return byScore != 0
-            ? byScore
-            : b.recipe.createdAt.compareTo(a.recipe.createdAt);
-      });
+    final scored =
+        savedRecipes
+            .where((item) => item.id != recipe.id)
+            .map((item) {
+              var score = 0;
+              if (item.category != null && item.category == recipe.category) {
+                score += 2;
+              }
+              if (item.cuisine != null && item.cuisine == recipe.cuisine) {
+                score += 2;
+              }
+              if (item.mainIngredient != null &&
+                  item.mainIngredient == recipe.mainIngredient) {
+                score += 3;
+              }
+              if (item.method != null && item.method == recipe.method)
+                score += 1;
+              return (recipe: item, score: score);
+            })
+            .where((item) => item.score > 0)
+            .toList()
+          ..sort((a, b) {
+            final byScore = b.score.compareTo(a.score);
+            return byScore != 0
+                ? byScore
+                : b.recipe.createdAt.compareTo(a.recipe.createdAt);
+          });
     return scored.take(limit).map((item) => item.recipe).toList();
   }
 
@@ -661,7 +669,8 @@ class RecipeController extends ChangeNotifier {
       }
       if (filters.favoritesOnly && !recipe.isFavorite) return false;
       if (filters.madeOnly && recipe.madeCount == 0) return false;
-      if (filters.needsReviewOnly && recipe.status != RecipeStatus.needsReview) {
+      if (filters.needsReviewOnly &&
+          recipe.status != RecipeStatus.needsReview) {
         return false;
       }
       return true;
@@ -723,7 +732,9 @@ class RecipeController extends ChangeNotifier {
       saveRecipe(recipe.copyWith(isFavorite: !recipe.isFavorite));
 
   Future<void> deleteRecipe(Recipe recipe) async {
-    final recipes = snapshot.recipes.where((item) => item.id != recipe.id).toList();
+    final recipes = snapshot.recipes
+        .where((item) => item.id != recipe.id)
+        .toList();
     final collections = snapshot.collections
         .map(
           (item) => RecipeCollection(
@@ -742,7 +753,10 @@ class RecipeController extends ChangeNotifier {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     snapshot = _copySnapshot(
-      collections: [...snapshot.collections, RecipeCollection(name: trimmed)],
+      collections: [
+        ...snapshot.collections,
+        RecipeCollection(name: trimmed),
+      ],
     );
     await _persist();
   }
@@ -779,7 +793,9 @@ class RecipeController extends ChangeNotifier {
     final items = List<ShoppingItem>.of(snapshot.shoppingItems);
     for (final ingredient in recipe.allIngredients) {
       final index = items.indexWhere(
-        (item) => item.name.trim().toLowerCase() == ingredient.name.trim().toLowerCase(),
+        (item) =>
+            item.name.trim().toLowerCase() ==
+            ingredient.name.trim().toLowerCase(),
       );
       final quantity = ingredient.quantityFor(multiplier);
       if (index < 0) {
@@ -795,9 +811,10 @@ class RecipeController extends ChangeNotifier {
         items[index] = ShoppingItem(
           id: current.id,
           name: current.name,
-          quantity: [current.quantity, quantity]
-              .where((value) => value.trim().isNotEmpty)
-              .join(' + '),
+          quantity: [
+            current.quantity,
+            quantity,
+          ].where((value) => value.trim().isNotEmpty).join(' + '),
           checked: current.checked,
           recipeIds: {...current.recipeIds, recipe.id}.toList(),
         );
@@ -809,7 +826,11 @@ class RecipeController extends ChangeNotifier {
 
   Future<void> toggleShoppingItem(ShoppingItem item) async {
     final items = snapshot.shoppingItems
-        .map((value) => value.id == item.id ? value.copyWith(checked: !value.checked) : value)
+        .map(
+          (value) => value.id == item.id
+              ? value.copyWith(checked: !value.checked)
+              : value,
+        )
         .toList();
     snapshot = _copySnapshot(shoppingItems: items);
     await _persist();
@@ -829,7 +850,9 @@ class RecipeController extends ChangeNotifier {
 
   Future<void> clearPurchasedItems() async {
     snapshot = _copySnapshot(
-      shoppingItems: snapshot.shoppingItems.where((item) => !item.checked).toList(),
+      shoppingItems: snapshot.shoppingItems
+          .where((item) => !item.checked)
+          .toList(),
     );
     await _persist();
   }
@@ -932,7 +955,8 @@ String? _normalizedUrl(String? rawUrl) {
   final uri = Uri.tryParse(rawUrl?.trim() ?? '');
   if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return null;
   final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
-  final supported = host == 'instagram.com' ||
+  final supported =
+      host == 'instagram.com' ||
       host.endsWith('.instagram.com') ||
       host == 'tiktok.com' ||
       host.endsWith('.tiktok.com');
@@ -941,14 +965,18 @@ String? _normalizedUrl(String? rawUrl) {
 }
 
 RecipeSnapshot _mergeSnapshots(RecipeSnapshot local, RecipeSnapshot remote) {
-  final recipes = <String, Recipe>{for (final item in remote.recipes) item.id: item};
+  final recipes = <String, Recipe>{
+    for (final item in remote.recipes) item.id: item,
+  };
   for (final item in local.recipes) {
     final current = recipes[item.id];
     if (current == null || item.updatedAt.isAfter(current.updatedAt)) {
       recipes[item.id] = item;
     }
   }
-  final imports = <String, RecipeImport>{for (final item in remote.imports) item.id: item};
+  final imports = <String, RecipeImport>{
+    for (final item in remote.imports) item.id: item,
+  };
   for (final item in local.imports) {
     final current = imports[item.id];
     if (current == null || item.updatedAt.isAfter(current.updatedAt)) {
@@ -971,7 +999,8 @@ RecipeSnapshot _mergeSnapshots(RecipeSnapshot local, RecipeSnapshot remote) {
     for (final item in remote.feedback) item.id: item,
     for (final item in local.feedback) item.id: item,
   };
-  final allergy = local.allergySettings.allergens.isNotEmpty ||
+  final allergy =
+      local.allergySettings.allergens.isNotEmpty ||
           local.allergySettings.dislikedFoods.isNotEmpty
       ? local.allergySettings
       : remote.allergySettings;

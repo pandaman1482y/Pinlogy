@@ -75,29 +75,29 @@ class AiPostAnalysisService implements PostAnalysisService {
         final notification = PinlogyNotificationService.instance;
         final notificationToken = await notification.tokenForAnalysis();
         final enqueueResponse = await _client
-          .post(
-            uri,
-            headers: {
-              'Authorization': 'Bearer $_key',
-              'apikey': _key,
-              'Content-Type': 'application/json',
-              'X-Pinlogy-Device': deviceId,
-            },
-            body: jsonEncode({
-              'action': 'enqueue',
-              ...request.toJson(),
-              'local_candidates': local.candidates
-                  .map((e) => e.toJson())
-                  .toList(),
-              'local_summary': local.rawSummary,
-              'ocr_text': local.evidenceText,
-              'image_data_urls': encodedImages.dataUrls,
-              'analysis_key': cacheKey,
-              'notification_enabled': notification.enabled,
-              'notification_token': notificationToken,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
+            .post(
+              uri,
+              headers: {
+                'Authorization': 'Bearer $_key',
+                'apikey': _key,
+                'Content-Type': 'application/json',
+                'X-Pinlogy-Device': deviceId,
+              },
+              body: jsonEncode({
+                'action': 'enqueue',
+                ...request.toJson(),
+                'local_candidates': local.candidates
+                    .map((e) => e.toJson())
+                    .toList(),
+                'local_summary': local.rawSummary,
+                'ocr_text': local.evidenceText,
+                'image_data_urls': encodedImages.dataUrls,
+                'analysis_key': cacheKey,
+                'notification_enabled': notification.enabled,
+                'notification_token': notificationToken,
+              }),
+            )
+            .timeout(const Duration(seconds: 20));
         if (enqueueResponse.statusCode == 202) {
           final queued = jsonDecode(enqueueResponse.body);
           final jobId = queued is Map ? queued['job_id']?.toString() : null;

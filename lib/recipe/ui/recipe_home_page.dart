@@ -83,7 +83,8 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
                         child: ChoiceChip(
                           label: Text(label),
                           selected: _collection == label,
-                          onSelected: (_) => setState(() => _collection = label),
+                          onSelected: (_) =>
+                              setState(() => _collection = label),
                         ),
                       ),
                     for (final collection in controller.snapshot.collections)
@@ -92,7 +93,8 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
                         child: ChoiceChip(
                           label: Text(collection.name),
                           selected: _collection == collection.id,
-                          onSelected: (_) => setState(() => _collection = collection.id),
+                          onSelected: (_) =>
+                              setState(() => _collection = collection.id),
                         ),
                       ),
                   ],
@@ -241,17 +243,13 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
               child: const Text('キャンセル'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(
-                dialogContext,
-                _DuplicateChoice.reimport,
-              ),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, _DuplicateChoice.reimport),
               child: const Text('再取り込み'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(
-                dialogContext,
-                _DuplicateChoice.openExisting,
-              ),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, _DuplicateChoice.openExisting),
               child: const Text('保存済みを開く'),
             ),
           ],
@@ -271,23 +269,23 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
       if (active != null &&
           active.status != RecipeImportStatus.completed &&
           active.status != RecipeImportStatus.cancelled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('この投稿はすでに取り込み中です')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('この投稿はすでに取り込み中です')));
         return;
       }
     }
     try {
       await controller.importFromUrl(rawUrl);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('受付しました。アプリを閉じても解析を続けます')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('受付しました。アプリを閉じても解析を続けます')));
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 }
@@ -303,7 +301,8 @@ class _ImportCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = RecipeScope.of(context);
     final selecting = item.status == RecipeImportStatus.awaitingSelection;
-    final failed = item.status == RecipeImportStatus.failed ||
+    final failed =
+        item.status == RecipeImportStatus.failed ||
         item.status == RecipeImportStatus.retryWaiting;
     return SoftPanel(
       padding: const EdgeInsets.all(10),
@@ -343,9 +342,7 @@ class _ImportCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   item.message ??
-                      (failed
-                          ? '元URLを使って再試行できます'
-                          : 'アプリを閉じてもサーバーで処理を続けます'),
+                      (failed ? '元URLを使って再試行できます' : 'アプリを閉じてもサーバーで処理を続けます'),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
@@ -361,14 +358,19 @@ class _ImportCard extends StatelessWidget {
                       if (selecting) {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => RecipeSelectionPage(importId: item.id),
+                            builder: (_) =>
+                                RecipeSelectionPage(importId: item.id),
                           ),
                         );
                       } else {
                         controller.retryImport(item);
                       }
                     },
-                    icon: Icon(selecting ? Icons.checklist_rounded : Icons.refresh_rounded),
+                    icon: Icon(
+                      selecting
+                          ? Icons.checklist_rounded
+                          : Icons.refresh_rounded,
+                    ),
                     label: Text(selecting ? '保存する料理を選ぶ' : '再試行'),
                   ),
                 ],
@@ -405,7 +407,9 @@ class _EmptyRecipes extends StatelessWidget {
           Text(
             'SNS投稿を共有すると、材料・分量・工程を整理して保存します。',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: secondaryInk),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: secondaryInk),
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
