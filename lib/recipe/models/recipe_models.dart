@@ -836,7 +836,7 @@ String _practicalAmount(double value, String? unit) {
   }
   final whole = value.floor();
   final fraction = value - whole;
-  const candidates = <double, String>{
+  final candidates = <double, String>{
     0.25: '¼',
     0.5: '½',
     0.75: '¾',
