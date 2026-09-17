@@ -145,6 +145,18 @@ def _download_video(raw_url: str, root: Path) -> tuple[dict, Path]:
             print("video_cookies_invalid", flush=True)
 
     attempts = [
+        ("chrome_impersonation", {"impersonate": "chrome"}),
+        (
+            "chrome_impersonation_mobile_api",
+            {
+                "impersonate": "chrome",
+                "extractor_args": {
+                    "tiktok": {
+                        "api_hostname": ["api22-normal-c-useast2a.tiktokv.com"],
+                    }
+                },
+            },
+        ),
         ("default", {}),
         (
             "tiktok_mobile_api",
