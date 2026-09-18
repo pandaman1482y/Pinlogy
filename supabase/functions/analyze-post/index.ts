@@ -202,7 +202,10 @@ Deno.serve(async (request) => {
       return reply({ error: "empty_ai_response" }, 502);
     }
     const parsedOutput = sanitizeParsedOutput(JSON.parse(output.text), sharedPage);
-    const parsedRecipes = Array.ifo(
+    const parsedRecipes = Array.isArray(parsedOutput.recipes)
+      ? parsedOutput.recipes
+      : [];
+    console.info(
       "analysis_recipe_result",
       `recipes=${parsedRecipes.length}`,
       `caption=${videoEvidence?.source_description.length ?? 0}`,
