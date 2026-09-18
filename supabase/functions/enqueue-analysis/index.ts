@@ -297,12 +297,13 @@ async function prepareTikTokPayload(
     ? { ...(requestValue as Record<string, unknown>) }
     : {};
   const rawUrl = String(request.url ?? "").trim();
-  if (!isTikTokVideoUrl(rawUrl)) return request;
+  const tiktokUrl = await resolveTikTokVideoUrl(rawUrl);
+  if (tiktokUrl == null) return request;
 
   const token = requiredEnv("BRIGHT_DATA_API_TOKEN");
   const state = readTikTokSnapshotState(request.__bright_data_tiktok);
   if (state == null) {
-    const snapshotId = await triggerTikTokSnapshot(rawUrl, token);
+    const snapshotId = await triggerTikTokSnapshot(tiktokUrl, token);
     const nextState: TikTokSnapshotState = {
       snapshot_id: snapshotId,
       attempt: 0,
@@ -453,15 +454,48 @@ function parseTikTokSnapshot(decoded: unknown): TikTokExternalPost | null {
   };
 }
 
-function isTikTokVideoUrl(rawUrl: string) {
+async function resolveTikTokVideoUrl(
+  rawUrl: string,
+): Promise<string | null> {
   try {
-    const url = new URL(rawUrl);
-    const host = url.hostname.toLowerCase();
-    return url.protocol === "https:" &&
+    const initial = new URL(rawUrl);
+    const initialHost = initial.hostname.toLowerCase();
+    if (
+      initial.protocol !== "https:" ||
+      !(initialHost === "tiktok.com" || initialHost.endsWith(".tiktok.com"))
+    ) {
+      return null;
+    }
+    if (/\/@[^/]+\/video\/\d+\/?$/i.test(initial.pathname)) {
+      return initial.toString();
+    }
+
+    const response = await fetch(initial, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const resolved = new URL(response.url);
+    await response.body?.cancel();
+
+    const host = resolved.hostname.toLowerCase();
+    if (
+      resolved.protocol === "https:" &&
       (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
-      /\/@[^/]+\/video\/\d+\/?$/i.test(url.pathname);
-  } catch {
-    return false;
+      /\/@[^/]+\/video\/\d+\/?$/i.test(resolved.pathname)
+    ) {
+      console.info("async_tiktok_url_resolved", resolved.pathname);
+      return resolved.toString();
+    }
+    console.warn("async_tiktok_url_unresolved", resolved.hostname);
+    return null;
+  } catch (error) {
+    console.warn("async_tiktok_url_resolve_failed", String(error));
+    return null;
   }
 }
 
