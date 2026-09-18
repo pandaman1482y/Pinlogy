@@ -89,6 +89,7 @@ Deno.serve(async (request) => {
 
     const videoEvidence = await fetchVideoEvidence(
       sharedPage?.canonical_url ?? String(input.url ?? ""),
+      externalTikTokPostFromInput(input.tiktok_external_post),
     );
 
     const content: Array<Record<string, unknown>> = [{
@@ -454,7 +455,19 @@ type ExternalTikTokPost = {
   title: string;
 };
 
-async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null> {
+function externalTikTokPostFromInput(value: unknown): ExternalTikTokPost | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const description = String(record.description ?? "").trim().slice(0, 12_000);
+  const title = String(record.title ?? "TikTok投稿").trim().slice(0, 1000) ||
+    "TikTok投稿";
+  return { videoUrl: "", description, title };
+}
+
+async function fetchVideoEvidence(
+  rawUrl: string,
+  suppliedTikTok: ExternalTikTokPost | null = null,
+): Promise<VideoEvidence | null> {
   if (!rawUrl) return null;
   let source: URL;
   try {
@@ -470,11 +483,23 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
     source.hostname.toLowerCase().endsWith(".tiktok.com");
   // Bright DataはTikTokへのISPプロキシ経由の直接アクセスを許可していない。
   // 公式Posts Scraperで署名付き動画URLを取得し、そのURLだけをワーカーへ渡す。
-  const externalTikTok = isTikTok
-    ? await fetchBrightDataTikTokPost(source)
-    : null;
-  if (isTikTok && externalTikTok == null) {
-    throw new Error("bright_data_tiktok_video_unavailable");
+  const externalTikTok = isTikTok ? suppliedTikTok : null;
+  if (isTikTok) {
+    if (externalTikTok == null) {
+      console.warn("tiktok_external_evidence_missing");
+      return null;
+    }
+    console.info(
+      "tiktok_external_evidence_resolved",
+      `caption=${externalTikTok.description.length}`,
+    );
+    return {
+      duration_seconds: 0,
+      transcript: "",
+      source_title: externalTikTok.title,
+      source_description: externalTikTok.description,
+      frames: [],
+    };
   }
   const workerUrl = (Deno.env.get("VIDEO_WORKER_URL") ?? "").trim();
   const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();

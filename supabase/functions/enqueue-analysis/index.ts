@@ -19,8 +19,10 @@ Deno.serve(async (request) => {
       if (!/^[0-9a-f-]{36}$/i.test(jobId)) {
         return reply({ error: "invalid_job" }, 400);
       }
-      await processJob(jobId);
-      return reply({ job_id: jobId, status: "finished" });
+      // Acknowledge immediately. The expensive phase runs independently,
+      // so dispatchers never form a chain of waiting HTTP calls.
+      EdgeRuntime.waitUntil(processJob(jobId));
+      return reply({ job_id: jobId, status: "processing" }, 202);
     }
     const deviceId = request.headers.get("x-pinlogy-device") ?? "";
     if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
@@ -45,6 +47,8 @@ Deno.serve(async (request) => {
     delete payload.action;
     delete payload.notification_token;
     delete payload.notification_enabled;
+    delete payload.__bright_data_tiktok;
+    delete payload.tiktok_external_post;
 
     const db = adminClient();
     const { data, error } = await db.from("async_analysis_jobs").insert({
@@ -200,6 +204,8 @@ async function processJob(jobId: string) {
   }
 
   try {
+    const preparedPayload = await prepareTikTokPayload(jobId, job.request_json);
+    if (preparedPayload == null) return;
     const baseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const response = await fetch(`${baseUrl}/functions/v1/analyze-post`, {
@@ -211,7 +217,7 @@ async function processJob(jobId: string) {
         "X-Pinlogy-Device": String(job.device_id),
         "X-Pinlogy-Async-Job": jobId,
       },
-      body: JSON.stringify(job.request_json),
+      body: JSON.stringify(preparedPayload),
       // Instagram snapshotの完了待ちと、その後の画像別AI解析を許容する。
       signal: AbortSignal.timeout(540_000),
     });
@@ -267,6 +273,195 @@ async function processJob(jobId: string) {
       device_id: null,
       notification_token: null,
     }).eq("id", jobId).eq("status", "processing");
+  }
+}
+
+type TikTokSnapshotState = {
+  snapshot_id: string;
+  attempt: number;
+  started_at: string;
+};
+
+type TikTokExternalPost = {
+  description: string;
+  title: string;
+};
+
+// Bright Dataの開始・進捗確認を別々のEdge Function実行へ分割する。
+// 1回の実行ではAPIを1回だけ呼び、未完了ならDBへ状態を戻して終了する。
+async function prepareTikTokPayload(
+  jobId: string,
+  requestValue: unknown,
+): Promise<Record<string, unknown> | null> {
+  const request = requestValue != null && typeof requestValue === "object"
+    ? { ...(requestValue as Record<string, unknown>) }
+    : {};
+  const rawUrl = String(request.url ?? "").trim();
+  if (!isTikTokVideoUrl(rawUrl)) return request;
+
+  const token = requiredEnv("BRIGHT_DATA_API_TOKEN");
+  const state = readTikTokSnapshotState(request.__bright_data_tiktok);
+  if (state == null) {
+    const snapshotId = await triggerTikTokSnapshot(rawUrl, token);
+    const nextState: TikTokSnapshotState = {
+      snapshot_id: snapshotId,
+      attempt: 0,
+      started_at: new Date().toISOString(),
+    };
+    request.__bright_data_tiktok = nextState;
+    console.info("async_tiktok_snapshot_started", jobId, snapshotId);
+    await requeueTikTokSnapshot(jobId, request, 5_000);
+    return null;
+  }
+
+  const elapsed = Date.now() - Date.parse(state.started_at);
+  if (state.attempt >= 60 || !Number.isFinite(elapsed) || elapsed > 10 * 60_000) {
+    throw new Error("bright_data_tiktok_snapshot_timeout");
+  }
+
+  const progress = await fetch(
+    `https://api.brightdata.com/datasets/v3/progress/${encodeURIComponent(state.snapshot_id)}`,
+    {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(12_000),
+    },
+  );
+  if (!progress.ok) {
+    console.warn("async_tiktok_progress_failed", jobId, progress.status);
+    request.__bright_data_tiktok = { ...state, attempt: state.attempt + 1 };
+    await requeueTikTokSnapshot(jobId, request, 10_000);
+    return null;
+  }
+
+  const progressJson = await progress.json();
+  const status = String(progressJson?.status ?? "").toLowerCase();
+  if (status === "failed") {
+    throw new Error(
+      `bright_data_tiktok_snapshot_failed:${String(progressJson?.error_message ?? "unknown").slice(0, 300)}`,
+    );
+  }
+  if (status !== "ready") {
+    request.__bright_data_tiktok = { ...state, attempt: state.attempt + 1 };
+    console.info(
+      "async_tiktok_snapshot_waiting",
+      jobId,
+      `attempt=${state.attempt + 1}`,
+      `status=${status || "unknown"}`,
+    );
+    await requeueTikTokSnapshot(jobId, request, 10_000);
+    return null;
+  }
+
+  const snapshot = await fetch(
+    `https://api.brightdata.com/datasets/v3/snapshot/${encodeURIComponent(state.snapshot_id)}?format=json`,
+    {
+      headers: { "Authorization": `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!snapshot.ok) {
+    throw new Error(`bright_data_tiktok_snapshot_http_${snapshot.status}`);
+  }
+  const external = parseTikTokSnapshot(await snapshot.json());
+  if (external == null) throw new Error("bright_data_tiktok_snapshot_invalid");
+
+  delete request.__bright_data_tiktok;
+  request.tiktok_external_post = external;
+  console.info(
+    "async_tiktok_snapshot_ready",
+    jobId,
+    `caption=${external.description.length}`,
+  );
+  return request;
+}
+
+async function triggerTikTokSnapshot(rawUrl: string, token: string) {
+  const endpoint = new URL("https://api.brightdata.com/datasets/v3/trigger");
+  endpoint.searchParams.set("dataset_id", "gd_lu702nij2f790tmv9h");
+  endpoint.searchParams.set("include_errors", "true");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify([{ url: rawUrl }]),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`bright_data_tiktok_trigger_http_${response.status}`);
+  }
+  const decoded = await response.json();
+  const snapshotId = String(decoded?.snapshot_id ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) {
+    throw new Error("bright_data_tiktok_snapshot_missing");
+  }
+  return snapshotId;
+}
+
+async function requeueTikTokSnapshot(
+  jobId: string,
+  requestJson: Record<string, unknown>,
+  delayMs: number,
+) {
+  const { data, error } = await adminClient().from("async_analysis_jobs")
+    .update({
+      status: "pending",
+      request_json: requestJson,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`async_tiktok_requeue_failed:${error.message}`);
+  if (data == null) return;
+  EdgeRuntime.waitUntil(dispatchJobAfter(jobId, delayMs));
+}
+
+async function dispatchJobAfter(jobId: string, delayMs: number) {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  await dispatchJob(jobId);
+}
+
+function readTikTokSnapshotState(value: unknown): TikTokSnapshotState | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const snapshotId = String(record.snapshot_id ?? "").trim();
+  const attempt = Number(record.attempt ?? 0);
+  const startedAt = String(record.started_at ?? "");
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) return null;
+  if (!Number.isInteger(attempt) || attempt < 0 || attempt > 60) return null;
+  if (!Number.isFinite(Date.parse(startedAt))) return null;
+  return { snapshot_id: snapshotId, attempt, started_at: startedAt };
+}
+
+function parseTikTokSnapshot(decoded: unknown): TikTokExternalPost | null {
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  const row = rows.find((value) => value != null && typeof value === "object");
+  if (row == null || typeof row !== "object") return null;
+  const record = row as Record<string, unknown>;
+  const description = String(
+    record.description ?? record.caption ?? record.post_text ?? record.text ?? "",
+  ).trim().slice(0, 12_000);
+  const creator = String(
+    record.profile_username ?? record.author_name ?? record.nickname ?? "",
+  ).trim();
+  return {
+    description,
+    title: creator ? `TikTok @${creator}` : "TikTok投稿",
+  };
+}
+
+function isTikTokVideoUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" &&
+      (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
+      /\/@[^/]+\/video\/\d+\/?$/i.test(url.pathname);
+  } catch {
+    return false;
   }
 }
 
