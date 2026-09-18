@@ -539,6 +539,19 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
     };
   } catch (error) {
     console.warn("video_worker_failed", String(error));
+    if (externalTikTok != null) {
+      console.info(
+        "video_worker_tiktok_text_fallback",
+        `caption=${externalTikTok.description.length}`,
+      );
+      return {
+        duration_seconds: 0,
+        transcript: "",
+        source_title: externalTikTok.title.slice(0, 1000),
+        source_description: externalTikTok.description.slice(0, 8000),
+        frames: [],
+      };
+    }
     throw error;
   }
 }
