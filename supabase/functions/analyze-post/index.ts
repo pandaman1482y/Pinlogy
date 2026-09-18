@@ -95,9 +95,10 @@ Deno.serve(async (request) => {
     const content: Array<Record<string, unknown>> = [{
       type: "input_text",
       text: [
-        `最優先の投稿文・コメント:\n${[
+        `最優先の投稿文・コメント・キャプション:\n${[
           cleanSharedText(input.text, sharedPage),
           sharedPage?.description,
+          videoEvidence?.source_description,
         ].filter(Boolean).join("\n")}`,
         `補助根拠の端末OCR（投稿文・コメントと矛盾する場合は採用禁止）:\n${String(input.ocr_text ?? "")}`,
         `動画の音声文字起こし:\n${videoEvidence?.transcript ?? ""}`,
@@ -201,6 +202,12 @@ Deno.serve(async (request) => {
       return reply({ error: "empty_ai_response" }, 502);
     }
     const parsedOutput = sanitizeParsedOutput(JSON.parse(output.text), sharedPage);
+    const parsedRecipes = Array.ifo(
+      "analysis_recipe_result",
+      `recipes=${parsedRecipes.length}`,
+      `caption=${videoEvidence?.source_description.length ?? 0}`,
+      `summary=${String(parsedOutput.raw_summary ?? "").slice(0, 300)}`,
+    );
     const successfulResult = {
       source_post_id: sourcePostId,
       ...parsedOutput,
