@@ -448,6 +448,12 @@ type VideoEvidence = {
   frames: Array<{ data_url: string; timestamp_seconds: number }>;
 };
 
+type ExternalTikTokPost = {
+  videoUrl: string;
+  description: string;
+  title: string;
+};
+
 async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null> {
   if (!rawUrl) return null;
   let source: URL;
@@ -460,6 +466,16 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
   const likelyVideo = /\/video\/\d+/i.test(source.pathname) ||
     /\/(reel|p)\/[^/]+/i.test(source.pathname);
   if (!likelyVideo) return null;
+  const isTikTok = source.hostname.toLowerCase() === "tiktok.com" ||
+    source.hostname.toLowerCase().endsWith(".tiktok.com");
+  // Bright DataはTikTokへのISPプロキシ経由の直接アクセスを許可していない。
+  // 公式Posts Scraperで署名付き動画URLを取得し、そのURLだけをワーカーへ渡す。
+  const externalTikTok = isTikTok
+    ? await fetchBrightDataTikTokPost(source)
+    : null;
+  if (isTikTok && externalTikTok == null) {
+    throw new Error("bright_data_tiktok_video_unavailable");
+  }
   const workerUrl = (Deno.env.get("VIDEO_WORKER_URL") ?? "").trim();
   const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();
   if (!workerUrl || !workerSecret) {
@@ -478,7 +494,10 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
         "Authorization": `Bearer ${workerSecret}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url: source.toString() }),
+      body: JSON.stringify({
+        url: source.toString(),
+        media_url: externalTikTok?.videoUrl ?? null,
+      }),
       signal: AbortSignal.timeout(230_000),
     });
     if (!response.ok) {
@@ -511,13 +530,148 @@ async function fetchVideoEvidence(rawUrl: string): Promise<VideoEvidence | null>
     return {
       duration_seconds: Math.max(0, Math.round(Number(decoded.duration_seconds ?? 0))),
       transcript: String(decoded.transcript ?? "").slice(0, 12000),
-      source_title: String(decoded.source_title ?? "").slice(0, 1000),
-      source_description: String(decoded.source_description ?? "").slice(0, 8000),
+      source_title: (externalTikTok?.title ?? String(decoded.source_title ?? ""))
+        .slice(0, 1000),
+      source_description: (
+        externalTikTok?.description ?? String(decoded.source_description ?? "")
+      ).slice(0, 8000),
       frames,
     };
   } catch (error) {
     console.warn("video_worker_failed", String(error));
     throw error;
+  }
+}
+
+async function fetchBrightDataTikTokPost(
+  postUrl: URL,
+): Promise<ExternalTikTokPost | null> {
+  const token = (Deno.env.get("BRIGHT_DATA_API_TOKEN") ?? "").trim();
+  if (!token) {
+    console.warn("bright_data_tiktok_not_configured");
+    return null;
+  }
+  if (!/^\/@[^/]+\/video\/\d+\/?$/i.test(postUrl.pathname)) {
+    console.warn("bright_data_tiktok_invalid_post_url");
+    return null;
+  }
+
+  const endpoint = new URL("https://api.brightdata.com/datasets/v3/trigger");
+  endpoint.searchParams.set("dataset_id", "gd_lu702nij2f790tmv9h");
+  endpoint.searchParams.set("include_errors", "true");
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([{ url: postUrl.toString() }]),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      console.warn("bright_data_tiktok_http_failed", response.status);
+      return null;
+    }
+    const trigger = await response.json();
+    const snapshotId = String(trigger?.snapshot_id ?? "").trim();
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) {
+      console.warn("bright_data_tiktok_snapshot_missing");
+      return null;
+    }
+    console.info("bright_data_tiktok_snapshot_started", snapshotId);
+
+    for (let attempt = 0; attempt < 18; attempt++) {
+      if (attempt > 0) await delay(5_000);
+      const progress = await fetch(
+        `https://api.brightdata.com/datasets/v3/progress/${encodeURIComponent(snapshotId)}`,
+        {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(12_000),
+        },
+      );
+      if (!progress.ok) {
+        console.warn("bright_data_tiktok_progress_failed", progress.status);
+        continue;
+      }
+      const progressJson = await progress.json();
+      const status = String(progressJson?.status ?? "").toLowerCase();
+      if (status === "failed") {
+        console.warn(
+          "bright_data_tiktok_snapshot_failed",
+          String(progressJson?.error_message ?? "unknown").slice(0, 300),
+        );
+        return null;
+      }
+      if (status !== "ready") continue;
+
+      const snapshot = await fetch(
+        `https://api.brightdata.com/datasets/v3/snapshot/${encodeURIComponent(snapshotId)}?format=json`,
+        {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      if (!snapshot.ok) {
+        console.warn("bright_data_tiktok_snapshot_http_failed", snapshot.status);
+        return null;
+      }
+      const result = parseExternalTikTokPost(await snapshot.json());
+      console.info(
+        "bright_data_tiktok_snapshot_resolved",
+        `video=${result != null}`,
+        `caption=${result?.description.length ?? 0}`,
+      );
+      return result;
+    }
+    console.warn("bright_data_tiktok_snapshot_timeout", snapshotId);
+    return null;
+  } catch (error) {
+    console.warn("bright_data_tiktok_failed", String(error));
+    return null;
+  }
+}
+
+function parseExternalTikTokPost(decoded: unknown): ExternalTikTokPost | null {
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  const row = rows.find((value) => value != null && typeof value === "object");
+  if (row == null || typeof row !== "object") return null;
+  const record = row as Record<string, unknown>;
+  const videoUrl = String(
+    record.video_url ?? record.videoUrl ?? record.download_url ?? "",
+  ).trim();
+  if (!isAllowedTikTokVideoUrl(videoUrl)) {
+    console.warn("bright_data_tiktok_video_url_missing");
+    return null;
+  }
+  const description = String(
+    record.description ?? record.caption ?? record.post_text ?? record.text ?? "",
+  ).trim();
+  const creator = String(
+    record.profile_username ?? record.author_name ?? record.nickname ?? "",
+  ).trim();
+  return {
+    videoUrl,
+    description: description.slice(0, 12_000),
+    title: creator ? `TikTok @${creator}` : "TikTok投稿",
+  };
+}
+
+function isAllowedTikTokVideoUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    return [
+      "tiktok.com",
+      "tiktokcdn.com",
+      "tiktokcdn-us.com",
+      "muscdn.com",
+      "byteoversea.com",
+      "ibytedtos.com",
+    ].some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  } catch {
+    return false;
   }
 }
 

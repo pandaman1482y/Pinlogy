@@ -22,6 +22,7 @@ FRAME_RATE = 2
 
 class ExtractRequest(BaseModel):
     url: str
+    media_url: str | None = None
 
 
 def _allowed_url(raw: str) -> bool:
@@ -33,6 +34,34 @@ def _allowed_url(raw: str) -> bool:
             or host.endswith(".tiktok.com")
             or host == "instagram.com"
             or host.endswith(".instagram.com")
+        )
+    except ValueError:
+        return False
+
+
+def _is_tiktok_url(raw: str) -> bool:
+    try:
+        host = (urlparse(raw).hostname or "").lower()
+        return host == "tiktok.com" or host.endswith(".tiktok.com")
+    except ValueError:
+        return False
+
+
+def _allowed_tiktok_media_url(raw: str) -> bool:
+    try:
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        allowed_suffixes = (
+            "tiktok.com",
+            "tiktokcdn.com",
+            "tiktokcdn-us.com",
+            "muscdn.com",
+            "byteoversea.com",
+            "ibytedtos.com",
+        )
+        return parsed.scheme == "https" and any(
+            host == suffix or host.endswith(f".{suffix}")
+            for suffix in allowed_suffixes
         )
     except ValueError:
         return False
@@ -111,7 +140,13 @@ def _transcribe(audio_path: Path) -> str:
         return ""
 
 
-def _download_video(raw_url: str, root: Path) -> tuple[dict, Path]:
+def _download_video(
+    raw_url: str,
+    root: Path,
+    *,
+    use_proxy: bool,
+    referer: str,
+) -> tuple[dict, Path]:
     output_template = str(root / "source.%(ext)s")
     base_options = {
         "format": "bv*[height<=720]+ba/b[height<=720]/b",
@@ -130,10 +165,11 @@ def _download_video(raw_url: str, root: Path) -> tuple[dict, Path]:
                 "AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
             ),
             "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": referer,
         },
     }
     proxy = os.getenv("YTDLP_PROXY", "").strip()
-    if proxy:
+    if proxy and use_proxy:
         base_options["proxy"] = proxy
     cookies_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
     if cookies_b64:
@@ -144,7 +180,7 @@ def _download_video(raw_url: str, root: Path) -> tuple[dict, Path]:
         except Exception:
             print("video_cookies_invalid", flush=True)
 
-    attempts = [
+    attempts = [("direct_scraper_media", {})] if not use_proxy else [
         ("chrome_impersonation", {"impersonate": "chrome"}),
         (
             "chrome_impersonation_mobile_api",

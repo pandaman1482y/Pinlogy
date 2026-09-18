@@ -1,0 +1,33 @@
+diff a/video-worker/app.py b/video-worker/app.py	(rejected hunks)
+@@ -220,10 +256,22 @@ def extract(
+         raise HTTPException(status_code=401, detail="unauthorized")
+     if not _allowed_url(request.url):
+         raise HTTPException(status_code=400, detail="unsupported_url")
++    if request.media_url is not None and (
++        not _is_tiktok_url(request.url)
++        or not _allowed_tiktok_media_url(request.media_url)
++    ):
++        raise HTTPException(status_code=400, detail="unsupported_media_url")
++
+     with tempfile.TemporaryDirectory() as temporary:
+         root = Path(temporary)
+         try:
+-            info, video_path = _download_video(request.url, root)
++            download_url = request.media_url or request.url
++            info, video_path = _download_video(
++                download_url,
++                root,
++                use_proxy=request.media_url is None,
++                referer=request.url,
++            )
+         except Exception as error:
+             detail = " ".join(str(error).split())[:500]
+             print(f"video_download_failed detail={detail}", flush=True)
+@@ -242,7 +290,6 @@ def extract(
+             duration = float(duration_text)
+         except Exception:
+             raise HTTPException(status_code=422, detail="duration_unavailable")
+-            raise HTTPException(status_code=422, detail="duration_unavailable")
+         if duration <= 0 or duration > MAX_DURATION_SECONDS:
+             raise HTTPException(status_code=422, detail="duration_not_supported")
+ 
