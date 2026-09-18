@@ -581,7 +581,7 @@ async function fetchBrightDataTikTokPost(
     }
     console.info("bright_data_tiktok_snapshot_started", snapshotId);
 
-    for (let attempt = 0; attempt < 18; attempt++) {
+    for (let attempt = 0; attempt < 30; attempt++) {
       if (attempt > 0) await delay(5_000);
       const progress = await fetch(
         `https://api.brightdata.com/datasets/v3/progress/${encodeURIComponent(snapshotId)}`,
