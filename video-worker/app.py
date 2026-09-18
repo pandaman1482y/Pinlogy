@@ -243,6 +243,7 @@ def extract(
             duration = float(duration_text)
         except Exception:
             raise HTTPException(status_code=422, detail="duration_unavailable")
+            raise HTTPException(status_code=422, detail="duration_unavailable")
         if duration <= 0 or duration > MAX_DURATION_SECONDS:
             raise HTTPException(status_code=422, detail="duration_not_supported")
 
