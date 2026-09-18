@@ -263,7 +263,12 @@ class RecipeController extends ChangeNotifier {
         if (recipe != null) output.add(recipe);
       }
       return output;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('recipe_analysis_parse_failed: $error');
+      debugPrintStack(
+        label: 'recipe_analysis_parse_failed',
+        stackTrace: stackTrace,
+      );
       return const [];
     }
   }
