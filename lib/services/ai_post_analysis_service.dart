@@ -232,7 +232,10 @@ class AiPostAnalysisService implements PostAnalysisService {
     required String deviceId,
     required String sourcePostId,
   }) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 80));
+    // Bright Dataのsnapshotは数分かかることがある。サーバージョブは非同期で
+    // 継続するが、アプリが前面にいる間は完了結果をそのまま回収できるよう、
+    // snapshot側の上限（10分）と同じ時間まで待機する。
+    final deadline = DateTime.now().add(const Duration(minutes: 10));
     while (DateTime.now().isBefore(deadline)) {
       final response = await _client
           .post(

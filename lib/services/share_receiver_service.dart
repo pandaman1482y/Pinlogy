@@ -458,7 +458,9 @@ class AnalysisRunner {
     );
     if (job == null) return;
     if (analysisService case final AiPostAnalysisService service) {
-      await service.clearPendingJob(job.sourcePostId);
+      // 端末の参照だけを消すと、旧ジョブがバックグラウンドで完了して
+      // 新ジョブとは別の通知を送る。先に旧ジョブをサーバーでも停止する。
+      await service.cancelPendingJob(job.sourcePostId);
     }
     await hub.analysis.retry(jobId);
     await runJob(jobId);

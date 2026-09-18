@@ -51,6 +51,35 @@ Deno.serve(async (request) => {
     delete payload.tiktok_external_post;
 
     const db = adminClient();
+    const { data: existing, error: existingError } = await db
+      .from("async_analysis_jobs")
+      .select("id,status")
+      .eq("source_post_id", sourcePostId)
+      .eq("device_hash", deviceHash)
+      .in("status", ["pending", "processing"])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingError) {
+      console.error("async_job_lookup_failed", existingError.message);
+      return reply({ error: "job_lookup_failed" }, 500);
+    }
+    if (existing != null) {
+      const existingJobId = String(existing.id);
+      console.info(
+        "async_job_reused",
+        existingJobId,
+        `status=${existing.status}`,
+      );
+      if (existing.status === "pending") {
+        EdgeRuntime.waitUntil(dispatchJob(existingJobId));
+      }
+      return reply({
+        job_id: existingJobId,
+        status: String(existing.status),
+        reused: true,
+      }, 202);
+    }
     const { data, error } = await db.from("async_analysis_jobs").insert({
       source_post_id: sourcePostId,
       device_hash: deviceHash,
@@ -61,6 +90,30 @@ Deno.serve(async (request) => {
       notification_enabled: input.notification_enabled === true,
     }).select("id").single();
     if (error || data == null) {
+      // 同時リクエストが事前検索を両方通過しても、DBの部分ユニーク
+      // インデックスが二重登録を止める。競合時は勝った既存ジョブを返す。
+      if (error?.code === "23505") {
+        const { data: raced } = await db.from("async_analysis_jobs")
+          .select("id,status")
+          .eq("source_post_id", sourcePostId)
+          .eq("device_hash", deviceHash)
+          .in("status", ["pending", "processing"])
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (raced != null) {
+          const racedJobId = String(raced.id);
+          console.info("async_job_race_reused", racedJobId);
+          if (raced.status === "pending") {
+            EdgeRuntime.waitUntil(dispatchJob(racedJobId));
+          }
+          return reply({
+            job_id: racedJobId,
+            status: String(raced.status),
+            reused: true,
+          }, 202);
+        }
+      }
       console.error("async_job_insert_failed", error?.message);
       return reply({ error: "job_create_failed" }, 500);
     }
@@ -135,6 +188,16 @@ async function status(input: Record<string, unknown>, deviceHash: string) {
     return reply({ error: "status_failed" }, 500);
   }
   if (data == null) return reply({ error: "job_not_found" }, 404);
+  // waitUntil内の遅延がEdge Runtimeのshutdownで途切れても、アプリからの
+  // status確認を回復トリガーにする。直近15秒以内に更新されたジョブは
+  // 正常な再投入待ちなので重複dispatchしない。
+  if (data.status === "pending") {
+    const updatedAt = Date.parse(String(data.updated_at ?? ""));
+    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt >= 15_000) {
+      console.info("async_job_recovering_stale_pending", jobId);
+      EdgeRuntime.waitUntil(dispatchJob(jobId));
+    }
+  }
   let result = null;
   if (data.status === "completed") {
     try {
