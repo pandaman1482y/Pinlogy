@@ -28,8 +28,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
   // v11: 場所候補だけの旧結果を再利用せず、構造化レシピを必ず取得する。
-  static const _cachePrefix = 'ai_analysis_cache_v11_recipe_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v11_recipe';
+  static const _cachePrefix = 'ai_analysis_cache_v14_recipe_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v14_recipe';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -43,7 +43,9 @@ class AiPostAnalysisService implements PostAnalysisService {
     }
     final cacheKey = _cacheKey(request, local.evidenceText);
     final cached = await _readCache(cacheKey);
-    if (cached != null && await _cachedMediaAvailable(cached)) {
+    if (cached != null &&
+        cached.recipes.isNotEmpty &&
+        await _cachedMediaAvailable(cached)) {
       return PostAnalysisResponse(
         sourcePostId: request.sourcePostId,
         candidates: cached.candidates,
