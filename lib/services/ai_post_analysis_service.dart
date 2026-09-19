@@ -137,6 +137,14 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
+      final receivedRecipes = decoded['recipes'];
+      debugPrint(
+        'flutter_recipe_1_response_received '
+        'source_post_id=${request.sourcePostId} '
+        "analysis_source=${decoded['analysis_source']} "
+        'recipes=${receivedRecipes is List ? receivedRecipes.length : -1} '
+        'body_length=${response.body.length}',
+      );
       // 画像処理の失敗で、完成済みのレシピ結果を破棄しない。
       var fetchedPreviewPaths = <String>[];
       try {
@@ -178,6 +186,13 @@ class AiPostAnalysisService implements PostAnalysisService {
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
+      debugPrint(
+        'flutter_recipe_2_model_decoded '
+        'source_post_id=${result.sourcePostId} '
+        'analysis_source=${result.analysisSource} '
+        'recipes=${result.recipes.length} '
+        "title=${result.recipes.firstOrNull?['title']}",
+      );
       // The recipe backend intentionally keeps the legacy place candidates
       // empty. A valid structured recipe result must never be discarded just
       // because the old on-device place detector found something.
