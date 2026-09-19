@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -170,7 +171,17 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (result.analysisSource == 'instagram_media_unavailable') {
         return result;
       }
-      await _writeCache(cacheKey, result);
+      // キャッシュは補助機能。保存に失敗しても、サーバーから取得済みの
+      // 正常なレシピを空の端末解析結果へ差し替えてはいけない。
+      try {
+        await _writeCache(cacheKey, result);
+      } catch (error, stackTrace) {
+        debugPrint('ai_analysis_cache_write_failed: $error');
+        debugPrintStack(
+          label: 'ai_analysis_cache_write_failed',
+          stackTrace: stackTrace,
+        );
+      }
       return result;
     } on AnalysisPendingException {
       rethrow;
@@ -178,7 +189,12 @@ class AiPostAnalysisService implements PostAnalysisService {
       return _asFallback(local, analysisSource: 'timeout_fallback');
     } on SocketException {
       return _asFallback(local, analysisSource: 'network_fallback');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('ai_analysis_response_failed: $error');
+      debugPrintStack(
+        label: 'ai_analysis_response_failed',
+        stackTrace: stackTrace,
+      );
       return _fallbackWithPreview(local, request, 'invalid_response_fallback');
     }
   }

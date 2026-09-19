@@ -357,7 +357,9 @@ class RecipeController extends ChangeNotifier {
                   'originalText',
                 ),
                 note: _text(ingredient, 'note'),
-                scalable: ingredient['scalable'] as bool? ?? true,
+                scalable: ingredient['scalable'] is bool
+                    ? ingredient['scalable'] as bool
+                    : true,
                 evidenceId: _evidenceId(
                   post.id,
                   recipeIndex,
@@ -460,7 +462,7 @@ class RecipeController extends ChangeNotifier {
       sourcePostId: post.id,
       title: title,
       description: _text(json, 'description', 'summary'),
-      servings: _number(json, 'servings') ?? 2,
+      servings: _number(json, 'servings') ?? 2.0,
       totalMinutes: _integer(json, 'total_minutes', 'totalMinutes'),
       difficulty: _text(json, 'difficulty'),
       category: _text(json, 'category'),

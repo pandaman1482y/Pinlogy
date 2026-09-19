@@ -288,6 +288,16 @@ async function processJob(jobId: string) {
     if (!response.ok) {
       throw new Error(String(body.error ?? `analyze_http_${response.status}`));
     }
+    const recipes = Array.isArray(body?.recipes) ? body.recipes : [];
+    console.info(
+      "async_analysis_result",
+      jobId,
+      `recipes=${recipes.length}`,
+      `summary=${String(body?.raw_summary ?? "").slice(0, 200)}`,
+    );
+    if (recipes.length === 0) {
+      throw new Error("recipe_not_found");
+    }
     const media = body?.shared_media;
     const returnedImageCount = Array.isArray(media?.image_data_urls)
       ? media.image_data_urls.length
@@ -360,13 +370,15 @@ async function prepareTikTokPayload(
     ? { ...(requestValue as Record<string, unknown>) }
     : {};
   const rawUrl = String(request.url ?? "").trim();
-  const tiktokUrl = await resolveTikTokVideoUrl(rawUrl);
-  if (tiktokUrl == null) return request;
+  const state = readTikTokSnapshotState(request.__bright_data_tiktok);
+  // URL展開はsnapshot開始時の1回だけ行う。進捗確認のたびに短縮URLを
+  // 再解決すると不要な通信とログが増える。
+  const tiktokUrl = state == null ? await resolveTikTokVideoUrl(rawUrl) : null;
+  if (state == null && tiktokUrl == null) return request;
 
   const token = requiredEnv("BRIGHT_DATA_API_TOKEN");
-  const state = readTikTokSnapshotState(request.__bright_data_tiktok);
   if (state == null) {
-    const snapshotId = await triggerTikTokSnapshot(tiktokUrl, token);
+    const snapshotId = await triggerTikTokSnapshot(tiktokUrl!, token);
     const nextState: TikTokSnapshotState = {
       snapshot_id: snapshotId,
       attempt: 0,
