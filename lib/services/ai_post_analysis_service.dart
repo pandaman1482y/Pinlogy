@@ -307,23 +307,19 @@ class AiPostAnalysisService implements PostAnalysisService {
           if (status == 'completed' && decoded['result'] is Map) {
             final preferences = await SharedPreferences.getInstance();
             await preferences.remove(_pendingJobKey(sourcePostId));
-            return http.Response(jsonEncode(decoded['result']), 200);
+            return _jsonResponse(decoded['result'], 200);
           }
           if (status == 'failed') {
             final preferences = await SharedPreferences.getInstance();
             await preferences.remove(_pendingJobKey(sourcePostId));
-            return http.Response(
-              jsonEncode({'error': decoded['error'] ?? 'analysis_failed'}),
-              500,
-            );
+            return _jsonResponse({
+              'error': decoded['error'] ?? 'analysis_failed',
+            }, 500);
           }
           if (status == 'cancelled') {
             final preferences = await SharedPreferences.getInstance();
             await preferences.remove(_pendingJobKey(sourcePostId));
-            return http.Response(
-              jsonEncode({'error': 'analysis_cancelled'}),
-              409,
-            );
+            return _jsonResponse({'error': 'analysis_cancelled'}, 409);
           }
         }
       } else if (response.statusCode == 404) {
@@ -334,6 +330,14 @@ class AiPostAnalysisService implements PostAnalysisService {
       await Future<void>.delayed(const Duration(seconds: 3));
     }
     throw const AnalysisPendingException();
+  }
+
+  http.Response _jsonResponse(Object? value, int statusCode) {
+    return http.Response.bytes(
+      utf8.encode(jsonEncode(value)),
+      statusCode,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+    );
   }
 
   Future<PostAnalysisResponse> _fallbackWithPreview(
