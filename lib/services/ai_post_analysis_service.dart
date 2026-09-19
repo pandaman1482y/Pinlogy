@@ -137,19 +137,35 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (decoded is! Map<String, dynamic>) {
         return _asFallback(local, analysisSource: 'invalid_response_fallback');
       }
-      var fetchedPreviewPaths = await _savePreviewImages(
-        request.sourcePostId,
-        decoded,
-      );
-      // 非同期ジョブ結果に0〜1枚しか残っていない場合も、URLから全画像を
-      // 再取得する。Bright Data側で9枚解決済みでも、DB応答サイズや一時的な
-      // CDN失敗で一部だけ端末へ届くケースを1枚成功扱いにしない。
-      if (fetchedPreviewPaths.length <= 1) {
-        final refreshed = await fetchSocialPostPreviews(request);
-        if (refreshed.length > fetchedPreviewPaths.length) {
-          fetchedPreviewPaths = refreshed;
+      // 画像処理の失敗で、完成済みのレシピ結果を破棄しない。
+      var fetchedPreviewPaths = <String>[];
+      try {
+        fetchedPreviewPaths = await _savePreviewImages(
+          request.sourcePostId,
+          decoded,
+        );
+
+        final sharedMedia = decoded['shared_media'];
+        final isVideoWithoutImages =
+            sharedMedia is Map &&
+            sharedMedia['is_photo_post'] == false &&
+            fetchedPreviewPaths.isEmpty;
+
+        // TikTok動画は画像0件が正常。通知後の不要な画像再取得を行わない。
+        if (!isVideoWithoutImages && fetchedPreviewPaths.length <= 1) {
+          final refreshed = await fetchSocialPostPreviews(request);
+          if (refreshed.length > fetchedPreviewPaths.length) {
+            fetchedPreviewPaths = refreshed;
+          }
         }
+      } catch (error, stackTrace) {
+        debugPrint('ai_analysis_preview_failed: $error');
+        debugPrintStack(
+          label: 'ai_analysis_preview_failed',
+          stackTrace: stackTrace,
+        );
       }
+
       final analysisImagePaths = {
         ...encodedImages.sourcePaths,
         ...fetchedPreviewPaths,
