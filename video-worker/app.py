@@ -2,10 +2,11 @@ import base64
 import hmac
 import io
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Header, HTTPException
 from openai import OpenAI
@@ -51,6 +52,15 @@ def _allowed_tiktok_media_url(raw: str) -> bool:
     try:
         parsed = urlparse(raw)
         host = (parsed.hostname or "").lower()
+        if host == "api.apify.com":
+            return (
+                parsed.scheme == "https"
+                and re.fullmatch(
+                    r"/v2/key-value-stores/[A-Za-z0-9_-]{8,128}/records/[^/]+",
+                    parsed.path,
+                ) is not None
+                and "signature" in parse_qs(parsed.query)
+            )
         allowed_suffixes = (
             "tiktok.com",
             "tiktokcdn.com",

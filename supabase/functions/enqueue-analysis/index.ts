@@ -48,6 +48,7 @@ Deno.serve(async (request) => {
     delete payload.notification_token;
     delete payload.notification_enabled;
     delete payload.__bright_data_tiktok;
+    delete payload.__apify_tiktok;
     delete payload.tiktok_external_post;
 
     const db = adminClient();
@@ -349,19 +350,21 @@ async function processJob(jobId: string) {
   }
 }
 
-type TikTokSnapshotState = {
-  snapshot_id: string;
+type TikTokApifyState = {
+  run_id: string;
+  store_id: string;
   attempt: number;
   started_at: string;
 };
 
 type TikTokExternalPost = {
+  videoUrl: string;
   description: string;
   title: string;
 };
 
-// Bright Dataの開始・進捗確認を別々のEdge Function実行へ分割する。
-// 1回の実行ではAPIを1回だけ呼び、未完了ならDBへ状態を戻して終了する。
+// ApifyのActor開始・進捗確認を別々のEdge Function実行へ分割する。
+// 完了後は署名付きMP4 URLと投稿文をanalyze-postへ渡す。
 async function prepareTikTokPayload(
   jobId: string,
   requestValue: unknown,
@@ -370,112 +373,165 @@ async function prepareTikTokPayload(
     ? { ...(requestValue as Record<string, unknown>) }
     : {};
   const rawUrl = String(request.url ?? "").trim();
-  const state = readTikTokSnapshotState(request.__bright_data_tiktok);
-  // URL展開はsnapshot開始時の1回だけ行う。進捗確認のたびに短縮URLを
+  const state = readTikTokApifyState(request.__apify_tiktok);
+  // URL展開はActor開始時の1回だけ行う。進捗確認のたびに短縮URLを
   // 再解決すると不要な通信とログが増える。
   const tiktokUrl = state == null ? await resolveTikTokVideoUrl(rawUrl) : null;
   if (state == null && tiktokUrl == null) return request;
 
-  const token = requiredEnv("BRIGHT_DATA_API_TOKEN");
+  const token = requiredEnv("APIFY_API_TOKEN");
   if (state == null) {
-    const snapshotId = await triggerTikTokSnapshot(tiktokUrl!, token);
-    const nextState: TikTokSnapshotState = {
-      snapshot_id: snapshotId,
+    const storeId = await createApifyVideoStore(token);
+    const runId = await triggerApifyTikTokRun(tiktokUrl!, storeId, token);
+    const nextState: TikTokApifyState = {
+      run_id: runId,
+      store_id: storeId,
       attempt: 0,
       started_at: new Date().toISOString(),
     };
-    request.__bright_data_tiktok = nextState;
-    console.info("async_tiktok_snapshot_started", jobId, snapshotId);
-    await requeueTikTokSnapshot(jobId, request, 5_000);
+    delete request.__bright_data_tiktok;
+    request.__apify_tiktok = nextState;
+    console.info("async_tiktok_apify_started", jobId, runId);
+    await requeueTikTokApify(jobId, request, 5_000);
     return null;
   }
 
   const elapsed = Date.now() - Date.parse(state.started_at);
   if (state.attempt >= 60 || !Number.isFinite(elapsed) || elapsed > 10 * 60_000) {
-    throw new Error("bright_data_tiktok_snapshot_timeout");
+    throw new Error("apify_tiktok_run_timeout");
   }
 
-  const progress = await fetch(
-    `https://api.brightdata.com/datasets/v3/progress/${encodeURIComponent(state.snapshot_id)}`,
+  const progress = await apifyFetch(
+    `https://api.apify.com/v2/actor-runs/${encodeURIComponent(state.run_id)}`,
+    token,
     {
-      headers: { "Authorization": `Bearer ${token}` },
       signal: AbortSignal.timeout(12_000),
     },
   );
   if (!progress.ok) {
-    console.warn("async_tiktok_progress_failed", jobId, progress.status);
-    request.__bright_data_tiktok = { ...state, attempt: state.attempt + 1 };
-    await requeueTikTokSnapshot(jobId, request, 10_000);
+    console.warn("async_tiktok_apify_progress_failed", jobId, progress.status);
+    request.__apify_tiktok = { ...state, attempt: state.attempt + 1 };
+    await requeueTikTokApify(jobId, request, 10_000);
     return null;
   }
 
   const progressJson = await progress.json();
-  const status = String(progressJson?.status ?? "").toLowerCase();
-  if (status === "failed") {
+  const status = String(progressJson?.data?.status ?? "").toUpperCase();
+  if (["FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
     throw new Error(
-      `bright_data_tiktok_snapshot_failed:${String(progressJson?.error_message ?? "unknown").slice(0, 300)}`,
+      `apify_tiktok_run_failed:${status || "unknown"}`,
     );
   }
-  if (status !== "ready") {
-    request.__bright_data_tiktok = { ...state, attempt: state.attempt + 1 };
+  if (status !== "SUCCEEDED") {
+    request.__apify_tiktok = { ...state, attempt: state.attempt + 1 };
     console.info(
-      "async_tiktok_snapshot_waiting",
+      "async_tiktok_apify_waiting",
       jobId,
       `attempt=${state.attempt + 1}`,
-      `status=${status || "unknown"}`,
+      `status=${status || "UNKNOWN"}`,
     );
-    await requeueTikTokSnapshot(jobId, request, 10_000);
+    await requeueTikTokApify(jobId, request, 10_000);
     return null;
   }
 
-  const snapshot = await fetch(
-    `https://api.brightdata.com/datasets/v3/snapshot/${encodeURIComponent(state.snapshot_id)}?format=json`,
+  const datasetId = String(progressJson?.data?.defaultDatasetId ?? "").trim();
+  if (!isApifyId(datasetId)) throw new Error("apify_tiktok_dataset_missing");
+  const dataset = await apifyFetch(
+    `https://api.apify.com/v2/datasets/${encodeURIComponent(datasetId)}/items?clean=true&format=json&limit=10`,
+    token,
     {
-      headers: { "Authorization": `Bearer ${token}` },
       signal: AbortSignal.timeout(20_000),
     },
   );
-  if (!snapshot.ok) {
-    throw new Error(`bright_data_tiktok_snapshot_http_${snapshot.status}`);
+  if (!dataset.ok) {
+    throw new Error(`apify_tiktok_dataset_http_${dataset.status}`);
   }
-  const external = parseTikTokSnapshot(await snapshot.json());
-  if (external == null) throw new Error("bright_data_tiktok_snapshot_invalid");
+  const videoUrl = await resolveApifyVideoUrl(state.store_id, rawUrl, token);
+  const external = parseApifyTikTokPost(await dataset.json(), rawUrl, videoUrl);
+  if (external == null) throw new Error("apify_tiktok_result_invalid");
 
+  delete request.__apify_tiktok;
   delete request.__bright_data_tiktok;
   request.tiktok_external_post = external;
   console.info(
-    "async_tiktok_snapshot_ready",
+    "async_tiktok_apify_ready",
     jobId,
     `caption=${external.description.length}`,
+    "video=true",
   );
   return request;
 }
 
-async function triggerTikTokSnapshot(rawUrl: string, token: string) {
-  const endpoint = new URL("https://api.brightdata.com/datasets/v3/trigger");
-  endpoint.searchParams.set("dataset_id", "gd_lu702nij2f790tmv9h");
-  endpoint.searchParams.set("include_errors", "true");
-  const response = await fetch(endpoint, {
+async function createApifyVideoStore(token: string) {
+  const response = await apifyFetch("https://api.apify.com/v2/key-value-stores", token, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([{ url: rawUrl }]),
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
-    throw new Error(`bright_data_tiktok_trigger_http_${response.status}`);
-  }
+  if (!response.ok) throw new Error(`apify_store_create_http_${response.status}`);
   const decoded = await response.json();
-  const snapshotId = String(decoded?.snapshot_id ?? "").trim();
-  if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) {
-    throw new Error("bright_data_tiktok_snapshot_missing");
-  }
-  return snapshotId;
+  const storeId = String(decoded?.data?.id ?? "").trim();
+  if (!isApifyId(storeId)) throw new Error("apify_store_id_missing");
+  return storeId;
 }
 
-async function requeueTikTokSnapshot(
+async function triggerApifyTikTokRun(
+  rawUrl: string,
+  storeId: string,
+  token: string,
+) {
+  const response = await apifyFetch(
+    "https://api.apify.com/v2/acts/clockworks~tiktok-scraper/runs",
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        postURLs: [rawUrl],
+        resultsPerPage: 1,
+        scrapeRelatedVideos: false,
+        shouldDownloadVideos: true,
+        videoKvStoreIdOrName: storeId,
+        downloadSubtitlesOptions: "NEVER_DOWNLOAD_SUBTITLES",
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!response.ok) throw new Error(`apify_tiktok_trigger_http_${response.status}`);
+  const decoded = await response.json();
+  const runId = String(decoded?.data?.id ?? "").trim();
+  if (!isApifyId(runId)) throw new Error("apify_tiktok_run_id_missing");
+  return runId;
+}
+
+async function resolveApifyVideoUrl(
+  storeId: string,
+  rawUrl: string,
+  token: string,
+) {
+  const videoId = /\/video\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
+  const response = await apifyFetch(
+    `https://api.apify.com/v2/key-value-stores/${encodeURIComponent(storeId)}/keys?limit=100`,
+    token,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  if (!response.ok) throw new Error(`apify_tiktok_keys_http_${response.status}`);
+  const decoded = await response.json();
+  const items = Array.isArray(decoded?.data?.items) ? decoded.data.items : [];
+  const record = items.find((value: unknown) => {
+    if (value == null || typeof value !== "object") return false;
+    const key = String((value as Record<string, unknown>).key ?? "");
+    return key.endsWith(".mp4") && (!videoId || key.includes(videoId));
+  }) as Record<string, unknown> | undefined;
+  const publicUrl = String(record?.recordPublicUrl ?? "").trim();
+  if (!isAllowedApifyRecordUrl(publicUrl, storeId)) {
+    throw new Error("apify_tiktok_video_missing");
+  }
+  return publicUrl;
+}
+
+async function requeueTikTokApify(
   jobId: string,
   requestJson: Record<string, unknown>,
   delayMs: number,
@@ -490,7 +546,7 @@ async function requeueTikTokSnapshot(
     .eq("status", "processing")
     .select("id")
     .maybeSingle();
-  if (error) throw new Error(`async_tiktok_requeue_failed:${error.message}`);
+  if (error) throw new Error(`async_tiktok_apify_requeue_failed:${error.message}`);
   if (data == null) return;
   EdgeRuntime.waitUntil(dispatchJobAfter(jobId, delayMs));
 }
@@ -500,33 +556,68 @@ async function dispatchJobAfter(jobId: string, delayMs: number) {
   await dispatchJob(jobId);
 }
 
-function readTikTokSnapshotState(value: unknown): TikTokSnapshotState | null {
+function readTikTokApifyState(value: unknown): TikTokApifyState | null {
   if (value == null || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  const snapshotId = String(record.snapshot_id ?? "").trim();
+  const runId = String(record.run_id ?? "").trim();
+  const storeId = String(record.store_id ?? "").trim();
   const attempt = Number(record.attempt ?? 0);
   const startedAt = String(record.started_at ?? "");
-  if (!/^[A-Za-z0-9_-]{8,128}$/.test(snapshotId)) return null;
+  if (!isApifyId(runId) || !isApifyId(storeId)) return null;
   if (!Number.isInteger(attempt) || attempt < 0 || attempt > 60) return null;
   if (!Number.isFinite(Date.parse(startedAt))) return null;
-  return { snapshot_id: snapshotId, attempt, started_at: startedAt };
+  return { run_id: runId, store_id: storeId, attempt, started_at: startedAt };
 }
 
-function parseTikTokSnapshot(decoded: unknown): TikTokExternalPost | null {
+function parseApifyTikTokPost(
+  decoded: unknown,
+  rawUrl: string,
+  videoUrl: string,
+): TikTokExternalPost | null {
   const rows = Array.isArray(decoded) ? decoded : [decoded];
-  const row = rows.find((value) => value != null && typeof value === "object");
+  const videoId = /\/video\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
+  const row = rows.find((value) => {
+    if (value == null || typeof value !== "object") return false;
+    const record = value as Record<string, unknown>;
+    const webVideoUrl = String(record.webVideoUrl ?? record.web_video_url ?? "");
+    return !videoId || webVideoUrl.includes(videoId);
+  });
   if (row == null || typeof row !== "object") return null;
   const record = row as Record<string, unknown>;
   const description = String(
     record.description ?? record.caption ?? record.post_text ?? record.text ?? "",
   ).trim().slice(0, 12_000);
   const creator = String(
-    record.profile_username ?? record.author_name ?? record.nickname ?? "",
+    record["authorMeta.name"] ?? record.profile_username ??
+      record.author_name ?? record.nickname ?? "",
   ).trim();
   return {
+    videoUrl,
     description,
     title: creator ? `TikTok @${creator}` : "TikTok投稿",
   };
+}
+
+function isApifyId(value: string) {
+  return /^[A-Za-z0-9_-]{8,128}$/.test(value);
+}
+
+function isAllowedApifyRecordUrl(rawUrl: string, storeId: string) {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" && url.hostname === "api.apify.com" &&
+      url.pathname.startsWith(
+        `/v2/key-value-stores/${encodeURIComponent(storeId)}/records/`,
+      ) && url.searchParams.has("signature");
+  } catch {
+    return false;
+  }
+}
+
+function apifyFetch(url: string, token: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
 }
 
 async function resolveTikTokVideoUrl(

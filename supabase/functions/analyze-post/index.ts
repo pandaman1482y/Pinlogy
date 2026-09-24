@@ -468,10 +468,16 @@ type ExternalTikTokPost = {
 function externalTikTokPostFromInput(value: unknown): ExternalTikTokPost | null {
   if (value == null || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
+  const candidateVideoUrl = String(
+    record.video_url ?? record.videoUrl ?? "",
+  ).trim();
+  const videoUrl = isAllowedTikTokVideoUrl(candidateVideoUrl)
+    ? candidateVideoUrl
+    : "";
   const description = String(record.description ?? "").trim().slice(0, 12_000);
   const title = String(record.title ?? "TikTok投稿").trim().slice(0, 1000) ||
     "TikTok投稿";
-  return { videoUrl: "", description, title };
+  return { videoUrl, description, title };
 }
 
 async function fetchVideoEvidence(
@@ -491,8 +497,8 @@ async function fetchVideoEvidence(
   if (!likelyVideo) return null;
   const isTikTok = source.hostname.toLowerCase() === "tiktok.com" ||
     source.hostname.toLowerCase().endsWith(".tiktok.com");
-  // Bright DataはTikTokへのISPプロキシ経由の直接アクセスを許可していない。
-  // 公式Posts Scraperで署名付き動画URLを取得し、そのURLだけをワーカーへ渡す。
+  // enqueue-analysisがApifyへ保存したMP4の署名付きURLを受け取り、
+  // TikTok CDNへ直接アクセスせずCloud Runでフレームと音声を抽出する。
   const externalTikTok = isTikTok ? suppliedTikTok : null;
   if (isTikTok) {
     if (externalTikTok == null) {
@@ -502,14 +508,17 @@ async function fetchVideoEvidence(
     console.info(
       "tiktok_external_evidence_resolved",
       `caption=${externalTikTok.description.length}`,
+      `video=${externalTikTok.videoUrl.length > 0}`,
     );
-    return {
-      duration_seconds: 0,
-      transcript: "",
-      source_title: externalTikTok.title,
-      source_description: externalTikTok.description,
-      frames: [],
-    };
+    if (!externalTikTok.videoUrl) {
+      return {
+        duration_seconds: 0,
+        transcript: "",
+        source_title: externalTikTok.title,
+        source_description: externalTikTok.description,
+        frames: [],
+      };
+    }
   }
   const workerUrl = (Deno.env.get("VIDEO_WORKER_URL") ?? "").trim();
   const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();
@@ -710,6 +719,11 @@ function isAllowedTikTokVideoUrl(rawUrl: string) {
     const url = new URL(rawUrl);
     if (url.protocol !== "https:") return false;
     const host = url.hostname.toLowerCase();
+    if (host === "api.apify.com") {
+      return /^\/v2\/key-value-stores\/[A-Za-z0-9_-]{8,128}\/records\/[^/]+$/.test(
+        url.pathname,
+      ) && url.searchParams.has("signature");
+    }
     return [
       "tiktok.com",
       "tiktokcdn.com",
