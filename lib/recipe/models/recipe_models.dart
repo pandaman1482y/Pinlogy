@@ -612,8 +612,7 @@ class RecipeCollection {
         id: json['id']?.toString(),
         name: json['name']?.toString() ?? 'コレクション',
         recipeIds: _strings(json['recipeIds']),
-        isFavoriteCollection:
-            json['isFavoriteCollection'] as bool? ?? false,
+        isFavoriteCollection: json['isFavoriteCollection'] as bool? ?? false,
       );
 }
 
@@ -719,14 +718,13 @@ class RecipeFeedback {
     'createdAt': createdAt.toIso8601String(),
   };
 
-  factory RecipeFeedback.fromJson(Map<String, dynamic> json) =>
-      RecipeFeedback(
-        id: json['id']?.toString(),
-        recipeId: json['recipeId']?.toString() ?? '',
-        type: json['type']?.toString() ?? 'その他',
-        comment: json['comment']?.toString(),
-        createdAt: _date(json['createdAt']) ?? DateTime.now(),
-      );
+  factory RecipeFeedback.fromJson(Map<String, dynamic> json) => RecipeFeedback(
+    id: json['id']?.toString(),
+    recipeId: json['recipeId']?.toString() ?? '',
+    type: json['type']?.toString() ?? 'その他',
+    comment: json['comment']?.toString(),
+    createdAt: _date(json['createdAt']) ?? DateTime.now(),
+  );
 }
 
 class AllergySettings {
@@ -808,10 +806,7 @@ class RecipeSnapshot {
   );
 }
 
-List<T> _mapList<T>(
-  dynamic value,
-  T Function(Map<String, dynamic>) convert,
-) {
+List<T> _mapList<T>(dynamic value, T Function(Map<String, dynamic>) convert) {
   if (value is! List) return <T>[];
   return value
       .whereType<Map>()
@@ -820,12 +815,14 @@ List<T> _mapList<T>(
 }
 
 List<String> _strings(dynamic value) => value is List
-    ? value.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+    ? value
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList()
     : <String>[];
 
-DateTime? _date(dynamic value) => value == null
-    ? null
-    : DateTime.tryParse(value.toString());
+DateTime? _date(dynamic value) =>
+    value == null ? null : DateTime.tryParse(value.toString());
 
 String _practicalAmount(double value, String? unit) {
   if (value <= 0) return '0';
@@ -837,9 +834,15 @@ String _practicalAmount(double value, String? unit) {
   final whole = value.floor();
   final fraction = value - whole;
   final candidates = <double, String>{
-    0.25: '¼',
-    0.5: '½',
-    0.75: '¾',
+    1 / 8: '1/8',
+    1 / 6: '1/6',
+    1 / 4: '1/4',
+    1 / 3: '1/3',
+    1 / 2: '1/2',
+    2 / 3: '2/3',
+    3 / 4: '3/4',
+    5 / 6: '5/6',
+    7 / 8: '7/8',
   };
   var closest = candidates.keys.first;
   for (final candidate in candidates.keys) {
@@ -847,8 +850,14 @@ String _practicalAmount(double value, String? unit) {
       closest = candidate;
     }
   }
-  if (fraction < 0.125) return '$whole';
-  if (fraction > 0.875) return '${whole + 1}';
-  final mark = candidates[closest]!;
-  return whole == 0 ? mark : '$whole$mark';
+  if (fraction < 0.04) return '$whole';
+  if (fraction > 0.96) return '${whole + 1}';
+  if ((fraction - closest).abs() <= 0.035) {
+    final fractionText = candidates[closest]!;
+    return whole == 0 ? fractionText : '$whole $fractionText';
+  }
+
+  // 料理で一般的な分数から離れた値は、無理に丸めず小数で表示する。
+  final decimal = value.toStringAsFixed(2);
+  return decimal.replaceFirst(RegExp(r'\.?0+$'), '');
 }
