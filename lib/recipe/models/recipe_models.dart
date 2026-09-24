@@ -138,7 +138,12 @@ class RecipeIngredient {
     }
     final scaled = amount! * multiplier;
     final value = _practicalAmount(scaled, unit);
-    return unit?.trim().isNotEmpty == true ? '$value${unit!.trim()}' : value;
+    final unitText = unit?.trim() ?? '';
+    if (unitText.isEmpty) return value;
+    const prefixUnits = {'大さじ', '小さじ', 'カップ'};
+    return prefixUnits.contains(unitText)
+        ? '$unitText$value'
+        : '$value$unitText';
   }
 
   RecipeIngredient copyWith({
@@ -854,7 +859,7 @@ String _practicalAmount(double value, String? unit) {
   if (fraction > 0.96) return '${whole + 1}';
   if ((fraction - closest).abs() <= 0.035) {
     final fractionText = candidates[closest]!;
-    return whole == 0 ? fractionText : '$whole $fractionText';
+    return whole == 0 ? fractionText : '$wholeと$fractionText';
   }
 
   // 料理で一般的な分数から離れた値は、無理に丸めず小数で表示する。
