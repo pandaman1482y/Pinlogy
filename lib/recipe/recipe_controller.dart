@@ -343,7 +343,9 @@ class RecipeController extends ChangeNotifier {
               )?.replaceAll('author_comment', 'authorComment'),
             ),
             label: _text(record, 'label') ?? '根拠 ${index + 1}',
-            imagePath: _coverFor(post, imageIndex),
+            // 投稿文や音声の根拠に代表画像を紐づけない。
+            // 画像番号がある根拠だけを工程画像として扱う。
+            imagePath: imageIndex == null ? null : _coverFor(post, imageIndex),
             timestampSeconds: _integer(
               record,
               'timestamp_seconds',

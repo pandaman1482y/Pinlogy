@@ -64,7 +64,18 @@ class _CookingModePageState extends State<CookingModePage> {
     _index = _index.clamp(0, entries.length - 1).toInt();
     final entry = entries[_index];
     final ingredients = _ingredientsFor(entry.part, entry.step);
-    final imagePath = _imageFor(recipe, entry.step);
+    final sourceImages = controller.legacy.hub.snapshot.sourcePosts
+        .where((post) => post.id == recipe.sourcePostId)
+        .expand((post) => post.imagePaths)
+        .where((path) => path.trim().isNotEmpty)
+        .toList(growable: false);
+    final imagePath = _imageFor(
+      recipe,
+      entry.step,
+      sourceImages,
+      stepIndex: _index,
+      stepCount: entries.length,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -266,12 +277,27 @@ class _CookingModePageState extends State<CookingModePage> {
         : part.ingredients.take(4).toList(growable: false);
   }
 
-  String? _imageFor(Recipe recipe, RecipeStep step) {
+  String? _imageFor(
+    Recipe recipe,
+    RecipeStep step,
+    List<String> sourceImages, {
+    required int stepIndex,
+    required int stepCount,
+  }) {
     for (final evidence in recipe.evidence) {
       if (evidence.id == step.evidenceId &&
+          (evidence.kind == EvidenceKind.image ||
+              evidence.kind == EvidenceKind.video) &&
           evidence.imagePath?.isNotEmpty == true) {
         return evidence.imagePath;
       }
+    }
+    if (sourceImages.isNotEmpty) {
+      final imageIndex = stepCount <= 1
+          ? 0
+          : (stepIndex * (sourceImages.length - 1) / (stepCount - 1)).round();
+      final boundedIndex = imageIndex.clamp(0, sourceImages.length - 1).toInt();
+      return sourceImages[boundedIndex];
     }
     return recipe.coverImagePath;
   }
