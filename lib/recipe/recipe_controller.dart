@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../app/pinlogy_controller.dart';
 import '../models/enums.dart';
 import '../models/source_post.dart';
+import '../services/ai_post_analysis_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 import 'data/recipe_store.dart';
@@ -84,6 +85,40 @@ class RecipeController extends ChangeNotifier {
   bool get notificationsEnabled => PinlogyNotificationService.instance.enabled;
   bool get notificationsReady =>
       PinlogyNotificationService.instance.firebaseReady;
+
+  bool get cookingAssistantAvailable =>
+      legacy.analysisService is AiPostAnalysisService &&
+      AiPostAnalysisService.backendConfigured;
+
+  Future<String> askCookingAssistant({
+    required Recipe recipe,
+    required RecipePart part,
+    required RecipeStep step,
+    required List<RecipeIngredient> ingredients,
+    required double multiplier,
+    required String question,
+    String? imagePath,
+  }) {
+    final service = legacy.analysisService;
+    if (service is! AiPostAnalysisService) {
+      throw StateError('AI機能が設定されていません');
+    }
+    return service.askCookingAssistant(
+      recipeTitle: recipe.title,
+      partName: part.name,
+      instruction: step.instruction,
+      ingredients: ingredients
+          .map(
+            (ingredient) => {
+              'name': ingredient.name,
+              'quantity': ingredient.quantityFor(multiplier),
+            },
+          )
+          .toList(growable: false),
+      question: question,
+      imagePath: imagePath,
+    );
+  }
 
   Future<void> initialize() async {
     loading = true;

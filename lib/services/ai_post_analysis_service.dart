@@ -35,6 +35,60 @@ class AiPostAnalysisService implements PostAnalysisService {
   static bool get backendConfigured =>
       _url.startsWith('https://') && _key.isNotEmpty;
 
+  Future<String> askCookingAssistant({
+    required String recipeTitle,
+    required String partName,
+    required String instruction,
+    required List<Map<String, String>> ingredients,
+    required String question,
+    String? imagePath,
+  }) async {
+    if (!backendConfigured) throw StateError('AI機能が設定されていません');
+    if (!await AiAnalysisConsent().hasConsented()) {
+      throw StateError('AI機能を使うにはAI解析への同意が必要です');
+    }
+    final trimmedQuestion = question.trim();
+    if (trimmedQuestion.isEmpty) throw ArgumentError('質問を入力してください');
+    final encodedImages = imagePath == null
+        ? const _EncodedImages(dataUrls: [], sourcePaths: [])
+        : await _readImages([imagePath]);
+    final uri = Uri.parse(
+      '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
+    );
+    final response = await _client
+        .post(
+          uri,
+          headers: {
+            'Authorization': 'Bearer $_key',
+            'apikey': _key,
+            'Content-Type': 'application/json',
+            'X-Pinlogy-Device': await _deviceId(),
+          },
+          body: jsonEncode({
+            'action': 'cooking_assistant',
+            'recipe_title': recipeTitle,
+            'part_name': partName,
+            'instruction': instruction,
+            'ingredients': ingredients,
+            'question': trimmedQuestion,
+            'image_data_urls': encodedImages.dataUrls.take(1).toList(),
+          }),
+        )
+        .timeout(const Duration(seconds: 35));
+    if (response.statusCode == 429) {
+      throw StateError('本日のAI利用上限に達しました');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('AIから回答を取得できませんでした');
+    }
+    final decoded = jsonDecode(response.body);
+    final answer = decoded is Map ? decoded['answer']?.toString().trim() : null;
+    if (answer == null || answer.isEmpty) {
+      throw StateError('AIから回答を取得できませんでした');
+    }
+    return answer;
+  }
+
   @override
   Future<PostAnalysisResponse> analyze(PostAnalysisRequest request) async {
     final local = await fallback.analyze(request);

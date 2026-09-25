@@ -224,7 +224,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                           ? null
                           : () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
-                                  builder: (_) => CookingModePage(recipeId: recipe.id),
+                                  builder: (_) => CookingModePage(
+                                    recipeId: recipe.id,
+                                    multiplier: multiplier,
+                                  ),
                                 ),
                               ),
                       icon: const Icon(Icons.soup_kitchen_rounded),

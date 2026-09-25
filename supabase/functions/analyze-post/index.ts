@@ -11,6 +11,9 @@ Deno.serve(async (request) => {
   let quotaReserved = false;
   try {
     const input = await request.json();
+    if (input.action === "cooking_assistant") {
+      return await answerCookingQuestion(request, input);
+    }
     const sourcePostId = String(input.source_post_id ?? "");
     if (!sourcePostId) return reply({ error: "invalid_request" }, 400);
     const sharedPage = await enrichSharedUrl(
@@ -243,6 +246,85 @@ Deno.serve(async (request) => {
     return reply({ error: "analysis_failed" }, 500);
   }
 });
+
+async function answerCookingQuestion(
+  request: Request,
+  input: Record<string, unknown>,
+) {
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) return reply({ error: "ai_not_configured" }, 503);
+  const deviceId = request.headers.get("x-pinlogy-device") ?? "";
+  if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
+    return reply({ error: "device_id_required" }, 400);
+  }
+  const question = String(input.question ?? "").trim().slice(0, 500);
+  const instruction = String(input.instruction ?? "").trim().slice(0, 1500);
+  if (!question || !instruction) return reply({ error: "invalid_request" }, 400);
+  if (!await consumeQuota(deviceId)) {
+    return reply({ error: "daily_limit_reached" }, 429);
+  }
+
+  const ingredients = Array.isArray(input.ingredients)
+    ? input.ingredients.slice(0, 20)
+    : [];
+  const content: Array<Record<string, unknown>> = [{
+    type: "input_text",
+    text: [
+      `料理名: ${String(input.recipe_title ?? "").slice(0, 300)}`,
+      `現在のパート: ${String(input.part_name ?? "").slice(0, 300)}`,
+      `現在の工程: ${instruction}`,
+      `表示中の材料: ${JSON.stringify(ingredients)}`,
+      `質問: ${question}`,
+    ].join("\n"),
+  }];
+  const images = validImages(input.image_data_urls).slice(0, 1);
+  if (images[0]) {
+    content.push({ type: "input_image", image_url: images[0], detail: "high" });
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_COOKING_MODEL") ??
+          Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
+        store: false,
+        reasoning: { effort: "low" },
+        max_output_tokens: 500,
+        instructions:
+          "料理中のユーザーへ日本語で短く実用的に回答してください。現在の工程と材料を最優先し、回答は原則2〜5文にします。" +
+          "写真がある場合も、見た目だけで肉・魚・卵の安全性や中心までの加熱完了を断定しません。追加加熱、中心温度、肉汁など安全な確認方法を案内してください。" +
+          "腐敗やアレルギーの安全を保証しません。投稿にない分量・温度・時間を断定せず、必要なら目安であることを明記します。" +
+          "質問と無関係なレシピ全体の説明、長い前置き、過度な励ましは不要です。",
+        input: [{ role: "user", content }],
+        text: { verbosity: "low" },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      console.warn("cooking_assistant_failed", response.status);
+      await refundQuota(deviceId);
+      return reply({ error: "cooking_assistant_failed" }, 502);
+    }
+    const value = await response.json();
+    const output = value.output
+      ?.flatMap((item: { content?: unknown[] }) => item.content ?? [])
+      .find((part: { type?: string }) => part.type === "output_text") as
+      | { text?: string }
+      | undefined;
+    const answer = String(output?.text ?? "").trim();
+    if (!answer) {
+      await refundQuota(deviceId);
+      return reply({ error: "empty_ai_response" }, 502);
+    }
+    return reply({ answer: answer.slice(0, 2000) });
+  } catch (error) {
+    console.warn("cooking_assistant_failed", String(error));
+    await refundQuota(deviceId);
+    return reply({ error: "cooking_assistant_failed" }, 502);
+  }
+}
 
 function sharedMedia(sharedPage: SharedPage | null, images: string[]) {
   if (sharedPage == null) return null;

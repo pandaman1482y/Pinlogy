@@ -1,16 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 
 class CookingModePage extends StatefulWidget {
-  const CookingModePage({super.key, required this.recipeId});
-
+  const CookingModePage({
+    super.key,
+    required this.recipeId,
+    this.multiplier = 1,
+  });
   final String recipeId;
+  final double multiplier;
 
   @override
   State<CookingModePage> createState() => _CookingModePageState();
@@ -35,12 +41,10 @@ class _CookingModePageState extends State<CookingModePage> {
     super.dispose();
   }
 
-  Future<void> _setAwake(bool value) async {
+  Future<void> _setAwake(bool enabled) async {
     try {
-      await _channel.invokeMethod<void>('setAwake', {'enabled': value});
-    } catch (_) {
-      // Unsupported platforms simply use the normal screen timeout.
-    }
+      await _channel.invokeMethod<void>('setAwake', {'enabled': enabled});
+    } catch (_) {}
   }
 
   @override
@@ -50,15 +54,17 @@ class _CookingModePageState extends State<CookingModePage> {
     if (recipe == null) {
       return const Scaffold(body: Center(child: Text('レシピが見つかりません')));
     }
-    final entries = <({String part, RecipeStep step})>[
+    final entries = <({RecipePart part, RecipeStep step})>[
       for (final part in recipe.parts)
-        for (final step in part.steps) (part: part.name, step: step),
+        for (final step in part.steps) (part: part, step: step),
     ];
     if (entries.isEmpty) {
       return const Scaffold(body: Center(child: Text('工程が登録されていません')));
     }
-    if (_index >= entries.length) _index = entries.length - 1;
+    _index = _index.clamp(0, entries.length - 1).toInt();
     final entry = entries[_index];
+    final ingredients = _ingredientsFor(entry.part, entry.step);
+    final imagePath = _imageFor(recipe, entry.step);
 
     return Scaffold(
       appBar: AppBar(
@@ -69,77 +75,327 @@ class _CookingModePageState extends State<CookingModePage> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              LinearProgressIndicator(
-                value: (_index + 1) / entries.length,
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(99),
-                backgroundColor: mint,
-              ),
-              const SizedBox(height: 24),
-              Text(entry.part, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: mossDeep)),
-              const SizedBox(height: 8),
-              Text('STEP ${_index + 1}', style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 24),
-              Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    child: Text(
-                      entry.step.instruction,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineLarge?.copyWith(height: 1.5),
-                    ),
-                  ),
-                ),
-              ),
-              if (entry.step.durationSeconds != null) ...[
-                _TimerPanel(
-                  seconds: _remaining ?? entry.step.durationSeconds!,
-                  running: _timer?.isActive == true,
-                  onToggle: () => _toggleTimer(entry.step.durationSeconds!),
-                  onReset: () => _resetTimer(entry.step.durationSeconds!),
-                ),
-                const SizedBox(height: 18),
-              ],
-              Row(
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final compact = box.maxHeight < 650;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  LinearProgressIndicator(
+                    value: (_index + 1) / entries.length,
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(99),
+                    backgroundColor: mint,
+                  ),
+                  SizedBox(height: compact ? 8 : 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              entry.part.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: mossDeep),
+                            ),
+                            Text('STEP ${_index + 1}', style: Theme.of(context).textTheme.headlineSmall),
+                          ],
+                        ),
+                      ),
+                      if (entry.step.durationSeconds != null)
+                        _InfoChip(label: _durationLabel(entry.step.durationSeconds!)),
+                    ],
+                  ),
+                  SizedBox(height: compact ? 7 : 10),
+                  if (imagePath != null) ...[
+                    SizedBox(
+                      height: compact ? 88 : 128,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: _CookingImage(path: imagePath),
+                      ),
+                    ),
+                    SizedBox(height: compact ? 7 : 10),
+                  ],
+                  if (ingredients.isNotEmpty) ...[
+                    Text('使う材料', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 5,
+                      children: [
+                        for (final ingredient in ingredients)
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 9, vertical: compact ? 4 : 6),
+                            decoration: BoxDecoration(
+                              color: mintSoft,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Text(
+                              '${ingredient.name} ${ingredient.quantityFor(widget.multiplier)}',
+                              style: TextStyle(fontSize: compact ? 11 : 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                      ],
+                    ),
+                    SizedBox(height: compact ? 7 : 10),
+                  ],
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _index == 0 ? null : () => _move(-1, entries),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text('前へ'),
+                    child: Container(
+                      padding: EdgeInsets.all(compact ? 12 : 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F8F5),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: mint),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        entry.step.instruction,
+                        maxLines: compact ? 5 : 7,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          height: 1.45,
+                          fontSize: compact ? 18 : 21,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _index == entries.length - 1
-                          ? () async {
-                              await controller.recordCooked(recipe);
-                              if (context.mounted) Navigator.pop(context);
-                            }
-                          : () => _move(1, entries),
-                      icon: Icon(_index == entries.length - 1 ? Icons.check_rounded : Icons.arrow_forward_rounded),
-                      label: Text(_index == entries.length - 1 ? '完成' : '次へ'),
+                  if (entry.step.durationSeconds != null) ...[
+                    SizedBox(height: compact ? 7 : 9),
+                    _TimerPanel(
+                      seconds: _remaining ?? entry.step.durationSeconds!,
+                      running: _timer?.isActive == true,
+                      compact: compact,
+                      onToggle: () => _toggleTimer(entry.step.durationSeconds!),
+                      onReset: () => _resetTimer(entry.step.durationSeconds!),
                     ),
+                  ],
+                  SizedBox(height: compact ? 7 : 9),
+                  if (controller.cookingAssistantAvailable)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showAssistant(recipe, entry.part, entry.step, ingredients),
+                            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                            label: const Text('AIに聞く'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showAssistant(
+                              recipe,
+                              entry.part,
+                              entry.step,
+                              ingredients,
+                              withCamera: true,
+                            ),
+                            icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                            label: const Text('写真で確認'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  SizedBox(height: compact ? 7 : 9),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _index == 0 ? null : () => _move(-1, entries.length),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          label: const Text('前へ'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _index == entries.length - 1
+                              ? () async {
+                                  await controller.recordCooked(recipe);
+                                  if (context.mounted) Navigator.pop(context);
+                                }
+                              : () => _move(1, entries.length),
+                          icon: Icon(
+                            _index == entries.length - 1
+                                ? Icons.check_rounded
+                                : Icons.arrow_forward_rounded,
+                          ),
+                          label: Text(_index == entries.length - 1 ? '完成' : '次へ'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
   }
 
-  void _move(int amount, List<({String part, RecipeStep step})> entries) {
+  List<RecipeIngredient> _ingredientsFor(RecipePart part, RecipeStep step) {
+    final text = step.instruction.toLowerCase();
+    final matches = part.ingredients
+        .where((item) => text.contains(item.name.toLowerCase()))
+        .take(4)
+        .toList(growable: false);
+    return matches.isNotEmpty ? matches : part.ingredients.take(4).toList(growable: false);
+  }
+
+  String? _imageFor(Recipe recipe, RecipeStep step) {
+    for (final evidence in recipe.evidence) {
+      if (evidence.id == step.evidenceId && evidence.imagePath?.isNotEmpty == true) {
+        return evidence.imagePath;
+      }
+    }
+    return recipe.coverImagePath;
+  }
+
+  Future<void> _showAssistant(
+    Recipe recipe,
+    RecipePart part,
+    RecipeStep step,
+    List<RecipeIngredient> ingredients, {
+    bool withCamera = false,
+  }) async {
+    String? imagePath;
+    if (withCamera) {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        imageQuality: 72,
+        maxWidth: 1280,
+      );
+      if (image == null || !mounted) return;
+      imagePath = image.path;
+    }
+    if (!mounted) return;
+    final controller = RecipeScope.of(context);
+    final input = TextEditingController(
+      text: withCamera ? '写真を見て、今の状態から次にどうすればいい？' : '',
+    );
+    String? answer;
+    String? error;
+    var sending = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, update) {
+          Future<void> send() async {
+            if (sending || input.text.trim().isEmpty) return;
+            update(() {
+              sending = true;
+              error = null;
+            });
+            try {
+              final value = await controller.askCookingAssistant(
+                recipe: recipe,
+                part: part,
+                step: step,
+                ingredients: ingredients,
+                multiplier: widget.multiplier,
+                question: input.text,
+                imagePath: imagePath,
+              );
+              if (sheetContext.mounted) update(() => answer = value);
+            } catch (exception) {
+              if (sheetContext.mounted) {
+                update(() => error = exception.toString().replaceFirst('Bad state: ', ''));
+              }
+            } finally {
+              if (sheetContext.mounted) update(() => sending = false);
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.viewInsetsOf(context).bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('この工程をAIに相談', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text(step.instruction, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  if (imagePath != null) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 110,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(File(imagePath!), fit: BoxFit.cover),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      for (final value in const ['焼き加減はこれでいい？', '次はどうしたらいい？', '失敗したかも。直せる？'])
+                        ActionChip(label: Text(value), onPressed: () => input.text = value),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: input,
+                    autofocus: !withCamera,
+                    minLines: 2,
+                    maxLines: 4,
+                    maxLength: 500,
+                    decoration: const InputDecoration(
+                      hintText: 'ここ、どうしたらいい？',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (answer != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(14)),
+                      child: Text(answer!),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (error != null) ...[
+                    Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    const SizedBox(height: 8),
+                  ],
+                  FilledButton.icon(
+                    onPressed: sending ? null : send,
+                    icon: sending
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.auto_awesome_rounded),
+                    label: Text(sending ? '確認中…' : 'AIに聞く'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '写真だけでは肉や魚の加熱完了・安全性を断定できません。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    input.dispose();
+  }
+
+  void _move(int amount, int length) {
     _timer?.cancel();
     setState(() {
-      _index = (_index + amount).clamp(0, entries.length - 1).toInt();
+      _index = (_index + amount).clamp(0, length - 1).toInt();
       _remaining = null;
     });
   }
@@ -171,16 +427,54 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 }
 
+class _CookingImage extends StatelessWidget {
+  const _CookingImage({required this.path});
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final uri = Uri.tryParse(path);
+    if (uri?.scheme == 'https') {
+      return Image.network(path, fit: BoxFit.cover, errorBuilder: _error);
+    }
+    final local = uri?.scheme == 'file' ? uri!.toFilePath() : path;
+    return Image.file(File(local), fit: BoxFit.cover, errorBuilder: _error);
+  }
+
+  Widget _error(BuildContext context, Object error, StackTrace? stack) =>
+      const ColoredBox(color: mintSoft, child: Center(child: Icon(Icons.restaurant_rounded, size: 36)));
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(99)),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.timer_outlined, size: 17, color: mossDeep),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+      ],
+    ),
+  );
+}
+
 class _TimerPanel extends StatelessWidget {
   const _TimerPanel({
     required this.seconds,
     required this.running,
+    required this.compact,
     required this.onToggle,
     required this.onReset,
   });
-
   final int seconds;
   final bool running;
+  final bool compact;
   final VoidCallback onToggle;
   final VoidCallback onReset;
 
@@ -189,26 +483,38 @@ class _TimerPanel extends StatelessWidget {
     final minutes = seconds ~/ 60;
     final rest = seconds % 60;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 6 : 9),
       decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(16)),
       child: Row(
         children: [
           const Icon(Icons.timer_outlined, color: mossDeep),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               '$minutes:${rest.toString().padLeft(2, '0')}',
-              style: Theme.of(context).textTheme.headlineMedium,
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
           ),
-          IconButton(onPressed: onReset, tooltip: 'リセット', icon: const Icon(Icons.refresh_rounded)),
+          IconButton(
+            onPressed: onReset,
+            tooltip: 'リセット',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
           FilledButton.icon(
             onPressed: onToggle,
-            icon: Icon(running ? Icons.pause_rounded : Icons.play_arrow_rounded),
-            label: Text(running ? '一時停止' : '開始'),
+            icon: Icon(running ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 18),
+            label: Text(running ? '停止' : '開始'),
           ),
         ],
       ),
     );
   }
+}
+
+String _durationLabel(int seconds) {
+  if (seconds < 60) return '$seconds秒';
+  final minutes = seconds ~/ 60;
+  final rest = seconds % 60;
+  return rest == 0 ? '$minutes分' : '$minutes分$rest秒';
 }
