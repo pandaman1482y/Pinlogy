@@ -815,18 +815,24 @@ class _ReviewWarning extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: warningColor.withValues(alpha: 0.35)),
     ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    child: ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(left: 34, right: 4, bottom: 4),
+      leading: const Icon(Icons.warning_amber_rounded, color: warningColor),
+      title: const Text(
+        'AIが読み取れなかった箇所があります',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: const Text('タップして詳細を確認'),
       children: [
-        const Icon(Icons.warning_amber_rounded, color: warningColor),
-        const SizedBox(width: 10),
-        Expanded(
+        Align(
+          alignment: Alignment.centerLeft,
           child: Text(
             [
-              'AIが読み取れなかった箇所があります。元投稿と照合してください。',
+              '元投稿と照合してください。',
               ...recipe.warnings,
-              if (recipe.needsReviewFields.isNotEmpty)
-                '要確認: ${recipe.needsReviewFields.join('、')}',
+              ...recipe.needsReviewFields,
             ].join('\n'),
           ),
         ),

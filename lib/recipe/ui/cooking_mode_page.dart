@@ -594,12 +594,21 @@ class _StepIngredients extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  ingredients[index].quantityFor(multiplier),
-                  style: TextStyle(
-                    fontSize: compact ? 12 : 14,
-                    fontWeight: FontWeight.w700,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final quantity = ingredients[index]
+                        .quantityFor(multiplier)
+                        .trim();
+                    final missing = quantity.isEmpty;
+                    return Text(
+                      missing ? '分量不明' : quantity,
+                      style: TextStyle(
+                        fontSize: compact ? 12 : 14,
+                        fontWeight: FontWeight.w700,
+                        color: missing ? warningColor : ink,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
