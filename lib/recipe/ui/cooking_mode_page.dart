@@ -393,7 +393,7 @@ class _CookingModePageState extends State<CookingModePage> {
     if (!_voiceEnabled || !_speechReady || _speech.isListening) return;
     await _speech.listen(
       onResult: _handleSpeechResult,
-      listenOptions: const SpeechListenOptions(
+      listenOptions: SpeechListenOptions(
         localeId: 'ja_JP',
         listenFor: Duration(minutes: 2),
         pauseFor: Duration(seconds: 3),
