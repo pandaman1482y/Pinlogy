@@ -78,6 +78,9 @@ class _CookingModePageState extends State<CookingModePage> {
         child: LayoutBuilder(
           builder: (context, box) {
             final compact = box.maxHeight < 650;
+            final imageHeight = compact
+                ? 142.0
+                : (box.maxHeight * 0.34).clamp(190.0, 240.0).toDouble();
             return Padding(
               padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
               child: Column(
@@ -97,16 +100,16 @@ class _CookingModePageState extends State<CookingModePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
+                              'STEP ${_index + 1}',
+                              style: Theme.of(context).textTheme.headlineSmall,
+                            ),
+                            Text(
                               entry.part.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(
                                 context,
                               ).textTheme.labelLarge?.copyWith(color: mossDeep),
-                            ),
-                            Text(
-                              'STEP ${_index + 1}',
-                              style: Theme.of(context).textTheme.headlineSmall,
                             ),
                           ],
                         ),
@@ -120,7 +123,8 @@ class _CookingModePageState extends State<CookingModePage> {
                   SizedBox(height: compact ? 7 : 10),
                   if (imagePath != null) ...[
                     SizedBox(
-                      height: compact ? 88 : 128,
+                      height: imageHeight,
+                      width: double.infinity,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: _CookingImage(path: imagePath),
@@ -129,31 +133,10 @@ class _CookingModePageState extends State<CookingModePage> {
                     SizedBox(height: compact ? 7 : 10),
                   ],
                   if (ingredients.isNotEmpty) ...[
-                    Text('使う材料', style: Theme.of(context).textTheme.labelLarge),
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 5,
-                      children: [
-                        for (final ingredient in ingredients)
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: compact ? 4 : 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: mintSoft,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: Text(
-                              '${ingredient.name} ${ingredient.quantityFor(widget.multiplier)}',
-                              style: TextStyle(
-                                fontSize: compact ? 11 : 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
+                    _StepIngredients(
+                      ingredients: ingredients,
+                      multiplier: widget.multiplier,
+                      compact: compact,
                     ),
                     SizedBox(height: compact ? 7 : 10),
                   ],
@@ -269,12 +252,17 @@ class _CookingModePageState extends State<CookingModePage> {
 
   List<RecipeIngredient> _ingredientsFor(RecipePart part, RecipeStep step) {
     final text = step.instruction.toLowerCase();
-    final matches = part.ingredients
-        .where((item) => text.contains(item.name.toLowerCase()))
-        .take(4)
-        .toList(growable: false);
+    final matches =
+        part.ingredients
+            .where((item) => text.contains(item.name.toLowerCase()))
+            .toList(growable: false)
+          ..sort((left, right) {
+            final leftIndex = text.indexOf(left.name.toLowerCase());
+            final rightIndex = text.indexOf(right.name.toLowerCase());
+            return leftIndex.compareTo(rightIndex);
+          });
     return matches.isNotEmpty
-        ? matches
+        ? matches.take(4).toList(growable: false)
         : part.ingredients.take(4).toList(growable: false);
   }
 
@@ -490,6 +478,74 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 }
 
+class _StepIngredients extends StatelessWidget {
+  const _StepIngredients({
+    required this.ingredients,
+    required this.multiplier,
+    required this.compact,
+  });
+
+  final List<RecipeIngredient> ingredients;
+  final double multiplier;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 7 : 9),
+    decoration: BoxDecoration(
+      color: mintSoft,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'この工程で使う材料',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: mossDeep,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        SizedBox(height: compact ? 3 : 5),
+        for (var index = 0; index < ingredients.length; index++)
+          Padding(
+            padding: EdgeInsets.only(top: index == 0 ? 0 : 3),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 22,
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(
+                      color: mossDeep,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    ingredients[index].name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: compact ? 12 : 14),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  ingredients[index].quantityFor(multiplier),
+                  style: TextStyle(
+                    fontSize: compact ? 12 : 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
 class _CookingImage extends StatelessWidget {
   const _CookingImage({required this.path});
   final String path;
@@ -498,10 +554,16 @@ class _CookingImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final uri = Uri.tryParse(path);
     if (uri?.scheme == 'https') {
-      return Image.network(path, fit: BoxFit.cover, errorBuilder: _error);
+      return ColoredBox(
+        color: const Color(0xFFF2F3F0),
+        child: Image.network(path, fit: BoxFit.contain, errorBuilder: _error),
+      );
     }
     final local = uri?.scheme == 'file' ? uri!.toFilePath() : path;
-    return Image.file(File(local), fit: BoxFit.cover, errorBuilder: _error);
+    return ColoredBox(
+      color: const Color(0xFFF2F3F0),
+      child: Image.file(File(local), fit: BoxFit.contain, errorBuilder: _error),
+    );
   }
 
   Widget _error(BuildContext context, Object error, StackTrace? stack) =>
