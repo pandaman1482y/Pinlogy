@@ -184,6 +184,7 @@ Deno.serve(async (request) => {
           "一瞬だけの文字、装飾フォント、背景と同化した字幕、音声だけの分量、料理が高速に切り替わる箇所は確信度を下げ、読めない内容を補完せずneeds_review_fieldsへ具体的に記載してください。" +
           "投稿文に完全な材料・工程があれば画像より優先します。ただし画像にしかない情報も追加し、矛盾はwarningsに残してください。取得できない動画内容は推測しません。" +
           "工程を作る前に、入力画像を0から時系列順に見比べ、各画像で使っている材料と作業を確認してください。各工程のimage_indexには、その作業自体が最も明確に映る画像番号を設定します。材料名と画像内容が一致しない画像を割り当てず、判定できない場合はnullにします。" +
+          "各工程のingredient_indexesには、その工程で実際に投入・使用する材料だけを、同じpartのingredientsの0始まり番号で使用順に設定します。その工程で使わない塩・こしょう・油などを機械的に含めず、対象がなければ空配列にします。" +
           "evidenceには画像番号・時刻・投稿文抜粋などの根拠を登録し、各材料と工程のevidence_indexから対応させてください。画像番号は入力で示した0始まり番号です。" +
           "category、cuisine、main_ingredient、methodは料理ごとに個別判断し、複数料理へ同じ値を機械的にコピーしないでください。" +
           "アレルゲンは明記または一般的な原材料として高い確度で含むものだけを列挙し、安全を保証しないでください。栄養値は十分な分量がある場合だけ概算し、不足時はnullにしてください。" +
@@ -432,7 +433,7 @@ const recipeSchema = {
                     items: {
                       type: "object",
                       additionalProperties: false,
-                      required: ["order", "instruction", "duration_seconds", "image_index", "evidence_index", "confidence_percent"],
+                      required: ["order", "instruction", "duration_seconds", "image_index", "ingredient_indexes", "evidence_index", "confidence_percent"],
                       properties: {
                         order: { type: "integer", minimum: 1, maximum: 100 },
                         instruction: { type: "string" },
@@ -441,6 +442,12 @@ const recipeSchema = {
                           type: ["integer", "null"],
                           minimum: 0,
                           maximum: maxAnalysisImages - 1,
+                        },
+                        ingredient_indexes: {
+                          type: "array",
+                          maxItems: 12,
+                          uniqueItems: true,
+                          items: { type: "integer", minimum: 0, maximum: 79 },
                         },
                         evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
                         confidence_percent: { type: "integer", minimum: 0, maximum: 100 },

@@ -305,6 +305,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
                 instruction: entry.value.instruction,
                 durationSeconds: entry.value.durationSeconds,
                 imageIndex: entry.value.imageIndex,
+                ingredientIndexes: entry.value.ingredientIndexes,
                 evidenceId: entry.value.evidenceId,
                 confidencePercent: entry.value.confidencePercent,
                 userEdited: true,

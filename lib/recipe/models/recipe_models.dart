@@ -204,16 +204,19 @@ class RecipeStep {
     required this.instruction,
     this.durationSeconds,
     this.imageIndex,
+    List<int>? ingredientIndexes,
     this.evidenceId,
     this.confidencePercent,
     this.userEdited = false,
-  }) : id = id ?? newId();
+  }) : id = id ?? newId(),
+       ingredientIndexes = ingredientIndexes ?? const [];
 
   final String id;
   final int order;
   final String instruction;
   final int? durationSeconds;
   final int? imageIndex;
+  final List<int> ingredientIndexes;
   final String? evidenceId;
   final int? confidencePercent;
   final bool userEdited;
@@ -224,6 +227,7 @@ class RecipeStep {
     'instruction': instruction,
     'durationSeconds': durationSeconds,
     'imageIndex': imageIndex,
+    'ingredientIndexes': ingredientIndexes,
     'evidenceId': evidenceId,
     'confidencePercent': confidencePercent,
     'userEdited': userEdited,
@@ -235,6 +239,10 @@ class RecipeStep {
     instruction: json['instruction']?.toString() ?? '',
     durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
     imageIndex: (json['imageIndex'] as num?)?.toInt(),
+    ingredientIndexes: (json['ingredientIndexes'] as List? ?? const [])
+        .whereType<num>()
+        .map((value) => value.toInt())
+        .toList(growable: false),
     evidenceId: json['evidenceId']?.toString(),
     confidencePercent: (json['confidencePercent'] as num?)?.toInt(),
     userEdited: json['userEdited'] as bool? ?? false,

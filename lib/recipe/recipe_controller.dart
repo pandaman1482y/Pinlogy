@@ -432,6 +432,14 @@ class RecipeController extends ChangeNotifier {
                   'durationSeconds',
                 ),
                 imageIndex: _integer(step, 'image_index', 'imageIndex'),
+                ingredientIndexes:
+                    (step['ingredient_indexes'] as List? ?? const [])
+                        .whereType<num>()
+                        .map((value) => value.toInt())
+                        .where(
+                          (index) => index >= 0 && index < ingredients.length,
+                        )
+                        .toList(growable: false),
                 evidenceId: _evidenceId(
                   post.id,
                   recipeIndex,

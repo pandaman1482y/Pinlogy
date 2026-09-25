@@ -85,185 +85,199 @@ class _CookingModePageState extends State<CookingModePage> {
           const SizedBox(width: 16),
         ],
       ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, box) {
-            final compact = box.maxHeight < 650;
-            final imageHeight = compact
-                ? 142.0
-                : (box.maxHeight * 0.34).clamp(190.0, 240.0).toDouble();
-            return Padding(
-              padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LinearProgressIndicator(
-                    value: (_index + 1) / entries.length,
-                    minHeight: 6,
-                    borderRadius: BorderRadius.circular(99),
-                    backgroundColor: mint,
-                  ),
-                  SizedBox(height: compact ? 8 : 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'STEP ${_index + 1}',
-                              style: Theme.of(context).textTheme.headlineSmall,
-                            ),
-                            Text(
-                              entry.part.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(
-                                context,
-                              ).textTheme.labelLarge?.copyWith(color: mossDeep),
-                            ),
-                          ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) => _handleSwipe(details, entries.length),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, box) {
+              final compact = box.maxHeight < 650;
+              final imageHeight = compact
+                  ? 142.0
+                  : (box.maxHeight * 0.34).clamp(190.0, 240.0).toDouble();
+              return Padding(
+                padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LinearProgressIndicator(
+                      value: (_index + 1) / entries.length,
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(99),
+                      backgroundColor: mint,
+                    ),
+                    SizedBox(height: compact ? 8 : 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'STEP ${_index + 1}',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineSmall,
+                              ),
+                              Text(
+                                entry.part.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(color: mossDeep),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (entry.step.durationSeconds != null)
+                          _InfoChip(
+                            label: _durationLabel(entry.step.durationSeconds!),
+                          ),
+                      ],
+                    ),
+                    SizedBox(height: compact ? 7 : 10),
+                    if (imagePath != null) ...[
+                      SizedBox(
+                        height: imageHeight,
+                        width: double.infinity,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _CookingImage(path: imagePath),
                         ),
                       ),
-                      if (entry.step.durationSeconds != null)
-                        _InfoChip(
-                          label: _durationLabel(entry.step.durationSeconds!),
-                        ),
+                      SizedBox(height: compact ? 7 : 10),
                     ],
-                  ),
-                  SizedBox(height: compact ? 7 : 10),
-                  if (imagePath != null) ...[
-                    SizedBox(
-                      height: imageHeight,
-                      width: double.infinity,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: _CookingImage(path: imagePath),
+                    if (ingredients.isNotEmpty) ...[
+                      _StepIngredients(
+                        ingredients: ingredients,
+                        multiplier: widget.multiplier,
+                        compact: compact,
                       ),
-                    ),
-                    SizedBox(height: compact ? 7 : 10),
-                  ],
-                  if (ingredients.isNotEmpty) ...[
-                    _StepIngredients(
-                      ingredients: ingredients,
-                      multiplier: widget.multiplier,
-                      compact: compact,
-                    ),
-                    SizedBox(height: compact ? 7 : 10),
-                  ],
-                  Expanded(
-                    child: Container(
-                      padding: EdgeInsets.all(compact ? 12 : 16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF7F8F5),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: mint),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        entry.step.instruction,
-                        maxLines: compact ? 5 : 7,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          height: 1.4,
-                          fontSize: compact ? 16 : 18,
+                      SizedBox(height: compact ? 7 : 10),
+                    ],
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.all(compact ? 12 : 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F8F5),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: mint),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          entry.step.instruction,
+                          maxLines: compact ? 5 : 7,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                height: 1.4,
+                                fontSize: compact ? 16 : 18,
+                              ),
                         ),
                       ),
                     ),
-                  ),
-                  if (entry.step.durationSeconds != null) ...[
+                    if (entry.step.durationSeconds != null) ...[
+                      SizedBox(height: compact ? 7 : 9),
+                      _TimerPanel(
+                        seconds: _remaining ?? entry.step.durationSeconds!,
+                        running: _timer?.isActive == true,
+                        compact: compact,
+                        onToggle: () =>
+                            _toggleTimer(entry.step.durationSeconds!),
+                        onReset: () => _resetTimer(entry.step.durationSeconds!),
+                      ),
+                    ],
                     SizedBox(height: compact ? 7 : 9),
-                    _TimerPanel(
-                      seconds: _remaining ?? entry.step.durationSeconds!,
-                      running: _timer?.isActive == true,
-                      compact: compact,
-                      onToggle: () => _toggleTimer(entry.step.durationSeconds!),
-                      onReset: () => _resetTimer(entry.step.durationSeconds!),
-                    ),
-                  ],
-                  SizedBox(height: compact ? 7 : 9),
-                  if (controller.cookingAssistantAvailable)
+                    if (controller.cookingAssistantAvailable)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showAssistant(
+                                recipe,
+                                entry.part,
+                                entry.step,
+                                ingredients,
+                              ),
+                              icon: const Icon(
+                                Icons.auto_awesome_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('AIに聞く'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showAssistant(
+                                recipe,
+                                entry.part,
+                                entry.step,
+                                ingredients,
+                                withCamera: true,
+                              ),
+                              icon: const Icon(
+                                Icons.photo_camera_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('写真で確認'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    SizedBox(height: compact ? 7 : 9),
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: () => _showAssistant(
-                              recipe,
-                              entry.part,
-                              entry.step,
-                              ingredients,
-                            ),
-                            icon: const Icon(
-                              Icons.auto_awesome_rounded,
-                              size: 18,
-                            ),
-                            label: const Text('AIに聞く'),
+                            style: _footerButtonStyle(compact),
+                            onPressed: _index == 0
+                                ? null
+                                : () => _move(-1, entries.length),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            label: const Text('前へ'),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _showAssistant(
-                              recipe,
-                              entry.part,
-                              entry.step,
-                              ingredients,
-                              withCamera: true,
+                          child: FilledButton.icon(
+                            style: _footerButtonStyle(compact),
+                            onPressed: _index == entries.length - 1
+                                ? () async {
+                                    await controller.recordCooked(recipe);
+                                    if (context.mounted) Navigator.pop(context);
+                                  }
+                                : () => _move(1, entries.length),
+                            icon: Icon(
+                              _index == entries.length - 1
+                                  ? Icons.check_rounded
+                                  : Icons.arrow_forward_rounded,
                             ),
-                            icon: const Icon(
-                              Icons.photo_camera_outlined,
-                              size: 18,
+                            label: Text(
+                              _index == entries.length - 1 ? '完成' : '次へ',
                             ),
-                            label: const Text('写真で確認'),
                           ),
                         ),
                       ],
                     ),
-                  SizedBox(height: compact ? 7 : 9),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: _footerButtonStyle(compact),
-                          onPressed: _index == 0
-                              ? null
-                              : () => _move(-1, entries.length),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          label: const Text('前へ'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          style: _footerButtonStyle(compact),
-                          onPressed: _index == entries.length - 1
-                              ? () async {
-                                  await controller.recordCooked(recipe);
-                                  if (context.mounted) Navigator.pop(context);
-                                }
-                              : () => _move(1, entries.length),
-                          icon: Icon(
-                            _index == entries.length - 1
-                                ? Icons.check_rounded
-                                : Icons.arrow_forward_rounded,
-                          ),
-                          label: Text(
-                            _index == entries.length - 1 ? '完成' : '次へ',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
   List<RecipeIngredient> _ingredientsFor(RecipePart part, RecipeStep step) {
+    final indexed = step.ingredientIndexes
+        .where((index) => index >= 0 && index < part.ingredients.length)
+        .map((index) => part.ingredients[index])
+        .take(4)
+        .toList(growable: false);
+    if (indexed.isNotEmpty) return indexed;
+
     final text = step.instruction.toLowerCase();
     final matches =
         part.ingredients
@@ -274,9 +288,17 @@ class _CookingModePageState extends State<CookingModePage> {
             final rightIndex = text.indexOf(right.name.toLowerCase());
             return leftIndex.compareTo(rightIndex);
           });
-    return matches.isNotEmpty
-        ? matches.take(4).toList(growable: false)
-        : part.ingredients.take(4).toList(growable: false);
+    return matches.take(4).toList(growable: false);
+  }
+
+  void _handleSwipe(DragEndDetails details, int stepCount) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < 250) return;
+    if (velocity < 0 && _index < stepCount - 1) {
+      _move(1, stepCount);
+    } else if (velocity > 0 && _index > 0) {
+      _move(-1, stepCount);
+    }
   }
 
   ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(
