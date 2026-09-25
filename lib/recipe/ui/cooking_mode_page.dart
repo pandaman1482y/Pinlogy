@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
@@ -27,6 +30,14 @@ class _CookingModePageState extends State<CookingModePage> {
   int _index = 0;
   int? _remaining;
   Timer? _timer;
+  final SpeechToText _speech = SpeechToText();
+  bool _speechReady = false;
+  bool _voiceEnabled = false;
+  bool _voiceRestartScheduled = false;
+  int _voiceStepCount = 0;
+  int? _voiceDurationSeconds;
+  String? _lastVoiceCommand;
+  DateTime? _lastVoiceCommandAt;
 
   @override
   void initState() {
@@ -37,6 +48,8 @@ class _CookingModePageState extends State<CookingModePage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _voiceEnabled = false;
+    unawaited(_speech.stop());
     unawaited(_setAwake(false));
     super.dispose();
   }
@@ -63,6 +76,8 @@ class _CookingModePageState extends State<CookingModePage> {
     }
     _index = _index.clamp(0, entries.length - 1).toInt();
     final entry = entries[_index];
+    _voiceStepCount = entries.length;
+    _voiceDurationSeconds = entry.step.durationSeconds;
     final ingredients = _ingredientsFor(entry.part, entry.step);
     final sourceImages = controller.legacy.hub.snapshot.sourcePosts
         .where((post) => post.id == recipe.sourcePostId)
@@ -81,6 +96,14 @@ class _CookingModePageState extends State<CookingModePage> {
       appBar: AppBar(
         title: const Text('料理モード'),
         actions: [
+          IconButton(
+            onPressed: _toggleVoice,
+            tooltip: _voiceEnabled ? '音声操作を停止' : '音声操作を開始',
+            color: _voiceEnabled ? mossDeep : null,
+            icon: Icon(
+              _voiceEnabled ? Icons.mic_rounded : Icons.mic_none_rounded,
+            ),
+          ),
           Center(child: Text('${_index + 1} / ${entries.length}')),
           const SizedBox(width: 16),
         ],
@@ -299,6 +322,133 @@ class _CookingModePageState extends State<CookingModePage> {
     } else if (velocity > 0 && _index > 0) {
       _move(-1, stepCount);
     }
+  }
+
+  Future<void> _toggleVoice() async {
+    if (_voiceEnabled) {
+      _voiceEnabled = false;
+      await _speech.stop();
+      if (mounted) setState(() {});
+      return;
+    }
+
+    if (!_speechReady) {
+      _speechReady = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+      );
+    }
+    if (!_speechReady) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('設定でマイクと音声認識を許可してください')));
+      }
+      return;
+    }
+    _voiceEnabled = true;
+    if (mounted) setState(() {});
+    await _startVoiceListening();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('音声操作ON：「次」「前」「タイマー開始」が使えます'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _startVoiceListening() async {
+    if (!_voiceEnabled || !_speechReady || _speech.isListening) return;
+    await _speech.listen(onResult: _handleSpeechResult, localeId: 'ja_JP');
+    if (mounted) setState(() {});
+  }
+
+  void _handleSpeechStatus(String status) {
+    if (!_voiceEnabled ||
+        _voiceRestartScheduled ||
+        (status != 'done' && status != 'notListening')) {
+      return;
+    }
+    _voiceRestartScheduled = true;
+    Future<void>.delayed(const Duration(milliseconds: 450), () async {
+      _voiceRestartScheduled = false;
+      if (mounted && _voiceEnabled) await _startVoiceListening();
+    });
+  }
+
+  void _handleSpeechError(SpeechRecognitionError error) {
+    if (!error.permanent) {
+      _handleSpeechStatus('done');
+      return;
+    }
+    _voiceEnabled = false;
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('音声操作を開始できませんでした')));
+  }
+
+  void _handleSpeechResult(SpeechRecognitionResult result) {
+    final phrase = result.recognizedWords.toLowerCase().replaceAll(
+      RegExp(r'[\s、。,.!！?？]'),
+      '',
+    );
+    String? command;
+    if (phrase.contains('タイマーリセット')) {
+      command = 'timerReset';
+    } else if (phrase.contains('タイマー停止') || phrase.contains('タイマーストップ')) {
+      command = 'timerStop';
+    } else if (phrase.contains('タイマー開始') || phrase.contains('タイマースタート')) {
+      command = 'timerStart';
+    } else if (phrase == '次' ||
+        phrase == 'つぎ' ||
+        phrase.contains('次へ') ||
+        phrase.contains('進んで')) {
+      command = 'next';
+    } else if (phrase == '前' ||
+        phrase == 'まえ' ||
+        phrase.contains('前へ') ||
+        phrase.contains('戻って')) {
+      command = 'previous';
+    }
+    if (command == null || _isDuplicateVoiceCommand(command)) return;
+
+    switch (command) {
+      case 'next':
+        if (_index < _voiceStepCount - 1) _move(1, _voiceStepCount);
+      case 'previous':
+        if (_index > 0) _move(-1, _voiceStepCount);
+      case 'timerStart':
+        final duration = _voiceDurationSeconds;
+        if (duration != null && _timer?.isActive != true) {
+          _toggleTimer(duration);
+        }
+      case 'timerStop':
+        final duration = _voiceDurationSeconds;
+        if (duration != null && _timer?.isActive == true) {
+          _toggleTimer(duration);
+        }
+      case 'timerReset':
+        final duration = _voiceDurationSeconds;
+        if (duration != null) _resetTimer(duration);
+    }
+    unawaited(_speech.stop());
+  }
+
+  bool _isDuplicateVoiceCommand(String command) {
+    final now = DateTime.now();
+    final duplicate =
+        _lastVoiceCommand == command &&
+        _lastVoiceCommandAt != null &&
+        now.difference(_lastVoiceCommandAt!) < const Duration(seconds: 2);
+    if (!duplicate) {
+      _lastVoiceCommand = command;
+      _lastVoiceCommandAt = now;
+    }
+    return duplicate;
   }
 
   ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(

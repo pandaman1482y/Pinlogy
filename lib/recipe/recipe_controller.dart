@@ -545,10 +545,13 @@ class RecipeController extends ChangeNotifier {
   }
 
   String? _coverFor(SourcePost post, int? index) {
-    if (index != null && index >= 0 && index < post.imagePaths.length) {
+    if (index == null) return post.displayThumbnailPath;
+    if (index >= 0 && index < post.imagePaths.length) {
       return post.imagePaths[index];
     }
-    return post.displayThumbnailPath;
+    // 不正な画像番号を代表画像へ置き換えると、すべての工程が同じ画像に
+    // 見える。対応画像がない工程は画像なしとして扱う。
+    return null;
   }
 
   Future<void> saveSelectedRecipes(

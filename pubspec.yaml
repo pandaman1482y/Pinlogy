@@ -28,6 +28,7 @@ dependencies:
   supabase_flutter: ^2.16.0
   firebase_core: ^4.2.1
   firebase_messaging: ^16.0.4
+  speech_to_text: ^7.4.0
 
 dev_dependencies:
   flutter_test:

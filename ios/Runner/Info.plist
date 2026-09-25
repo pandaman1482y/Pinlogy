@@ -41,6 +41,10 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>選択した画像から材料や作り方を読み取り、レシピとして保存するために写真を使用します。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>料理モードで「次」「前」などの音声操作を行うためにマイクを使用します。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>料理中の音声操作を認識するために音声認識を使用します。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

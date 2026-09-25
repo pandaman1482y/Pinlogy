@@ -573,12 +573,10 @@ List<String> _mergedAnalysisImages(
       ? result.previewImagePaths
       : [if (result.previewImagePath != null) result.previewImagePath!];
   if (fetched.isEmpty) return post.imagePaths;
-  // AIへ送信した既存画像→SNS取得画像の順番を維持する。
-  // evidenceImageIndexはこの配列の順番を参照する。
-  return {
-    ...post.imagePaths,
-    ...fetched,
-  }.take(SourceMediaStore.maxImages).toList(growable: false);
+  // previewImagePathsは、AIへ渡した既存画像→SNS取得画像の順で既に
+  // 組み立てられている。古いpost.imagePathsを前へ足すと画像番号がずれ、
+  // 全工程が代表画像を参照してしまうため、そのまま採用する。
+  return fetched.take(SourceMediaStore.maxImages).toList(growable: false);
 }
 
 List<String> _analysisImages(SourcePost post) {
