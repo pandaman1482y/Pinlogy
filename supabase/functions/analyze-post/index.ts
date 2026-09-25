@@ -446,7 +446,6 @@ const recipeSchema = {
                         ingredient_indexes: {
                           type: "array",
                           maxItems: 12,
-                          uniqueItems: true,
                           items: { type: "integer", minimum: 0, maximum: 79 },
                         },
                         evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
