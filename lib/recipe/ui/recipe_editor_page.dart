@@ -86,7 +86,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
             TextFormField(
               controller: _title,
               decoration: const InputDecoration(labelText: '料理名 *'),
-              validator: (value) => value?.trim().isEmpty == true ? '料理名を入力してください' : null,
+              validator: (value) =>
+                  value?.trim().isEmpty == true ? '料理名を入力してください' : null,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -100,7 +101,9 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
                 Expanded(
                   child: TextField(
                     controller: _servings,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(labelText: '基準人数'),
                   ),
                 ),
@@ -128,7 +131,12 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
             const SizedBox(height: 28),
             Row(
               children: [
-                Expanded(child: Text('材料と作り方', style: Theme.of(context).textTheme.headlineMedium)),
+                Expanded(
+                  child: Text(
+                    '材料と作り方',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                ),
                 TextButton.icon(
                   onPressed: _addPart,
                   icon: const Icon(Icons.add_rounded),
@@ -146,7 +154,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
                   onRename: () => _renamePart(partIndex),
                   onDelete: () => setState(() => _parts.removeAt(partIndex)),
                   onAddIngredient: () => _addIngredient(partIndex),
-                  onDeleteIngredient: (index) => _deleteIngredient(partIndex, index),
+                  onDeleteIngredient: (index) =>
+                      _deleteIngredient(partIndex, index),
                   onAddStep: () => _addStep(partIndex),
                   onDeleteStep: (index) => _deleteStep(partIndex, index),
                 ),
@@ -187,14 +196,27 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: '材料名')),
+            TextField(
+              controller: name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '材料名'),
+            ),
             const SizedBox(height: 10),
-            TextField(controller: quantity, decoration: const InputDecoration(labelText: '分量（例：小さじ1）')),
+            TextField(
+              controller: quantity,
+              decoration: const InputDecoration(labelText: '分量（例：小さじ1）'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('キャンセル')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('追加')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('追加'),
+          ),
         ],
       ),
     );
@@ -294,8 +316,14 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           decoration: InputDecoration(hintText: hint),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('決定')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('決定'),
+          ),
         ],
       ),
     );
@@ -312,7 +340,9 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       id: original?.id,
       sourcePostId: sourcePostId,
       title: _title.text.trim(),
-      description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+      description: _description.text.trim().isEmpty
+          ? null
+          : _description.text.trim(),
       servings: double.tryParse(_servings.text) ?? 2,
       totalMinutes: int.tryParse(_minutes.text),
       category: _category.text.trim().isEmpty ? null : _category.text.trim(),
@@ -320,7 +350,9 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       evidence: original?.evidence,
       coverImagePath: original?.coverImagePath,
       sourceUrl: _sourceUrl.text.trim().isEmpty ? null : _sourceUrl.text.trim(),
-      sourceService: original?.sourceService ?? (_sourceUrl.text.trim().isEmpty ? '手動' : 'URL'),
+      sourceService:
+          original?.sourceService ??
+          (_sourceUrl.text.trim().isEmpty ? '手動' : 'URL'),
       status: RecipeStatus.ready,
       isFavorite: original?.isFavorite ?? false,
       isSaved: true,
@@ -381,37 +413,78 @@ class _PartEditor extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(part.name, style: Theme.of(context).textTheme.titleLarge)),
-            IconButton(tooltip: '名前を変更', onPressed: onRename, icon: const Icon(Icons.edit_outlined, size: 20)),
+            Expanded(
+              child: Text(
+                part.name,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            IconButton(
+              tooltip: '名前を変更',
+              onPressed: onRename,
+              icon: const Icon(Icons.edit_outlined, size: 20),
+            ),
             if (canDelete)
-              IconButton(tooltip: 'パートを削除', onPressed: onDelete, icon: const Icon(Icons.delete_outline_rounded, size: 20)),
+              IconButton(
+                tooltip: 'パートを削除',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded, size: 20),
+              ),
           ],
         ),
         Text('材料', style: Theme.of(context).textTheme.titleMedium),
         if (part.ingredients.isEmpty)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('まだ材料がありません')),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('まだ材料がありません'),
+          ),
         for (var index = 0; index < part.ingredients.length; index++)
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(part.ingredients[index].name),
-            subtitle: Text(part.ingredients[index].originalText ?? part.ingredients[index].quantityFor(1)),
-            trailing: IconButton(onPressed: () => onDeleteIngredient(index), icon: const Icon(Icons.close_rounded)),
+            subtitle: Text(
+              part.ingredients[index].originalText ??
+                  part.ingredients[index].quantityFor(1),
+            ),
+            trailing: IconButton(
+              onPressed: () => onDeleteIngredient(index),
+              icon: const Icon(Icons.close_rounded),
+            ),
           ),
-        TextButton.icon(onPressed: onAddIngredient, icon: const Icon(Icons.add_rounded), label: const Text('材料を追加')),
+        TextButton.icon(
+          onPressed: onAddIngredient,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('材料を追加'),
+        ),
         const Divider(height: 24),
         Text('作り方', style: Theme.of(context).textTheme.titleMedium),
         if (part.steps.isEmpty)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('まだ工程がありません')),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('まだ工程がありません'),
+          ),
         for (var index = 0; index < part.steps.length; index++)
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(radius: 13, backgroundColor: mossDeep, foregroundColor: Colors.white, child: Text('${index + 1}', style: const TextStyle(fontSize: 11))),
+            leading: CircleAvatar(
+              radius: 13,
+              backgroundColor: mossDeep,
+              foregroundColor: Colors.white,
+              child: Text('${index + 1}', style: const TextStyle(fontSize: 11)),
+            ),
             title: Text(part.steps[index].instruction),
-            trailing: IconButton(onPressed: () => onDeleteStep(index), icon: const Icon(Icons.close_rounded)),
+            trailing: IconButton(
+              onPressed: () => onDeleteStep(index),
+              icon: const Icon(Icons.close_rounded),
+            ),
           ),
-        TextButton.icon(onPressed: onAddStep, icon: const Icon(Icons.add_rounded), label: const Text('工程を追加')),
+        TextButton.icon(
+          onPressed: onAddStep,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('工程を追加'),
+        ),
       ],
     ),
   );
