@@ -30,6 +30,9 @@ class _CookingModePageState extends State<CookingModePage> {
   int _index = 0;
   int? _remaining;
   Timer? _timer;
+  int? _timerStepNumber;
+  int? _timerInitialSeconds;
+  DateTime? _timerEndsAt;
   final SpeechToText _speech = SpeechToText();
   bool _speechReady = false;
   bool _voiceEnabled = false;
@@ -114,7 +117,7 @@ class _CookingModePageState extends State<CookingModePage> {
         child: SafeArea(
           child: LayoutBuilder(
             builder: (context, box) {
-              final compact = box.maxHeight < 650;
+              final compact = box.maxHeight < 720;
               final imageHeight = compact
                   ? 142.0
                   : (box.maxHeight * 0.34).clamp(190.0, 240.0).toDouble();
@@ -186,28 +189,55 @@ class _CookingModePageState extends State<CookingModePage> {
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(color: mint),
                         ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          entry.step.instruction,
-                          maxLines: compact ? 5 : 7,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(
-                                height: 1.4,
-                                fontSize: compact ? 16 : 18,
+                        child: LayoutBuilder(
+                          builder: (context, instructionBox) {
+                            final hasTimer =
+                                _timerStepNumber != null ||
+                                entry.step.durationSeconds != null;
+                            final fontSize = hasTimer
+                                ? (compact ? 12.5 : 14.0)
+                                : (compact ? 14.0 : 16.0);
+                            return FittedBox(
+                              alignment: Alignment.centerLeft,
+                              fit: BoxFit.scaleDown,
+                              child: SizedBox(
+                                width: instructionBox.maxWidth,
+                                child: Text(
+                                  // 詳細画面と同じRecipeStepの原文をそのまま表示する。
+                                  entry.step.instruction,
+                                  softWrap: true,
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(
+                                        height: 1.35,
+                                        fontSize: fontSize,
+                                      ),
+                                ),
                               ),
+                            );
+                          },
                         ),
                       ),
                     ),
-                    if (entry.step.durationSeconds != null) ...[
+                    if (_timerStepNumber != null ||
+                        entry.step.durationSeconds != null) ...[
                       SizedBox(height: compact ? 7 : 9),
                       _TimerPanel(
-                        seconds: _remaining ?? entry.step.durationSeconds!,
+                        label: _timerStepNumber == null
+                            ? 'この工程のタイマー'
+                            : 'STEP $_timerStepNumber のタイマー',
+                        seconds:
+                            _remaining ??
+                            _timerInitialSeconds ??
+                            entry.step.durationSeconds!,
                         running: _timer?.isActive == true,
                         compact: compact,
-                        onToggle: () =>
-                            _toggleTimer(entry.step.durationSeconds!),
-                        onReset: () => _resetTimer(entry.step.durationSeconds!),
+                        onToggle: () => _toggleTimer(
+                          _timerInitialSeconds ?? entry.step.durationSeconds!,
+                        ),
+                        onReset: () => _resetTimer(
+                          _timerInitialSeconds ?? entry.step.durationSeconds!,
+                        ),
+                        onClear: _clearTimer,
                       ),
                     ],
                     SizedBox(height: compact ? 7 : 9),
@@ -352,7 +382,7 @@ class _CookingModePageState extends State<CookingModePage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('音声操作ON：「次」「前」「タイマー開始」が使えます'),
+          content: Text('音声操作ON：「次・Next」「前・Back」「タイマー開始」が使えます'),
           duration: Duration(seconds: 2),
         ),
       );
@@ -361,7 +391,16 @@ class _CookingModePageState extends State<CookingModePage> {
 
   Future<void> _startVoiceListening() async {
     if (!_voiceEnabled || !_speechReady || _speech.isListening) return;
-    await _speech.listen(onResult: _handleSpeechResult, localeId: 'ja_JP');
+    await _speech.listen(
+      onResult: _handleSpeechResult,
+      listenOptions: const SpeechListenOptions(
+        localeId: 'ja_JP',
+        listenFor: Duration(minutes: 2),
+        pauseFor: Duration(seconds: 3),
+        partialResults: true,
+        cancelOnError: false,
+      ),
+    );
     if (mounted) setState(() {});
   }
 
@@ -372,7 +411,7 @@ class _CookingModePageState extends State<CookingModePage> {
       return;
     }
     _voiceRestartScheduled = true;
-    Future<void>.delayed(const Duration(milliseconds: 450), () async {
+    Future<void>.delayed(const Duration(milliseconds: 200), () async {
       _voiceRestartScheduled = false;
       if (mounted && _voiceEnabled) await _startVoiceListening();
     });
@@ -397,21 +436,33 @@ class _CookingModePageState extends State<CookingModePage> {
       '',
     );
     String? command;
-    if (phrase.contains('タイマーリセット')) {
+    if (phrase.contains('タイマーリセット') || phrase.contains('タイマー戻して')) {
       command = 'timerReset';
-    } else if (phrase.contains('タイマー停止') || phrase.contains('タイマーストップ')) {
+    } else if (phrase.contains('タイマー停止') ||
+        phrase.contains('タイマーストップ') ||
+        phrase.contains('タイマー止めて') ||
+        phrase.contains('タイマーとめて')) {
       command = 'timerStop';
-    } else if (phrase.contains('タイマー開始') || phrase.contains('タイマースタート')) {
+    } else if (phrase.contains('タイマー開始') ||
+        phrase.contains('タイマースタート') ||
+        phrase.contains('タイマー始めて') ||
+        phrase.contains('タイマーはじめて')) {
       command = 'timerStart';
-    } else if (phrase == '次' ||
-        phrase == 'つぎ' ||
+    } else if (phrase.contains('next') ||
+        phrase.contains('ネクスト') ||
+        phrase.contains('次') ||
+        phrase.contains('つぎ') ||
         phrase.contains('次へ') ||
-        phrase.contains('進んで')) {
+        phrase.contains('進んで') ||
+        phrase.contains('進めて')) {
       command = 'next';
-    } else if (phrase == '前' ||
-        phrase == 'まえ' ||
+    } else if (phrase.contains('back') ||
+        phrase.contains('バック') ||
+        phrase.contains('前') ||
+        phrase.contains('まえ') ||
         phrase.contains('前へ') ||
-        phrase.contains('戻って')) {
+        phrase.contains('戻って') ||
+        phrase.contains('戻して')) {
       command = 'previous';
     }
     if (command == null || _isDuplicateVoiceCommand(command)) return;
@@ -422,17 +473,16 @@ class _CookingModePageState extends State<CookingModePage> {
       case 'previous':
         if (_index > 0) _move(-1, _voiceStepCount);
       case 'timerStart':
-        final duration = _voiceDurationSeconds;
+        final duration = _timerInitialSeconds ?? _voiceDurationSeconds;
         if (duration != null && _timer?.isActive != true) {
           _toggleTimer(duration);
         }
       case 'timerStop':
-        final duration = _voiceDurationSeconds;
-        if (duration != null && _timer?.isActive == true) {
-          _toggleTimer(duration);
+        if (_timer?.isActive == true) {
+          _pauseTimer();
         }
       case 'timerReset':
-        final duration = _voiceDurationSeconds;
+        final duration = _timerInitialSeconds ?? _voiceDurationSeconds;
         if (duration != null) _resetTimer(duration);
     }
     unawaited(_speech.stop());
@@ -579,7 +629,7 @@ class _CookingModePageState extends State<CookingModePage> {
                       height: 110,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: Image.file(File(imagePath!), fit: BoxFit.cover),
+                        child: Image.file(File(imagePath), fit: BoxFit.cover),
                       ),
                     ),
                   ],
@@ -657,37 +707,74 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 
   void _move(int amount, int length) {
-    _timer?.cancel();
     setState(() {
       _index = (_index + amount).clamp(0, length - 1).toInt();
-      _remaining = null;
     });
   }
 
   void _toggleTimer(int initial) {
     if (_timer?.isActive == true) {
-      _timer?.cancel();
-      setState(() {});
+      _pauseTimer();
       return;
     }
-    _remaining ??= initial;
-    if (_remaining == 0) _remaining = initial;
+    _timerStepNumber ??= _index + 1;
+    _timerInitialSeconds ??= initial;
+    _remaining ??= _timerInitialSeconds;
+    if (_remaining == 0) _remaining = _timerInitialSeconds;
+    _timerEndsAt = DateTime.now().add(Duration(seconds: _remaining!));
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      if ((_remaining ?? 0) <= 1) {
+      final milliseconds = _timerEndsAt!
+          .difference(DateTime.now())
+          .inMilliseconds;
+      final seconds = (milliseconds / 1000).ceil().clamp(0, 86400).toInt();
+      if (seconds <= 0) {
         timer.cancel();
+        _timerEndsAt = null;
         HapticFeedback.heavyImpact();
         setState(() => _remaining = 0);
       } else {
-        setState(() => _remaining = _remaining! - 1);
+        setState(() => _remaining = seconds);
       }
     });
     setState(() {});
   }
 
+  void _pauseTimer() {
+    final end = _timerEndsAt;
+    _timer?.cancel();
+    _timerEndsAt = null;
+    if (!mounted) return;
+    setState(() {
+      if (end != null) {
+        _remaining = (end.difference(DateTime.now()).inMilliseconds / 1000)
+            .ceil()
+            .clamp(0, 86400)
+            .toInt();
+      }
+    });
+  }
+
   void _resetTimer(int initial) {
     _timer?.cancel();
-    setState(() => _remaining = initial);
+    setState(() {
+      _timer = null;
+      _timerEndsAt = null;
+      _timerStepNumber ??= _index + 1;
+      _timerInitialSeconds ??= initial;
+      _remaining = _timerInitialSeconds;
+    });
+  }
+
+  void _clearTimer() {
+    _timer?.cancel();
+    setState(() {
+      _timer = null;
+      _timerEndsAt = null;
+      _remaining = null;
+      _timerStepNumber = null;
+      _timerInitialSeconds = null;
+    });
   }
 }
 
@@ -819,17 +906,21 @@ class _InfoChip extends StatelessWidget {
 
 class _TimerPanel extends StatelessWidget {
   const _TimerPanel({
+    required this.label,
     required this.seconds,
     required this.running,
     required this.compact,
     required this.onToggle,
     required this.onReset,
+    required this.onClear,
   });
+  final String label;
   final int seconds;
   final bool running;
   final bool compact;
   final VoidCallback onToggle;
   final VoidCallback onReset;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -846,9 +937,15 @@ class _TimerPanel extends StatelessWidget {
           const Icon(Icons.timer_outlined, color: mossDeep),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              '$minutes:${rest.toString().padLeft(2, '0')}',
-              style: Theme.of(context).textTheme.headlineSmall,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.labelSmall),
+                Text(
+                  '$minutes:${rest.toString().padLeft(2, '0')}',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+              ],
             ),
           ),
           IconButton(
@@ -864,6 +961,12 @@ class _TimerPanel extends StatelessWidget {
               size: 18,
             ),
             label: Text(running ? '停止' : '開始'),
+          ),
+          IconButton(
+            onPressed: onClear,
+            tooltip: 'タイマーを終了',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded),
           ),
         ],
       ),
