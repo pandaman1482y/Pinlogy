@@ -100,14 +100,21 @@ class _CookingModePageState extends State<CookingModePage> {
                               entry.part.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: mossDeep),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.labelLarge?.copyWith(color: mossDeep),
                             ),
-                            Text('STEP ${_index + 1}', style: Theme.of(context).textTheme.headlineSmall),
+                            Text(
+                              'STEP ${_index + 1}',
+                              style: Theme.of(context).textTheme.headlineSmall,
+                            ),
                           ],
                         ),
                       ),
                       if (entry.step.durationSeconds != null)
-                        _InfoChip(label: _durationLabel(entry.step.durationSeconds!)),
+                        _InfoChip(
+                          label: _durationLabel(entry.step.durationSeconds!),
+                        ),
                     ],
                   ),
                   SizedBox(height: compact ? 7 : 10),
@@ -130,14 +137,20 @@ class _CookingModePageState extends State<CookingModePage> {
                       children: [
                         for (final ingredient in ingredients)
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 9, vertical: compact ? 4 : 6),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: compact ? 4 : 6,
+                            ),
                             decoration: BoxDecoration(
                               color: mintSoft,
                               borderRadius: BorderRadius.circular(99),
                             ),
                             child: Text(
                               '${ingredient.name} ${ingredient.quantityFor(widget.multiplier)}',
-                              style: TextStyle(fontSize: compact ? 11 : 13, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                fontSize: compact ? 11 : 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                       ],
@@ -180,8 +193,16 @@ class _CookingModePageState extends State<CookingModePage> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: () => _showAssistant(recipe, entry.part, entry.step, ingredients),
-                            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                            onPressed: () => _showAssistant(
+                              recipe,
+                              entry.part,
+                              entry.step,
+                              ingredients,
+                            ),
+                            icon: const Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 18,
+                            ),
                             label: const Text('AIに聞く'),
                           ),
                         ),
@@ -195,7 +216,10 @@ class _CookingModePageState extends State<CookingModePage> {
                               ingredients,
                               withCamera: true,
                             ),
-                            icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                            icon: const Icon(
+                              Icons.photo_camera_outlined,
+                              size: 18,
+                            ),
                             label: const Text('写真で確認'),
                           ),
                         ),
@@ -206,7 +230,9 @@ class _CookingModePageState extends State<CookingModePage> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: _index == 0 ? null : () => _move(-1, entries.length),
+                          onPressed: _index == 0
+                              ? null
+                              : () => _move(-1, entries.length),
                           icon: const Icon(Icons.arrow_back_rounded),
                           label: const Text('前へ'),
                         ),
@@ -225,7 +251,9 @@ class _CookingModePageState extends State<CookingModePage> {
                                 ? Icons.check_rounded
                                 : Icons.arrow_forward_rounded,
                           ),
-                          label: Text(_index == entries.length - 1 ? '完成' : '次へ'),
+                          label: Text(
+                            _index == entries.length - 1 ? '完成' : '次へ',
+                          ),
                         ),
                       ),
                     ],
@@ -245,12 +273,15 @@ class _CookingModePageState extends State<CookingModePage> {
         .where((item) => text.contains(item.name.toLowerCase()))
         .take(4)
         .toList(growable: false);
-    return matches.isNotEmpty ? matches : part.ingredients.take(4).toList(growable: false);
+    return matches.isNotEmpty
+        ? matches
+        : part.ingredients.take(4).toList(growable: false);
   }
 
   String? _imageFor(Recipe recipe, RecipeStep step) {
     for (final evidence in recipe.evidence) {
-      if (evidence.id == step.evidenceId && evidence.imagePath?.isNotEmpty == true) {
+      if (evidence.id == step.evidenceId &&
+          evidence.imagePath?.isNotEmpty == true) {
         return evidence.imagePath;
       }
     }
@@ -307,7 +338,12 @@ class _CookingModePageState extends State<CookingModePage> {
               if (sheetContext.mounted) update(() => answer = value);
             } catch (exception) {
               if (sheetContext.mounted) {
-                update(() => error = exception.toString().replaceFirst('Bad state: ', ''));
+                update(
+                  () => error = exception.toString().replaceFirst(
+                    'Bad state: ',
+                    '',
+                  ),
+                );
               }
             } finally {
               if (sheetContext.mounted) update(() => sending = false);
@@ -315,15 +351,27 @@ class _CookingModePageState extends State<CookingModePage> {
           }
 
           return Padding(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.viewInsetsOf(context).bottom + 20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              16,
+              20,
+              MediaQuery.viewInsetsOf(context).bottom + 20,
+            ),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('この工程をAIに相談', style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    'この工程をAIに相談',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 8),
-                  Text(step.instruction, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    step.instruction,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   if (imagePath != null) ...[
                     const SizedBox(height: 10),
                     SizedBox(
@@ -338,8 +386,15 @@ class _CookingModePageState extends State<CookingModePage> {
                   Wrap(
                     spacing: 6,
                     children: [
-                      for (final value in const ['焼き加減はこれでいい？', '次はどうしたらいい？', '失敗したかも。直せる？'])
-                        ActionChip(label: Text(value), onPressed: () => input.text = value),
+                      for (final value in const [
+                        '焼き加減はこれでいい？',
+                        '次はどうしたらいい？',
+                        '失敗したかも。直せる？',
+                      ])
+                        ActionChip(
+                          label: Text(value),
+                          onPressed: () => input.text = value,
+                        ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -357,13 +412,21 @@ class _CookingModePageState extends State<CookingModePage> {
                   if (answer != null) ...[
                     Container(
                       padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(14)),
+                      decoration: BoxDecoration(
+                        color: mintSoft,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       child: Text(answer!),
                     ),
                     const SizedBox(height: 10),
                   ],
                   if (error != null) ...[
-                    Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                   ],
                   FilledButton.icon(
@@ -442,7 +505,10 @@ class _CookingImage extends StatelessWidget {
   }
 
   Widget _error(BuildContext context, Object error, StackTrace? stack) =>
-      const ColoredBox(color: mintSoft, child: Center(child: Icon(Icons.restaurant_rounded, size: 36)));
+      const ColoredBox(
+        color: mintSoft,
+        child: Center(child: Icon(Icons.restaurant_rounded, size: 36)),
+      );
 }
 
 class _InfoChip extends StatelessWidget {
@@ -452,7 +518,10 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(99)),
+    decoration: BoxDecoration(
+      color: mintSoft,
+      borderRadius: BorderRadius.circular(99),
+    ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -484,7 +553,10 @@ class _TimerPanel extends StatelessWidget {
     final rest = seconds % 60;
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 6 : 9),
-      decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: mintSoft,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
         children: [
           const Icon(Icons.timer_outlined, color: mossDeep),
@@ -503,7 +575,10 @@ class _TimerPanel extends StatelessWidget {
           ),
           FilledButton.icon(
             onPressed: onToggle,
-            icon: Icon(running ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 18),
+            icon: Icon(
+              running ? Icons.pause_rounded : Icons.play_arrow_rounded,
+              size: 18,
+            ),
             label: Text(running ? '停止' : '開始'),
           ),
         ],

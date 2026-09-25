@@ -51,7 +51,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Color(0x42000000), Colors.transparent, Color(0x66000000)],
+                        colors: [
+                          Color(0x42000000),
+                          Colors.transparent,
+                          Color(0x66000000),
+                        ],
                       ),
                     ),
                   ),
@@ -64,7 +68,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                 style: IconButton.styleFrom(backgroundColor: Colors.black38),
                 onPressed: () => controller.toggleFavorite(recipe),
                 icon: Icon(
-                  recipe.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  recipe.isFavorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
                 ),
               ),
               IconButton(
@@ -106,12 +112,17 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(recipe.title, style: Theme.of(context).textTheme.headlineLarge),
+                  Text(
+                    recipe.title,
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
                   if (recipe.description?.isNotEmpty == true) ...[
                     const SizedBox(height: 8),
                     Text(
                       recipe.description!,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: secondaryInk),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.copyWith(color: secondaryInk),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -119,13 +130,22 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _InfoChip(Icons.schedule_rounded, compactDuration(recipe.totalMinutes)),
+                      _InfoChip(
+                        Icons.schedule_rounded,
+                        compactDuration(recipe.totalMinutes),
+                      ),
                       if (recipe.category != null)
                         _InfoChip(Icons.restaurant_rounded, recipe.category!),
                       if (recipe.difficulty != null)
-                        _InfoChip(Icons.signal_cellular_alt_rounded, recipe.difficulty!),
+                        _InfoChip(
+                          Icons.signal_cellular_alt_rounded,
+                          recipe.difficulty!,
+                        ),
                       if (recipe.sourceService != null)
-                        _InfoChip(Icons.play_circle_outline_rounded, recipe.sourceService!),
+                        _InfoChip(
+                          Icons.play_circle_outline_rounded,
+                          recipe.sourceService!,
+                        ),
                     ],
                   ),
                   if (recipe.status == RecipeStatus.needsReview ||
@@ -159,7 +179,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     key: _materialsKey,
                     children: [
                       Expanded(
-                        child: Text('材料', style: Theme.of(context).textTheme.headlineMedium),
+                        child: Text(
+                          '材料',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
                       ),
                       _ServingStepper(
                         servings: servings,
@@ -172,13 +195,20 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     if (recipe.parts.length > 1)
                       Padding(
                         padding: const EdgeInsets.only(top: 12, bottom: 6),
-                        child: Text(part.name, style: Theme.of(context).textTheme.titleLarge),
+                        child: Text(
+                          part.name,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       ),
                     for (final ingredient in part.ingredients)
                       _IngredientRow(
                         ingredient: ingredient,
                         quantity: ingredient.quantityFor(multiplier),
-                        onEvidence: () => _showEvidence(context, recipe, ingredient.evidenceId),
+                        onEvidence: () => _showEvidence(
+                          context,
+                          recipe,
+                          ingredient.evidenceId,
+                        ),
                       ),
                   ],
                   const SizedBox(height: 12),
@@ -197,13 +227,20 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     ),
                   ),
                   const SizedBox(height: 32),
-                  Text('作り方', key: _stepsKey, style: Theme.of(context).textTheme.headlineMedium),
+                  Text(
+                    '作り方',
+                    key: _stepsKey,
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
                   const SizedBox(height: 12),
                   for (final part in recipe.parts) ...[
                     if (recipe.parts.length > 1)
                       Padding(
                         padding: const EdgeInsets.only(top: 14, bottom: 8),
-                        child: Text(part.name, style: Theme.of(context).textTheme.titleLarge),
+                        child: Text(
+                          part.name,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       ),
                     for (var index = 0; index < part.steps.length; index++)
                       _StepRow(
@@ -223,13 +260,13 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       onPressed: recipe.allSteps.isEmpty
                           ? null
                           : () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => CookingModePage(
-                                    recipeId: recipe.id,
-                                    multiplier: multiplier,
-                                  ),
+                              MaterialPageRoute<void>(
+                                builder: (_) => CookingModePage(
+                                  recipeId: recipe.id,
+                                  multiplier: multiplier,
                                 ),
                               ),
+                            ),
                       icon: const Icon(Icons.soup_kitchen_rounded),
                       label: const Text('料理モードを始める'),
                     ),
@@ -240,7 +277,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ],
                   if (recipe.evidence.isNotEmpty) ...[
                     const SizedBox(height: 30),
-                    Text('解析の根拠', style: Theme.of(context).textTheme.headlineMedium),
+                    Text(
+                      '解析の根拠',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 6),
                     Text(
                       '画像・字幕・投稿文のどこから読み取ったか確認できます。',
@@ -257,7 +297,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                           final item = recipe.evidence[index];
                           return _EvidenceCard(
                             evidence: item,
-                            onTap: () => _showEvidence(context, recipe, item.id),
+                            onTap: () =>
+                                _showEvidence(context, recipe, item.id),
                           );
                         },
                       ),
@@ -268,22 +309,32 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('記録と元投稿', style: Theme.of(context).textTheme.titleLarge),
+                        Text(
+                          '記録と元投稿',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                         const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () => _recordMade(context, recipe),
-                                icon: const Icon(Icons.check_circle_outline_rounded),
-                                label: Text(recipe.madeCount == 0 ? '作った' : '作った ${recipe.madeCount}回'),
+                                icon: const Icon(
+                                  Icons.check_circle_outline_rounded,
+                                ),
+                                label: Text(
+                                  recipe.madeCount == 0
+                                      ? '作った'
+                                      : '作った ${recipe.madeCount}回',
+                                ),
                               ),
                             ),
                             if (recipe.sourceUrl != null) ...[
                               const SizedBox(width: 8),
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: () => _openSource(recipe.sourceUrl!),
+                                  onPressed: () =>
+                                      _openSource(recipe.sourceUrl!),
                                   icon: const Icon(Icons.open_in_new_rounded),
                                   label: const Text('元投稿'),
                                 ),
@@ -305,7 +356,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ),
                   if (related.isNotEmpty) ...[
                     const SizedBox(height: 30),
-                    Text('関連するレシピ', style: Theme.of(context).textTheme.headlineMedium),
+                    Text(
+                      '関連するレシピ',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 12),
                     SizedBox(
                       height: 184,
@@ -319,11 +373,13 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                             width: 142,
                             child: RecipeGridCard(
                               recipe: item,
-                              onTap: () => Navigator.of(context).pushReplacement(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => RecipeDetailPage(recipeId: item.id),
-                                ),
-                              ),
+                              onTap: () =>
+                                  Navigator.of(context).pushReplacement(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          RecipeDetailPage(recipeId: item.id),
+                                    ),
+                                  ),
                               onFavorite: () => controller.toggleFavorite(item),
                             ),
                           );
@@ -342,7 +398,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     child: Text(
                       'AI解析には誤りや材料の見落としが含まれる場合があります。\nアレルギーがある場合は元投稿と商品表示を必ず確認してください。',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: secondaryInk),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: secondaryInk),
                     ),
                   ),
                 ],
@@ -357,7 +415,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   void _jumpTo(GlobalKey key) {
     final target = key.currentContext;
     if (target != null) {
-      Scrollable.ensureVisible(target, duration: const Duration(milliseconds: 350));
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 350),
+      );
     }
   }
 
@@ -366,7 +427,11 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _showEvidence(BuildContext context, Recipe recipe, String? id) async {
+  Future<void> _showEvidence(
+    BuildContext context,
+    Recipe recipe,
+    String? id,
+  ) async {
     if (id == null) return;
     final evidence = recipe.evidence.where((item) => item.id == id).firstOrNull;
     if (evidence == null) return;
@@ -379,7 +444,10 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(evidence.label, style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                evidence.label,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 12),
               if (evidence.imagePath != null)
                 AspectRatio(
@@ -426,7 +494,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     IconButton(
                       onPressed: () => setDialogState(() => rating = index),
                       icon: Icon(
-                        index <= rating ? Icons.star_rounded : Icons.star_border_rounded,
+                        index <= rating
+                            ? Icons.star_rounded
+                            : Icons.star_border_rounded,
                         color: warningColor,
                       ),
                     ),
@@ -440,8 +510,14 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('キャンセル')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('記録する')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('記録する'),
+            ),
           ],
         ),
       ),
@@ -503,14 +579,19 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('どこに間違いがありますか？', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'どこに間違いがありますか？',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               for (final type in types)
                 ListTile(
                   title: Text(type),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
-                    await RecipeScope.read(context).submitFeedback(recipe, type);
+                    await RecipeScope.read(
+                      context,
+                    ).submitFeedback(recipe, type);
                     if (!sheetContext.mounted) return;
                     Navigator.pop(sheetContext);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -528,9 +609,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Future<void> _showCollections(BuildContext context, Recipe recipe) async {
     final controller = RecipeScope.read(context);
     if (controller.snapshot.collections.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('マイページでコレクションを作成できます')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('マイページでコレクションを作成できます')));
       return;
     }
     await showModalBottomSheet<void>(
@@ -549,7 +630,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   contentPadding: EdgeInsets.zero,
                   value: collection.recipeIds.contains(recipe.id),
                   title: Text(collection.name),
-                  onChanged: (_) => controller.toggleRecipeInCollection(recipe, collection),
+                  onChanged: (_) =>
+                      controller.toggleRecipeInCollection(recipe, collection),
                 ),
             ],
           ),
@@ -567,7 +649,10 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(8)),
+    decoration: BoxDecoration(
+      color: mintSoft,
+      borderRadius: BorderRadius.circular(8),
+    ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -586,7 +671,10 @@ class _ServingStepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(color: mintSoft, borderRadius: BorderRadius.circular(12)),
+    decoration: BoxDecoration(
+      color: mintSoft,
+      borderRadius: BorderRadius.circular(12),
+    ),
     child: Row(
       children: [
         IconButton(
@@ -608,7 +696,11 @@ class _ServingStepper extends StatelessWidget {
 }
 
 class _IngredientRow extends StatelessWidget {
-  const _IngredientRow({required this.ingredient, required this.quantity, required this.onEvidence});
+  const _IngredientRow({
+    required this.ingredient,
+    required this.quantity,
+    required this.onEvidence,
+  });
   final RecipeIngredient ingredient;
   final String quantity;
   final VoidCallback onEvidence;
@@ -624,7 +716,11 @@ class _IngredientRow extends StatelessWidget {
             tooltip: '根拠を見る',
             onPressed: onEvidence,
             visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.image_outlined, size: 18, color: secondaryInk),
+            icon: const Icon(
+              Icons.image_outlined,
+              size: 18,
+              color: secondaryInk,
+            ),
           ),
         Text(quantity, style: const TextStyle(fontWeight: FontWeight.w700)),
       ],
@@ -633,7 +729,11 @@ class _IngredientRow extends StatelessWidget {
 }
 
 class _StepRow extends StatelessWidget {
-  const _StepRow({required this.number, required this.step, required this.onEvidence});
+  const _StepRow({
+    required this.number,
+    required this.step,
+    required this.onEvidence,
+  });
   final int number;
   final RecipeStep step;
   final VoidCallback onEvidence;
@@ -648,19 +748,27 @@ class _StepRow extends StatelessWidget {
           radius: 15,
           backgroundColor: mossDeep,
           foregroundColor: Colors.white,
-          child: Text('$number', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+          child: Text(
+            '$number',
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(step.instruction, style: Theme.of(context).textTheme.bodyLarge),
+              Text(
+                step.instruction,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
               if (step.durationSeconds != null) ...[
                 const SizedBox(height: 5),
                 Text(
                   '目安 ${_durationLabel(step.durationSeconds!)}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: mossDeep),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: mossDeep),
                 ),
               ],
             ],
@@ -671,7 +779,11 @@ class _StepRow extends StatelessWidget {
             tooltip: '根拠を見る',
             visualDensity: VisualDensity.compact,
             onPressed: onEvidence,
-            icon: const Icon(Icons.image_outlined, size: 19, color: secondaryInk),
+            icon: const Icon(
+              Icons.image_outlined,
+              size: 19,
+              color: secondaryInk,
+            ),
           ),
       ],
     ),
@@ -722,14 +834,20 @@ class _NutritionPanel extends StatelessWidget {
       children: [
         Text('栄養の目安', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 10),
-        Text([
-          if (nutrition.calories != null) '${nutrition.calories} kcal',
-          if (nutrition.proteinGrams != null) 'P ${nutrition.proteinGrams}g',
-          if (nutrition.fatGrams != null) 'F ${nutrition.fatGrams}g',
-          if (nutrition.carbohydrateGrams != null) 'C ${nutrition.carbohydrateGrams}g',
-        ].join('  ·  ')),
+        Text(
+          [
+            if (nutrition.calories != null) '${nutrition.calories} kcal',
+            if (nutrition.proteinGrams != null) 'P ${nutrition.proteinGrams}g',
+            if (nutrition.fatGrams != null) 'F ${nutrition.fatGrams}g',
+            if (nutrition.carbohydrateGrams != null)
+              'C ${nutrition.carbohydrateGrams}g',
+          ].join('  ·  '),
+        ),
         const SizedBox(height: 6),
-        Text('AIによる概算です。実際の商品・分量で変わります。', style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          'AIによる概算です。実際の商品・分量で変わります。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     ),
   );
@@ -771,7 +889,9 @@ class _EvidenceCard extends StatelessWidget {
                     : '${timestampLabel(evidence.timestampSeconds!)}  ${evidence.label}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: Colors.white),
               ),
             ),
           ],
