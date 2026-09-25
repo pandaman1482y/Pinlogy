@@ -186,6 +186,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       ),
                       _ServingStepper(
                         servings: servings,
+                        unit: recipe.servingUnit,
                         onChanged: (value) => setState(() => _servings = value),
                       ),
                     ],
@@ -665,34 +666,45 @@ class _InfoChip extends StatelessWidget {
 }
 
 class _ServingStepper extends StatelessWidget {
-  const _ServingStepper({required this.servings, required this.onChanged});
+  const _ServingStepper({
+    required this.servings,
+    required this.unit,
+    required this.onChanged,
+  });
   final double servings;
+  final String unit;
   final ValueChanged<double> onChanged;
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: mintSoft,
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-      children: [
-        IconButton(
-          tooltip: '人数を減らす',
-          visualDensity: VisualDensity.compact,
-          onPressed: servings <= 0.5 ? null : () => onChanged(servings - 0.5),
-          icon: const Icon(Icons.remove_rounded, size: 18),
-        ),
-        Text('${servings.toStringAsFixed(servings % 1 == 0 ? 0 : 1)}人分'),
-        IconButton(
-          tooltip: '人数を増やす',
-          visualDensity: VisualDensity.compact,
-          onPressed: () => onChanged(servings + 0.5),
-          icon: const Icon(Icons.add_rounded, size: 18),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final step = unit == '人分' ? 0.5 : 1.0;
+    final value = servings.toStringAsFixed(servings % 1 == 0 ? 0 : 1);
+    return Container(
+      decoration: BoxDecoration(
+        color: mintSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '数量を減らす',
+            visualDensity: VisualDensity.compact,
+            onPressed: servings <= step
+                ? null
+                : () => onChanged(servings - step),
+            icon: const Icon(Icons.remove_rounded, size: 18),
+          ),
+          Text('$value$unit'),
+          IconButton(
+            tooltip: '数量を増やす',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => onChanged(servings + step),
+            icon: const Icon(Icons.add_rounded, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _IngredientRow extends StatelessWidget {

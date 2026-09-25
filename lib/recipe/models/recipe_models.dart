@@ -203,6 +203,7 @@ class RecipeStep {
     required this.order,
     required this.instruction,
     this.durationSeconds,
+    this.imageIndex,
     this.evidenceId,
     this.confidencePercent,
     this.userEdited = false,
@@ -212,6 +213,7 @@ class RecipeStep {
   final int order;
   final String instruction;
   final int? durationSeconds;
+  final int? imageIndex;
   final String? evidenceId;
   final int? confidencePercent;
   final bool userEdited;
@@ -221,6 +223,7 @@ class RecipeStep {
     'order': order,
     'instruction': instruction,
     'durationSeconds': durationSeconds,
+    'imageIndex': imageIndex,
     'evidenceId': evidenceId,
     'confidencePercent': confidencePercent,
     'userEdited': userEdited,
@@ -231,6 +234,7 @@ class RecipeStep {
     order: (json['order'] as num?)?.toInt() ?? 1,
     instruction: json['instruction']?.toString() ?? '',
     durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+    imageIndex: (json['imageIndex'] as num?)?.toInt(),
     evidenceId: json['evidenceId']?.toString(),
     confidencePercent: (json['confidencePercent'] as num?)?.toInt(),
     userEdited: json['userEdited'] as bool? ?? false,
@@ -307,6 +311,7 @@ class Recipe {
     required this.title,
     this.description,
     this.servings = 2,
+    this.servingUnit = '人分',
     this.totalMinutes,
     this.difficulty,
     this.category,
@@ -347,6 +352,7 @@ class Recipe {
   final String title;
   final String? description;
   final double servings;
+  final String servingUnit;
   final int? totalMinutes;
   final String? difficulty;
   final String? category;
@@ -381,6 +387,7 @@ class Recipe {
     String? title,
     String? description,
     double? servings,
+    String? servingUnit,
     int? totalMinutes,
     String? difficulty,
     String? category,
@@ -412,6 +419,7 @@ class Recipe {
     title: title ?? this.title,
     description: description ?? this.description,
     servings: servings ?? this.servings,
+    servingUnit: servingUnit ?? this.servingUnit,
     totalMinutes: totalMinutes ?? this.totalMinutes,
     difficulty: difficulty ?? this.difficulty,
     category: category ?? this.category,
@@ -445,6 +453,7 @@ class Recipe {
     'title': title,
     'description': description,
     'servings': servings,
+    'servingUnit': servingUnit,
     'totalMinutes': totalMinutes,
     'difficulty': difficulty,
     'category': category,
@@ -478,6 +487,9 @@ class Recipe {
     title: json['title']?.toString() ?? '名称未設定のレシピ',
     description: json['description']?.toString(),
     servings: (json['servings'] as num?)?.toDouble() ?? 2,
+    servingUnit: json['servingUnit']?.toString().trim().isNotEmpty == true
+        ? json['servingUnit'].toString().trim()
+        : '人分',
     totalMinutes: (json['totalMinutes'] as num?)?.toInt(),
     difficulty: json['difficulty']?.toString(),
     category: json['category']?.toString(),

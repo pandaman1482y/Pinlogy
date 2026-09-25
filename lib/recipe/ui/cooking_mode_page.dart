@@ -165,8 +165,8 @@ class _CookingModePageState extends State<CookingModePage> {
                         maxLines: compact ? 5 : 7,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          height: 1.45,
-                          fontSize: compact ? 18 : 21,
+                          height: 1.4,
+                          fontSize: compact ? 16 : 18,
                         ),
                       ),
                     ),
@@ -224,6 +224,7 @@ class _CookingModePageState extends State<CookingModePage> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
+                          style: _footerButtonStyle(compact),
                           onPressed: _index == 0
                               ? null
                               : () => _move(-1, entries.length),
@@ -234,6 +235,7 @@ class _CookingModePageState extends State<CookingModePage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: FilledButton.icon(
+                          style: _footerButtonStyle(compact),
                           onPressed: _index == entries.length - 1
                               ? () async {
                                   await controller.recordCooked(recipe);
@@ -277,6 +279,13 @@ class _CookingModePageState extends State<CookingModePage> {
         : part.ingredients.take(4).toList(growable: false);
   }
 
+  ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(
+    minimumSize: Size(0, compact ? 38 : 42),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    visualDensity: VisualDensity.compact,
+  );
+
   String? _imageFor(
     Recipe recipe,
     RecipeStep step,
@@ -284,6 +293,12 @@ class _CookingModePageState extends State<CookingModePage> {
     required int stepIndex,
     required int stepCount,
   }) {
+    final directIndex = step.imageIndex;
+    if (directIndex != null &&
+        directIndex >= 0 &&
+        directIndex < sourceImages.length) {
+      return sourceImages[directIndex];
+    }
     for (final evidence in recipe.evidence) {
       if (evidence.id == step.evidenceId &&
           (evidence.kind == EvidenceKind.image ||

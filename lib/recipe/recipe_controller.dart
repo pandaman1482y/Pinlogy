@@ -431,6 +431,7 @@ class RecipeController extends ChangeNotifier {
                   'duration_seconds',
                   'durationSeconds',
                 ),
+                imageIndex: _integer(step, 'image_index', 'imageIndex'),
                 evidenceId: _evidenceId(
                   post.id,
                   recipeIndex,
@@ -500,6 +501,7 @@ class RecipeController extends ChangeNotifier {
       title: title,
       description: _text(json, 'description', 'summary'),
       servings: _number(json, 'servings') ?? 2.0,
+      servingUnit: _text(json, 'serving_unit', 'servingUnit') ?? '人分',
       totalMinutes: _integer(json, 'total_minutes', 'totalMinutes'),
       difficulty: _text(json, 'difficulty'),
       category: _text(json, 'category'),

@@ -19,6 +19,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
   final _description = TextEditingController();
   final _sourceUrl = TextEditingController();
   final _servings = TextEditingController(text: '2');
+  final _servingUnit = TextEditingController(text: '人分');
   final _minutes = TextEditingController();
   final _category = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -42,6 +43,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     _servings.text = recipe.servings.toStringAsFixed(
       recipe.servings % 1 == 0 ? 0 : 1,
     );
+    _servingUnit.text = recipe.servingUnit;
     _minutes.text = recipe.totalMinutes?.toString() ?? '';
     _category.text = recipe.category ?? '';
     _parts = recipe.parts
@@ -63,6 +65,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     _description.dispose();
     _sourceUrl.dispose();
     _servings.dispose();
+    _servingUnit.dispose();
     _minutes.dispose();
     _category.dispose();
     super.dispose();
@@ -104,7 +107,15 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(labelText: '基準人数'),
+                    decoration: const InputDecoration(labelText: '基準数量'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 76,
+                  child: TextField(
+                    controller: _servingUnit,
+                    decoration: const InputDecoration(labelText: '単位'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -293,6 +304,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
                 order: entry.key + 1,
                 instruction: entry.value.instruction,
                 durationSeconds: entry.value.durationSeconds,
+                imageIndex: entry.value.imageIndex,
                 evidenceId: entry.value.evidenceId,
                 confidencePercent: entry.value.confidencePercent,
                 userEdited: true,
@@ -344,6 +356,9 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
           ? null
           : _description.text.trim(),
       servings: double.tryParse(_servings.text) ?? 2,
+      servingUnit: _servingUnit.text.trim().isEmpty
+          ? '人分'
+          : _servingUnit.text.trim(),
       totalMinutes: int.tryParse(_minutes.text),
       category: _category.text.trim().isEmpty ? null : _category.text.trim(),
       parts: _parts,
@@ -364,6 +379,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
         'title',
         'description',
         'servings',
+        'servingUnit',
         'totalMinutes',
         'category',
         'parts',

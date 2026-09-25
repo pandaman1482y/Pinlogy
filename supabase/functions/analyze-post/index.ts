@@ -175,13 +175,15 @@ Deno.serve(async (request) => {
           "根拠の優先順位は、ユーザー修正、投稿文・キャプション、明瞭な画像字幕、投稿者の固定コメント、音声文字起こし、AI推測の順です。上位根拠と矛盾する下位根拠で上書きしないでください。" +
           "1投稿に完成料理が複数ある場合はrecipesを料理ごとに分けます。一方、本体、出汁、タレ、漬けだれ、衣、トッピングなど同じ完成料理を構成する別作業は、別recipeにせず同じrecipeのpartsへ分けてください。" +
           "材料は画面に出た『小さじ1』『1/2個』等をoriginal_textへ残し、数値化できる場合だけamountとunitを設定します。適量、少々、いつもの量など曖昧な表現は推測せずoriginal_textへそのまま残しscalable=falseにしてください。" +
-          "工程は実際の表示・音声の順番を保ち、前後の画像や別料理を混ぜません。短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
+          "完成量はservingsとserving_unitに分けます。『2人分』は2と人分、『春巻き12本』は12と本、『クッキー20枚』は20と枚です。完成個数の本・個・枚を人数に変換しないでください。根拠がなければ両方nullにします。" +
+          "工程は実際の表示・音声の順番、数値、作業内容を変えず、元の言い回しをできるだけ残します。方言・口語・重複を軽く整え、曖昧な指示語は根拠内で対象が明確な場合だけ材料名に置き換えます。前後の画像や別料理を混ぜず、短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
           "根拠から確認できる範囲で、下ごしらえ（切り方・大きさ・水気処理）、材料を入れる順番、混ぜ方・成形方法、使用する器具、火加減、加熱・待ち時間、裏返すタイミング、完成を判断する色・状態・食感をinstructionへ含めてください。" +
           "一つのinstructionへ無関係な作業を詰め込まず、調理者が手を止める自然な区切りで工程を分けてください。ただし『材料を取る』など単独では役に立たない細分化はしません。" +
           "投稿に時間が明記された場合だけduration_secondsを設定します。正確な時間が不明なら数値を創作せずnullにし、画像や投稿文で確認できる『焼き色がつくまで』『しんなりするまで』などの状態をinstructionへ記載してください。" +
           "一般的な料理知識で補足するときは、元の手順を変えず安全性や操作を明確にする最小限の補足に留め、投稿にない具体的な分量・温度・時間を断定しないでください。" +
           "一瞬だけの文字、装飾フォント、背景と同化した字幕、音声だけの分量、料理が高速に切り替わる箇所は確信度を下げ、読めない内容を補完せずneeds_review_fieldsへ具体的に記載してください。" +
           "投稿文に完全な材料・工程があれば画像より優先します。ただし画像にしかない情報も追加し、矛盾はwarningsに残してください。取得できない動画内容は推測しません。" +
+          "工程を作る前に、入力画像を0から時系列順に見比べ、各画像で使っている材料と作業を確認してください。各工程のimage_indexには、その作業自体が最も明確に映る画像番号を設定します。材料名と画像内容が一致しない画像を割り当てず、判定できない場合はnullにします。" +
           "evidenceには画像番号・時刻・投稿文抜粋などの根拠を登録し、各材料と工程のevidence_indexから対応させてください。画像番号は入力で示した0始まり番号です。" +
           "category、cuisine、main_ingredient、methodは料理ごとに個別判断し、複数料理へ同じ値を機械的にコピーしないでください。" +
           "アレルゲンは明記または一般的な原材料として高い確度で含むものだけを列挙し、安全を保証しないでください。栄養値は十分な分量がある場合だけ概算し、不足時はnullにしてください。" +
@@ -371,7 +373,7 @@ const recipeSchema = {
           type: "object",
           additionalProperties: false,
           required: [
-            "title", "description", "servings", "total_minutes", "difficulty",
+            "title", "description", "servings", "serving_unit", "total_minutes", "difficulty",
             "category", "cuisine", "main_ingredient", "method",
             "cover_image_index", "parts", "evidence", "allergens", "warnings",
             "needs_review_fields", "nutrition"
@@ -380,6 +382,10 @@ const recipeSchema = {
             title: { type: "string" },
             description: { type: ["string", "null"] },
             servings: { type: ["number", "null"], minimum: 0.1, maximum: 100 },
+            serving_unit: {
+              type: ["string", "null"],
+              enum: ["人分", "本", "個", "枚", "皿", "杯", "食", null],
+            },
             total_minutes: { type: ["integer", "null"], minimum: 0, maximum: 2880 },
             difficulty: { type: ["string", "null"], enum: ["かんたん", "ふつう", "本格的", null] },
             category: { type: ["string", "null"] },
@@ -426,11 +432,16 @@ const recipeSchema = {
                     items: {
                       type: "object",
                       additionalProperties: false,
-                      required: ["order", "instruction", "duration_seconds", "evidence_index", "confidence_percent"],
+                      required: ["order", "instruction", "duration_seconds", "image_index", "evidence_index", "confidence_percent"],
                       properties: {
                         order: { type: "integer", minimum: 1, maximum: 100 },
                         instruction: { type: "string" },
                         duration_seconds: { type: ["integer", "null"], minimum: 0, maximum: 86400 },
+                        image_index: {
+                          type: ["integer", "null"],
+                          minimum: 0,
+                          maximum: maxAnalysisImages - 1,
+                        },
                         evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
                         confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
                       },
