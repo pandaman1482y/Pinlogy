@@ -318,8 +318,8 @@ class Recipe {
     required this.sourcePostId,
     required this.title,
     this.description,
-    this.servings = 2,
-    this.servingUnit = '人分',
+    this.servings = 1,
+    this.servingUnit = 'レシピ分',
     this.totalMinutes,
     this.difficulty,
     this.category,
@@ -494,10 +494,10 @@ class Recipe {
     sourcePostId: json['sourcePostId']?.toString() ?? '',
     title: json['title']?.toString() ?? '名称未設定のレシピ',
     description: json['description']?.toString(),
-    servings: (json['servings'] as num?)?.toDouble() ?? 2,
+    servings: (json['servings'] as num?)?.toDouble() ?? 1,
     servingUnit: json['servingUnit']?.toString().trim().isNotEmpty == true
         ? json['servingUnit'].toString().trim()
-        : '人分',
+        : 'レシピ分',
     totalMinutes: (json['totalMinutes'] as num?)?.toInt(),
     difficulty: json['difficulty']?.toString(),
     category: json['category']?.toString(),

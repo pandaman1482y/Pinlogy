@@ -87,13 +87,7 @@ class _CookingModePageState extends State<CookingModePage> {
         .expand((post) => post.imagePaths)
         .where((path) => path.trim().isNotEmpty)
         .toList(growable: false);
-    final imagePath = _imageFor(
-      recipe,
-      entry.step,
-      sourceImages,
-      stepIndex: _index,
-      stepCount: entries.length,
-    );
+    final imagePath = _imageFor(recipe, entry.step, sourceImages);
 
     return Scaffold(
       appBar: AppBar(
@@ -118,9 +112,18 @@ class _CookingModePageState extends State<CookingModePage> {
           child: LayoutBuilder(
             builder: (context, box) {
               final compact = box.maxHeight < 720;
+              final hasTimer =
+                  _timerStepNumber != null ||
+                  entry.step.durationSeconds != null;
+              // 説明欄の余白を縦動画へ配分し、切り抜かず大きく表示する。
               final imageHeight = compact
-                  ? 142.0
-                  : (box.maxHeight * 0.34).clamp(190.0, 240.0).toDouble();
+                  ? (hasTimer ? 170.0 : 195.0)
+                  : (box.maxHeight * (hasTimer ? 0.31 : 0.38))
+                        .clamp(
+                          hasTimer ? 205.0 : 235.0,
+                          hasTimer ? 255.0 : 300.0,
+                        )
+                        .toDouble();
               return Padding(
                 padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
                 child: Column(
@@ -251,6 +254,7 @@ class _CookingModePageState extends State<CookingModePage> {
                                 entry.part,
                                 entry.step,
                                 ingredients,
+                                referenceImagePath: imagePath,
                               ),
                               icon: const Icon(
                                 Icons.auto_awesome_rounded,
@@ -268,6 +272,7 @@ class _CookingModePageState extends State<CookingModePage> {
                                 entry.step,
                                 ingredients,
                                 withCamera: true,
+                                referenceImagePath: imagePath,
                               ),
                               icon: const Icon(
                                 Icons.photo_camera_outlined,
@@ -393,7 +398,7 @@ class _CookingModePageState extends State<CookingModePage> {
     if (!_voiceEnabled || !_speechReady || _speech.isListening) return;
     await _speech.listen(
       onResult: _handleSpeechResult,
-      listenOptions: const SpeechListenOptions(
+      listenOptions: SpeechListenOptions(
         localeId: 'ja_JP',
         listenFor: Duration(minutes: 2),
         pauseFor: Duration(seconds: 3),
@@ -508,13 +513,7 @@ class _CookingModePageState extends State<CookingModePage> {
     visualDensity: VisualDensity.compact,
   );
 
-  String? _imageFor(
-    Recipe recipe,
-    RecipeStep step,
-    List<String> sourceImages, {
-    required int stepIndex,
-    required int stepCount,
-  }) {
+  String? _imageFor(Recipe recipe, RecipeStep step, List<String> sourceImages) {
     final directIndex = step.imageIndex;
     if (directIndex != null &&
         directIndex >= 0 &&
@@ -529,14 +528,9 @@ class _CookingModePageState extends State<CookingModePage> {
         return evidence.imagePath;
       }
     }
-    if (sourceImages.isNotEmpty) {
-      final imageIndex = stepCount <= 1
-          ? 0
-          : (stepIndex * (sourceImages.length - 1) / (stepCount - 1)).round();
-      final boundedIndex = imageIndex.clamp(0, sourceImages.length - 1).toInt();
-      return sourceImages[boundedIndex];
-    }
-    return recipe.coverImagePath;
+    // 工程画像が特定できない場合、均等割りやサムネイルで補完すると
+    // 別材料・別工程の画像を表示するため、誤表示より画像なしを優先する。
+    return null;
   }
 
   Future<void> _showAssistant(
@@ -545,6 +539,7 @@ class _CookingModePageState extends State<CookingModePage> {
     RecipeStep step,
     List<RecipeIngredient> ingredients, {
     bool withCamera = false,
+    String? referenceImagePath,
   }) async {
     String? imagePath;
     if (withCamera) {
@@ -585,6 +580,7 @@ class _CookingModePageState extends State<CookingModePage> {
                 multiplier: widget.multiplier,
                 question: input.text,
                 imagePath: imagePath,
+                referenceImagePath: referenceImagePath,
               );
               if (sheetContext.mounted) update(() => answer = value);
             } catch (exception) {

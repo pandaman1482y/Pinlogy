@@ -168,13 +168,14 @@ Deno.serve(async (request) => {
       body: JSON.stringify({
         model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
         store: false,
-        reasoning: { effort: "low" },
+        reasoning: { effort: "medium" },
         max_output_tokens: 8000,
         instructions:
           "SNS投稿を日本語の構造化レシピへ整理してください。入力された全画像を番号順に必ず確認してください。" +
           "根拠の優先順位は、ユーザー修正、投稿文・キャプション、明瞭な画像字幕、投稿者の固定コメント、音声文字起こし、AI推測の順です。上位根拠と矛盾する下位根拠で上書きしないでください。" +
           "1投稿に完成料理が複数ある場合はrecipesを料理ごとに分けます。一方、本体、出汁、タレ、漬けだれ、衣、トッピングなど同じ完成料理を構成する別作業は、別recipeにせず同じrecipeのpartsへ分けてください。" +
           "材料は画面に出た『小さじ1』『1/2個』等をoriginal_textへ残し、数値化できる場合だけamountとunitを設定します。適量、少々、いつもの量など曖昧な表現は推測せずoriginal_textへそのまま残しscalable=falseにしてください。" +
+          "amountとunitは必ず同じ根拠から組にして抽出します。別の材料の数字、画面番号、再生時間、人数を分量へ転用しません。大さじ・小さじ・カップとg・mlは、投稿自身が換算している場合を除いて相互換算しません。分数は3/4を0.75のようにamountへ入れ、original_textには元の『大さじ3/4』を保存します。" +
           "材料の分量は、その材料を実際に投入する瞬間だけでなく、直前の材料紹介、調味料を合わせる場面、画面字幕、投稿文、音声説明まで時系列で探してください。確認できた分量を対応するingredientのamount・unit・original_textへ保存し、『画像』『文字』『字幕』『音声』など根拠の種類を分量やunitへ入れないでください。" +
           "完成量はservingsとserving_unitに分けます。『2人分』は2と人分、『春巻き12本』は12と本、『クッキー20枚』は20と枚です。完成個数の本・個・枚を人数に変換しないでください。根拠がなければ両方nullにします。" +
           "工程は実際の表示・音声の順番、数値、作業内容を変えず、元の言い回しをできるだけ残します。方言・口語・重複を軽く整え、曖昧な指示語は根拠内で対象が明確な場合だけ材料名に置き換えます。前後の画像や別料理を混ぜず、短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
@@ -213,7 +214,11 @@ Deno.serve(async (request) => {
       quotaReserved = false;
       return reply({ error: "empty_ai_response" }, 502);
     }
-    const parsedOutput = sanitizeParsedOutput(JSON.parse(output.text), sharedPage);
+    const parsedOutput = sanitizeParsedOutput(
+      JSON.parse(output.text),
+      sharedPage,
+      analysisImageIndex,
+    );
     const parsedRecipes = Array.isArray(parsedOutput.recipes)
       ? parsedOutput.recipes
       : [];
@@ -272,19 +277,43 @@ async function answerCookingQuestion(
   const ingredients = Array.isArray(input.ingredients)
     ? input.ingredients.slice(0, 20)
     : [];
+  const allIngredients = Array.isArray(input.all_ingredients)
+    ? input.all_ingredients.slice(0, 80)
+    : [];
   const content: Array<Record<string, unknown>> = [{
     type: "input_text",
     text: [
       `料理名: ${String(input.recipe_title ?? "").slice(0, 300)}`,
       `現在のパート: ${String(input.part_name ?? "").slice(0, 300)}`,
+      `直前の工程: ${String(input.previous_instruction ?? "").slice(0, 1500)}`,
       `現在の工程: ${instruction}`,
+      `次の工程: ${String(input.next_instruction ?? "").slice(0, 1500)}`,
+      `現在工程の時間: ${String(input.duration_seconds ?? "不明")}`,
       `表示中の材料: ${JSON.stringify(ingredients)}`,
+      `レシピ全体の材料: ${JSON.stringify(allIngredients)}`,
+      `工程の根拠: ${String(input.evidence_summary ?? "").slice(0, 2000)}`,
       `質問: ${question}`,
     ].join("\n"),
   }];
   const images = validImages(input.image_data_urls).slice(0, 1);
   if (images[0]) {
+    content.push({
+      type: "input_text",
+      text: "次の画像はユーザーが今撮影した調理中の写真です。",
+    });
     content.push({ type: "input_image", image_url: images[0], detail: "high" });
+  }
+  const referenceImages = validImages(input.reference_image_data_urls).slice(0, 1);
+  if (referenceImages[0]) {
+    content.push({
+      type: "input_text",
+      text: "次の画像は元投稿で現在工程に対応付けられた参考画像です。撮影写真と混同せず、状態比較の補助にだけ使ってください。",
+    });
+    content.push({
+      type: "input_image",
+      image_url: referenceImages[0],
+      detail: "high",
+    });
   }
 
   try {
@@ -295,10 +324,12 @@ async function answerCookingQuestion(
         model: Deno.env.get("OPENAI_COOKING_MODEL") ??
           Deno.env.get("OPENAI_MODEL") ?? "gpt-5.6-luna",
         store: false,
-        reasoning: { effort: "low" },
+        reasoning: { effort: "medium" },
         max_output_tokens: 500,
         instructions:
           "料理中のユーザーへ日本語で短く実用的に回答してください。現在の工程と材料を最優先し、回答は原則2〜5文にします。" +
+          "直前・現在・次の工程を区別し、現在工程に存在しない材料を勝手に追加しません。分量は入力にある値をそのまま使い、単位換算や不足値の創作をしません。" +
+          "ユーザー写真と元投稿の参考画像がある場合は、色、形、表面、水分、とろみ、膨らみ、焼き目など現在工程に関係する観察可能な差だけを比較し、『現在の状態』『次にすること』『完了の目印』の順で簡潔に答えてください。画像で確認できないことは確認できないと明記します。" +
           "写真がある場合も、見た目だけで肉・魚・卵の安全性や中心までの加熱完了を断定しません。追加加熱、中心温度、肉汁など安全な確認方法を案内してください。" +
           "腐敗やアレルギーの安全を保証しません。投稿にない分量・温度・時間を断定せず、必要なら目安であることを明記します。" +
           "質問と無関係なレシピ全体の説明、長い前置き、過度な励ましは不要です。",
@@ -1294,11 +1325,13 @@ function cleanSharedText(value: unknown, sharedPage: SharedPage | null) {
 function sanitizeParsedOutput(
   value: unknown,
   sharedPage: SharedPage | null,
+  imageCount: number,
 ): Record<string, unknown> {
   if (value == null || typeof value !== "object") {
     throw new Error("invalid_ai_output");
   }
   const output = value as Record<string, unknown>;
+  sanitizeRecipes(output, imageCount);
   if (!Array.isArray(output.candidates)) return output;
   const filtered = output.candidates.filter((candidate) => {
     if (candidate == null || typeof candidate !== "object") return false;
@@ -1325,6 +1358,118 @@ function sanitizeParsedOutput(
   }
   output.candidates = [...unique.values()];
   return output;
+}
+
+function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
+  if (!Array.isArray(output.recipes)) {
+    output.recipes = [];
+    return;
+  }
+  for (const rawRecipe of output.recipes) {
+    if (rawRecipe == null || typeof rawRecipe !== "object") continue;
+    const recipe = rawRecipe as Record<string, unknown>;
+    const review = Array.isArray(recipe.needs_review_fields)
+      ? recipe.needs_review_fields.map((item) => String(item)).filter(Boolean)
+      : [];
+    const warnings = Array.isArray(recipe.warnings)
+      ? recipe.warnings.map((item) => String(item)).filter(Boolean)
+      : [];
+    const servingUnit = recipe.serving_unit == null
+      ? null
+      : String(recipe.serving_unit).trim();
+    const servings = Number(recipe.servings);
+    if (!Number.isFinite(servings) || servings <= 0 || servingUnit == null) {
+      recipe.servings = null;
+      recipe.serving_unit = null;
+      addUnique(review, "完成量（人分・本数・個数）は根拠から確認できませんでした");
+    }
+
+    recipe.cover_image_index = validBoundedIndex(
+      recipe.cover_image_index,
+      imageCount,
+    );
+    const evidence = Array.isArray(recipe.evidence) ? recipe.evidence : [];
+    for (const rawEvidence of evidence) {
+      if (rawEvidence == null || typeof rawEvidence !== "object") continue;
+      const item = rawEvidence as Record<string, unknown>;
+      item.image_index = validBoundedIndex(item.image_index, imageCount);
+      item.confidence_percent = confidence(item.confidence_percent);
+    }
+
+    const parts = Array.isArray(recipe.parts) ? recipe.parts : [];
+    for (const rawPart of parts) {
+      if (rawPart == null || typeof rawPart !== "object") continue;
+      const part = rawPart as Record<string, unknown>;
+      const ingredients = Array.isArray(part.ingredients)
+        ? part.ingredients
+        : [];
+      for (const rawIngredient of ingredients) {
+        if (rawIngredient == null || typeof rawIngredient !== "object") continue;
+        const ingredient = rawIngredient as Record<string, unknown>;
+        ingredient.confidence_percent = confidence(
+          ingredient.confidence_percent,
+        );
+        ingredient.evidence_index = validBoundedIndex(
+          ingredient.evidence_index,
+          evidence.length,
+        );
+        const unit = String(ingredient.unit ?? "").trim();
+        const invalidUnit = /^(?:画像|写真|文字|字幕|音声|動画|caption|image|audio)$/i
+          .test(unit);
+        const amount = Number(ingredient.amount);
+        if (invalidUnit || (ingredient.amount != null && !Number.isFinite(amount))) {
+          ingredient.amount = null;
+          ingredient.unit = null;
+          ingredient.scalable = false;
+          addUnique(
+            review,
+            `${String(ingredient.name ?? "材料")}の分量を確認してください`,
+          );
+        }
+        const original = String(ingredient.original_text ?? "").trim();
+        if (ingredient.amount == null && /^(?:適量|少々|お好み|ひとつまみ|適宜)$/u.test(original)) {
+          ingredient.scalable = false;
+        }
+      }
+
+      const steps = Array.isArray(part.steps) ? part.steps : [];
+      for (const rawStep of steps) {
+        if (rawStep == null || typeof rawStep !== "object") continue;
+        const step = rawStep as Record<string, unknown>;
+        step.image_index = validBoundedIndex(step.image_index, imageCount);
+        step.evidence_index = validBoundedIndex(
+          step.evidence_index,
+          evidence.length,
+        );
+        step.confidence_percent = confidence(step.confidence_percent);
+        const indexes = Array.isArray(step.ingredient_indexes)
+          ? step.ingredient_indexes
+          : [];
+        step.ingredient_indexes = [...new Set(indexes
+          .map((item) => Number(item))
+          .filter((item) =>
+            Number.isInteger(item) && item >= 0 && item < ingredients.length
+          ))];
+      }
+    }
+    recipe.needs_review_fields = [...new Set(review)].slice(0, 50);
+    recipe.warnings = [...new Set(warnings)].slice(0, 30);
+  }
+}
+
+function validBoundedIndex(value: unknown, length: number) {
+  const index = Number(value);
+  return Number.isInteger(index) && index >= 0 && index < length ? index : null;
+}
+
+function confidence(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function addUnique(values: string[], value: string) {
+  if (!values.includes(value)) values.push(value);
 }
 
 function candidateIdentity(candidate: Record<string, unknown>) {

@@ -98,15 +98,28 @@ class RecipeController extends ChangeNotifier {
     required double multiplier,
     required String question,
     String? imagePath,
+    String? referenceImagePath,
   }) {
     final service = legacy.analysisService;
     if (service is! AiPostAnalysisService) {
       throw StateError('AI機能が設定されていません');
     }
+    final steps = recipe.allSteps.toList(growable: false);
+    final stepIndex = steps.indexWhere((item) => item.id == step.id);
+    final evidence = recipe.evidence
+        .where((item) => item.id == step.evidenceId)
+        .firstOrNull;
     return service.askCookingAssistant(
       recipeTitle: recipe.title,
       partName: part.name,
+      previousInstruction: stepIndex > 0
+          ? steps[stepIndex - 1].instruction
+          : null,
       instruction: step.instruction,
+      nextInstruction: stepIndex >= 0 && stepIndex + 1 < steps.length
+          ? steps[stepIndex + 1].instruction
+          : null,
+      durationSeconds: step.durationSeconds,
       ingredients: ingredients
           .map(
             (ingredient) => {
@@ -115,8 +128,23 @@ class RecipeController extends ChangeNotifier {
             },
           )
           .toList(growable: false),
+      allIngredients: recipe.allIngredients
+          .map(
+            (ingredient) => {
+              'name': ingredient.name,
+              'quantity': ingredient.quantityFor(multiplier),
+            },
+          )
+          .toList(growable: false),
+      evidenceSummary: [
+        if (evidence != null) evidence.label,
+        if (evidence?.excerpt?.trim().isNotEmpty == true) evidence!.excerpt!,
+        if (evidence?.timestampSeconds != null)
+          '${evidence!.timestampSeconds}秒地点',
+      ].join(' / '),
       question: question,
       imagePath: imagePath,
+      referenceImagePath: referenceImagePath,
     );
   }
 
@@ -508,8 +536,9 @@ class RecipeController extends ChangeNotifier {
       sourcePostId: post.id,
       title: title,
       description: _text(json, 'description', 'summary'),
-      servings: _number(json, 'servings') ?? 2.0,
-      servingUnit: _text(json, 'serving_unit', 'servingUnit') ?? '人分',
+      // 根拠のない完成量を「2人分」として表示しない。
+      servings: _number(json, 'servings') ?? 1.0,
+      servingUnit: _text(json, 'serving_unit', 'servingUnit') ?? 'レシピ分',
       totalMinutes: _integer(json, 'total_minutes', 'totalMinutes'),
       difficulty: _text(json, 'difficulty'),
       category: _text(json, 'category'),

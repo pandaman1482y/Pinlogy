@@ -28,8 +28,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
   // v11: 場所候補だけの旧結果を再利用せず、構造化レシピを必ず取得する。
-  static const _cachePrefix = 'ai_analysis_cache_v14_recipe_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v14_recipe';
+  static const _cachePrefix = 'ai_analysis_cache_v20_recipe_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v20_recipe';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -39,9 +39,15 @@ class AiPostAnalysisService implements PostAnalysisService {
     required String recipeTitle,
     required String partName,
     required String instruction,
+    required String? previousInstruction,
+    required String? nextInstruction,
+    required int? durationSeconds,
     required List<Map<String, String>> ingredients,
+    required List<Map<String, String>> allIngredients,
+    required String evidenceSummary,
     required String question,
     String? imagePath,
+    String? referenceImagePath,
   }) async {
     if (!backendConfigured) throw StateError('AI機能が設定されていません');
     if (!await AiAnalysisConsent().hasConsented()) {
@@ -52,6 +58,9 @@ class AiPostAnalysisService implements PostAnalysisService {
     final encodedImages = imagePath == null
         ? const _EncodedImages(dataUrls: [], sourcePaths: [])
         : await _readImages([imagePath]);
+    final referenceImages = referenceImagePath == null
+        ? const _EncodedImages(dataUrls: [], sourcePaths: [])
+        : await _readImages([referenceImagePath]);
     final uri = Uri.parse(
       '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/analyze-post',
     );
@@ -68,10 +77,18 @@ class AiPostAnalysisService implements PostAnalysisService {
             'action': 'cooking_assistant',
             'recipe_title': recipeTitle,
             'part_name': partName,
+            'previous_instruction': previousInstruction,
             'instruction': instruction,
+            'next_instruction': nextInstruction,
+            'duration_seconds': durationSeconds,
             'ingredients': ingredients,
+            'all_ingredients': allIngredients,
+            'evidence_summary': evidenceSummary,
             'question': trimmedQuestion,
             'image_data_urls': encodedImages.dataUrls.take(1).toList(),
+            'reference_image_data_urls': referenceImages.dataUrls
+                .take(1)
+                .toList(),
           }),
         )
         .timeout(const Duration(seconds: 35));
@@ -578,7 +595,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      'recipe-extraction-v1-all-social-images',
+      'recipe-extraction-v20-evidence-validated',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',
