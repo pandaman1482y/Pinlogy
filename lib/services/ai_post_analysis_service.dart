@@ -28,8 +28,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   static const _url = String.fromEnvironment('SUPABASE_URL');
   static const _key = String.fromEnvironment('SUPABASE_ANON_KEY');
   // v11: 場所候補だけの旧結果を再利用せず、構造化レシピを必ず取得する。
-  static const _cachePrefix = 'ai_analysis_cache_v20_recipe_';
-  static const _cacheIndexKey = 'ai_analysis_cache_index_v20_recipe';
+  static const _cachePrefix = 'ai_analysis_cache_v21_recipe_';
+  static const _cacheIndexKey = 'ai_analysis_cache_index_v21_recipe';
   static const _deviceIdKey = 'ai_quota_device_id_v1';
 
   static bool get backendConfigured =>
@@ -44,6 +44,9 @@ class AiPostAnalysisService implements PostAnalysisService {
     required int? durationSeconds,
     required List<Map<String, String>> ingredients,
     required List<Map<String, String>> allIngredients,
+    required List<String> preparedItems,
+    required List<String> tools,
+    required List<String> tips,
     required String evidenceSummary,
     required String question,
     String? imagePath,
@@ -83,6 +86,9 @@ class AiPostAnalysisService implements PostAnalysisService {
             'duration_seconds': durationSeconds,
             'ingredients': ingredients,
             'all_ingredients': allIngredients,
+            'prepared_items': preparedItems,
+            'tools': tools,
+            'tips': tips,
             'evidence_summary': evidenceSummary,
             'question': trimmedQuestion,
             'image_data_urls': encodedImages.dataUrls.take(1).toList(),
@@ -595,7 +601,7 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   String _cacheKey(PostAnalysisRequest request, String? evidenceText) {
     final input = [
-      'recipe-extraction-v20-evidence-validated',
+      'recipe-extraction-v21-cooking-inputs',
       _normalizedSourceUrl(request.url),
       request.text ?? '',
       evidenceText ?? '',

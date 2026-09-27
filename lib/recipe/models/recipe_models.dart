@@ -205,11 +205,17 @@ class RecipeStep {
     this.durationSeconds,
     this.imageIndex,
     List<int>? ingredientIndexes,
+    List<String>? preparedItems,
+    List<String>? tools,
+    List<String>? tips,
     this.evidenceId,
     this.confidencePercent,
     this.userEdited = false,
   }) : id = id ?? newId(),
-       ingredientIndexes = ingredientIndexes ?? const [];
+       ingredientIndexes = ingredientIndexes ?? const [],
+       preparedItems = preparedItems ?? const [],
+       tools = tools ?? const [],
+       tips = tips ?? const [];
 
   final String id;
   final int order;
@@ -217,6 +223,9 @@ class RecipeStep {
   final int? durationSeconds;
   final int? imageIndex;
   final List<int> ingredientIndexes;
+  final List<String> preparedItems;
+  final List<String> tools;
+  final List<String> tips;
   final String? evidenceId;
   final int? confidencePercent;
   final bool userEdited;
@@ -228,6 +237,9 @@ class RecipeStep {
     'durationSeconds': durationSeconds,
     'imageIndex': imageIndex,
     'ingredientIndexes': ingredientIndexes,
+    'preparedItems': preparedItems,
+    'tools': tools,
+    'tips': tips,
     'evidenceId': evidenceId,
     'confidencePercent': confidencePercent,
     'userEdited': userEdited,
@@ -243,6 +255,9 @@ class RecipeStep {
         .whereType<num>()
         .map((value) => value.toInt())
         .toList(growable: false),
+    preparedItems: _strings(json['preparedItems']),
+    tools: _strings(json['tools']),
+    tips: _strings(json['tips']),
     evidenceId: json['evidenceId']?.toString(),
     confidencePercent: (json['confidencePercent'] as num?)?.toInt(),
     userEdited: json['userEdited'] as bool? ?? false,

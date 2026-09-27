@@ -136,6 +136,9 @@ class RecipeController extends ChangeNotifier {
             },
           )
           .toList(growable: false),
+      preparedItems: step.preparedItems,
+      tools: step.tools,
+      tips: step.tips,
       evidenceSummary: [
         if (evidence != null) evidence.label,
         if (evidence?.excerpt?.trim().isNotEmpty == true) evidence!.excerpt!,
@@ -468,6 +471,18 @@ class RecipeController extends ChangeNotifier {
                           (index) => index >= 0 && index < ingredients.length,
                         )
                         .toList(growable: false),
+                preparedItems: (step['prepared_items'] as List? ?? const [])
+                    .map((value) => value.toString().trim())
+                    .where((value) => value.isNotEmpty)
+                    .toList(growable: false),
+                tools: (step['tools'] as List? ?? const [])
+                    .map((value) => value.toString().trim())
+                    .where((value) => value.isNotEmpty)
+                    .toList(growable: false),
+                tips: (step['tips'] as List? ?? const [])
+                    .map((value) => value.toString().trim())
+                    .where((value) => value.isNotEmpty)
+                    .toList(growable: false),
                 evidenceId: _evidenceId(
                   post.id,
                   recipeIndex,

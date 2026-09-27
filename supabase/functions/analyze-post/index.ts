@@ -181,12 +181,14 @@ Deno.serve(async (request) => {
           "工程は実際の表示・音声の順番、数値、作業内容を変えず、元の言い回しをできるだけ残します。方言・口語・重複を軽く整え、曖昧な指示語は根拠内で対象が明確な場合だけ材料名に置き換えます。前後の画像や別料理を混ぜず、短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
           "根拠から確認できる範囲で、下ごしらえ（切り方・大きさ・水気処理）、材料を入れる順番、混ぜ方・成形方法、使用する器具、火加減、加熱・待ち時間、裏返すタイミング、完成を判断する色・状態・食感をinstructionへ含めてください。" +
           "一つのinstructionへ無関係な作業を詰め込まず、調理者が手を止める自然な区切りで工程を分けてください。ただし『材料を取る』など単独では役に立たない細分化はしません。" +
+          "1工程は原則1つの主操作にします。『切って、全材料を入れて、混ぜる』のように複数の主操作を含む場合は工程を分け、隣接工程で同じ操作や説明を繰り返しません。長文を小さい文字で表示しなくて済むよう、instructionは目安80文字以内とし、代替手順や安全上の補足はtipsへ分離してください。" +
           "投稿に時間が明記された場合だけduration_secondsを設定します。正確な時間が不明なら数値を創作せずnullにし、画像や投稿文で確認できる『焼き色がつくまで』『しんなりするまで』などの状態をinstructionへ記載してください。" +
           "一般的な料理知識で補足するときは、元の手順を変えず安全性や操作を明確にする最小限の補足に留め、投稿にない具体的な分量・温度・時間を断定しないでください。" +
           "一瞬だけの文字、装飾フォント、背景と同化した字幕、音声だけの分量、料理が高速に切り替わる箇所は確信度を下げ、読めない内容を補完せずneeds_review_fieldsへ具体的に記載してください。" +
           "投稿文に完全な材料・工程があれば画像より優先します。ただし画像にしかない情報も追加し、矛盾はwarningsに残してください。取得できない動画内容は推測しません。" +
           "工程を作る前に、入力画像を0から時系列順に見比べ、各画像で使っている材料と作業を確認してください。各工程のimage_indexには、その作業自体が最も明確に映る画像番号を設定します。材料名と画像内容が一致しない画像を割り当てず、判定できない場合はnullにします。" +
           "各工程のingredient_indexesには、その工程で実際に投入・使用する材料だけを、同じpartのingredientsの0始まり番号で使用順に設定します。その工程で使わない塩・こしょう・油などを機械的に含めず、対象がなければ空配列にします。" +
+          "前工程で作った肉だね、タレ、生地、衣、スープなどを使う場合は、生の材料を再列挙せずprepared_itemsへ『STEP 2で作った肉だね（全量）』のように保存します。ラップ、耐熱容器、フライパン、包丁などは材料ではないためingredient_indexesへ入れずtoolsへ保存します。" +
           "工程が『調味料を入れる』『合わせ調味料を加える』などの総称でも、直前の字幕・音声・材料準備で中身が示されている場合は、その具体的な材料すべてをingredient_indexesへ設定し、instructionにも材料名を簡潔に補ってください。直前に作ったタレや合わせ調味料を後で加える場合は、そのpartの材料と工程の関係を維持してください。" +
           "evidenceには画像番号・時刻・投稿文抜粋などの根拠を登録し、各材料と工程のevidence_indexから対応させてください。画像番号は入力で示した0始まり番号です。" +
           "category、cuisine、main_ingredient、methodは料理ごとに個別判断し、複数料理へ同じ値を機械的にコピーしないでください。" +
@@ -291,6 +293,9 @@ async function answerCookingQuestion(
       `現在工程の時間: ${String(input.duration_seconds ?? "不明")}`,
       `表示中の材料: ${JSON.stringify(ingredients)}`,
       `レシピ全体の材料: ${JSON.stringify(allIngredients)}`,
+      `前工程から引き継ぐもの: ${JSON.stringify(input.prepared_items ?? [])}`,
+      `使う道具: ${JSON.stringify(input.tools ?? [])}`,
+      `工程のコツ・注意: ${JSON.stringify(input.tips ?? [])}`,
       `工程の根拠: ${String(input.evidence_summary ?? "").slice(0, 2000)}`,
       `質問: ${question}`,
     ].join("\n"),
@@ -466,7 +471,7 @@ const recipeSchema = {
                     items: {
                       type: "object",
                       additionalProperties: false,
-                      required: ["order", "instruction", "duration_seconds", "image_index", "ingredient_indexes", "evidence_index", "confidence_percent"],
+                      required: ["order", "instruction", "duration_seconds", "image_index", "ingredient_indexes", "prepared_items", "tools", "tips", "evidence_index", "confidence_percent"],
                       properties: {
                         order: { type: "integer", minimum: 1, maximum: 100 },
                         instruction: { type: "string" },
@@ -478,8 +483,23 @@ const recipeSchema = {
                         },
                         ingredient_indexes: {
                           type: "array",
-                          maxItems: 12,
+                          maxItems: 20,
                           items: { type: "integer", minimum: 0, maximum: 79 },
+                        },
+                        prepared_items: {
+                          type: "array",
+                          maxItems: 8,
+                          items: { type: "string" },
+                        },
+                        tools: {
+                          type: "array",
+                          maxItems: 8,
+                          items: { type: "string" },
+                        },
+                        tips: {
+                          type: "array",
+                          maxItems: 4,
+                          items: { type: "string" },
                         },
                         evidence_index: { type: ["integer", "null"], minimum: 0, maximum: 99 },
                         confidence_percent: { type: "integer", minimum: 0, maximum: 100 },
@@ -1450,6 +1470,9 @@ function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
           .filter((item) =>
             Number.isInteger(item) && item >= 0 && item < ingredients.length
           ))];
+        step.prepared_items = cleanShortStrings(step.prepared_items, 8);
+        step.tools = cleanShortStrings(step.tools, 8);
+        step.tips = cleanShortStrings(step.tips, 4);
       }
     }
     recipe.needs_review_fields = [...new Set(review)].slice(0, 50);
@@ -1470,6 +1493,13 @@ function confidence(value: unknown) {
 
 function addUnique(values: string[], value: string) {
   if (!values.includes(value)) values.push(value);
+}
+
+function cleanShortStrings(value: unknown, limit: number) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map((item) => String(item ?? "").trim().slice(0, 200))
+    .filter(Boolean))].slice(0, limit);
 }
 
 function candidateIdentity(candidate: Record<string, unknown>) {

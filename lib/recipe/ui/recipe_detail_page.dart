@@ -774,6 +774,16 @@ class _StepRow extends StatelessWidget {
                 step.instruction,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
+              if (step.tips.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                for (final tip in step.tips)
+                  Text(
+                    '• $tip',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: secondaryInk),
+                  ),
+              ],
               if (step.durationSeconds != null) ...[
                 const SizedBox(height: 5),
                 Text(
