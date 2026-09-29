@@ -50,6 +50,8 @@ Deno.serve(async (request) => {
     delete payload.__bright_data_tiktok;
     delete payload.__apify_tiktok;
     delete payload.tiktok_external_post;
+    delete payload.__apify_instagram;
+    delete payload.instagram_external_post;
 
     const db = adminClient();
     const { data: existing, error: existingError } = await db
@@ -268,7 +270,9 @@ async function processJob(jobId: string) {
   }
 
   try {
-    const preparedPayload = await prepareTikTokPayload(jobId, job.request_json);
+    let preparedPayload = await prepareTikTokPayload(jobId, job.request_json);
+    if (preparedPayload == null) return;
+    preparedPayload = await prepareInstagramPayload(jobId, preparedPayload);
     if (preparedPayload == null) return;
     const baseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -460,6 +464,297 @@ async function prepareTikTokPayload(
     "video=true",
   );
   return request;
+}
+
+type InstagramApifyState = {
+  run_id: string;
+  attempt: number;
+  started_at: string;
+};
+
+type InstagramExternalPost = {
+  mediaType: "video" | "image" | "carousel";
+  videoUrl: string;
+  imageUrls: string[];
+  description: string;
+  title: string;
+};
+
+async function prepareInstagramPayload(
+  jobId: string,
+  requestValue: unknown,
+): Promise<Record<string, unknown> | null> {
+  const request = requestValue != null && typeof requestValue === "object"
+    ? { ...(requestValue as Record<string, unknown>) }
+    : {};
+  const rawUrl = String(request.url ?? "").trim();
+  const state = readInstagramApifyState(request.__apify_instagram);
+  const instagramUrl = validInstagramPostUrl(rawUrl);
+  if (state == null && instagramUrl == null) return request;
+
+  const token = requiredEnv("APIFY_API_TOKEN");
+  if (state == null) {
+    const runId = await triggerApifyInstagramRun(instagramUrl!, token);
+    request.__apify_instagram = {
+      run_id: runId,
+      attempt: 0,
+      started_at: new Date().toISOString(),
+    } satisfies InstagramApifyState;
+    console.info("async_instagram_apify_started", jobId, runId);
+    await requeueTikTokApify(jobId, request, 5_000);
+    return null;
+  }
+
+  const elapsed = Date.now() - Date.parse(state.started_at);
+  if (state.attempt >= 60 || !Number.isFinite(elapsed) || elapsed > 10 * 60_000) {
+    throw new Error("apify_instagram_run_timeout");
+  }
+  const progress = await apifyFetch(
+    `https://api.apify.com/v2/actor-runs/${encodeURIComponent(state.run_id)}`,
+    token,
+    { signal: AbortSignal.timeout(12_000) },
+  );
+  if (!progress.ok) {
+    request.__apify_instagram = { ...state, attempt: state.attempt + 1 };
+    await requeueTikTokApify(jobId, request, 10_000);
+    return null;
+  }
+  const progressJson = await progress.json();
+  const status = String(progressJson?.data?.status ?? "").toUpperCase();
+  if (["FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
+    throw new Error(`apify_instagram_run_failed:${status || "unknown"}`);
+  }
+  if (status !== "SUCCEEDED") {
+    request.__apify_instagram = { ...state, attempt: state.attempt + 1 };
+    if (state.attempt === 0 || (state.attempt + 1) % 6 === 0) {
+      console.info(
+        "async_instagram_apify_waiting",
+        jobId,
+        `attempt=${state.attempt + 1}`,
+        `status=${status || "UNKNOWN"}`,
+      );
+    }
+    await requeueTikTokApify(jobId, request, 10_000);
+    return null;
+  }
+
+  const datasetId = String(progressJson?.data?.defaultDatasetId ?? "").trim();
+  if (!isApifyId(datasetId)) throw new Error("apify_instagram_dataset_missing");
+  const dataset = await apifyFetch(
+    `https://api.apify.com/v2/datasets/${encodeURIComponent(datasetId)}/items?clean=true&format=json&limit=10`,
+    token,
+    { signal: AbortSignal.timeout(20_000) },
+  );
+  if (!dataset.ok) {
+    throw new Error(`apify_instagram_dataset_http_${dataset.status}`);
+  }
+  const external = parseApifyInstagramPost(await dataset.json(), rawUrl);
+  if (external == null) throw new Error("apify_instagram_result_invalid");
+  if (!external.videoUrl) {
+    const storeId = String(
+      progressJson?.data?.defaultKeyValueStoreId ?? "",
+    ).trim();
+    if (isApifyId(storeId)) {
+      const storedVideoUrl = await resolveApifyInstagramVideoUrl(
+        storeId,
+        rawUrl,
+        token,
+      );
+      if (storedVideoUrl) {
+        external.videoUrl = storedVideoUrl;
+        external.mediaType = "video";
+      }
+    }
+  }
+  delete request.__apify_instagram;
+  request.instagram_external_post = external;
+  console.info(
+    "async_instagram_apify_ready",
+    jobId,
+    `type=${external.mediaType}`,
+    `caption=${external.description.length}`,
+    `images=${external.imageUrls.length}`,
+    `video=${external.videoUrl.length > 0}`,
+  );
+  return request;
+}
+
+function readInstagramApifyState(value: unknown): InstagramApifyState | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const runId = String(record.run_id ?? "").trim();
+  const startedAt = String(record.started_at ?? "").trim();
+  const attempt = Number(record.attempt ?? 0);
+  if (!isApifyId(runId) || !startedAt || !Number.isInteger(attempt) || attempt < 0) {
+    return null;
+  }
+  return { run_id: runId, started_at: startedAt, attempt };
+}
+
+function validInstagramPostUrl(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" ||
+      !(host === "instagram.com" || host.endsWith(".instagram.com"))) {
+      return null;
+    }
+    // Instagramの共有シートは /share/reel/{shortcode}/ 形式を返すことがある。
+    // Apify Actorには通常の投稿URLへ正規化して渡す。
+    const match = /^\/(?:share\/)?(p|reel|tv)\/([^/?#]+)\/?$/i.exec(
+      url.pathname,
+    );
+    if (match == null) return null;
+    url.hostname = "www.instagram.com";
+    url.pathname = `/${match[1].toLowerCase()}/${match[2]}/`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function triggerApifyInstagramRun(rawUrl: string, token: string) {
+  // Reel Scraperは /reel/ だけでなく /p/ の動画・画像投稿にも対応する。
+  // 投稿種別をURLだけでは判別できないため、全Instagram投稿を同じActorへ渡す。
+  const actor = "apify~instagram-reel-scraper";
+  const input = {
+    username: [rawUrl],
+    resultsLimit: 1,
+    includeDownloadedVideo: true,
+    includeTranscript: false,
+    includeSharesCount: false,
+  };
+  const response = await apifyFetch(
+    `https://api.apify.com/v2/acts/${actor}/runs`,
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!response.ok) throw new Error(`apify_instagram_trigger_http_${response.status}`);
+  const decoded = await response.json();
+  const runId = String(decoded?.data?.id ?? "").trim();
+  if (!isApifyId(runId)) throw new Error("apify_instagram_run_id_missing");
+  return runId;
+}
+
+function parseApifyInstagramPost(
+  decoded: unknown,
+  rawUrl: string,
+): InstagramExternalPost | null {
+  if (!Array.isArray(decoded)) return null;
+  const shortcode = /\/(?:p|reel|tv)\/([^/?#]+)/i.exec(rawUrl)?.[1] ?? "";
+  const rows = decoded.filter((item) => item != null && typeof item === "object") as
+    Record<string, unknown>[];
+  const row = rows.find((item) => {
+    const candidate = String(item.shortCode ?? item.shortcode ?? "");
+    return shortcode && candidate.toLowerCase() === shortcode.toLowerCase();
+  }) ?? rows[0];
+  if (row == null) return null;
+
+  const images: string[] = [];
+  const addImage = (value: unknown) => {
+    const url = String(value ?? "").trim();
+    if (isAllowedInstagramMediaUrl(url) && !images.includes(url)) images.push(url);
+  };
+  const addRecordImages = (value: unknown) => {
+    if (value == null || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    addImage(record.displayUrl ?? record.display_url ?? record.imageUrl ??
+      record.image_url ?? record.thumbnailUrl ?? record.thumbnail_url);
+    if (Array.isArray(record.images)) record.images.forEach(addImage);
+  };
+  if (Array.isArray(row.childPosts)) row.childPosts.forEach(addRecordImages);
+  if (Array.isArray(row.child_posts)) row.child_posts.forEach(addRecordImages);
+  if (Array.isArray(row.images)) row.images.forEach(addImage);
+  addRecordImages(row);
+
+  const videoCandidates = [
+    row.downloadedVideo,
+    row.downloadedVideoUrl,
+    row.downloaded_video_url,
+    row.mediaUrl,
+    row.media_url,
+    row.videoUrl,
+    row.video_url,
+  ];
+  const videoUrl = videoCandidates.map((value) => String(value ?? "").trim())
+    .find(isAllowedInstagramMediaUrl) ?? "";
+  const description = String(row.caption ?? row.text ?? row.description ?? "")
+    .trim().slice(0, 12_000);
+  const creator = String(
+    row.ownerUsername ?? row.owner_username ?? row.username ?? "",
+  ).trim();
+  const type = String(row.type ?? row.productType ?? row.product_type ?? "")
+    .toLowerCase();
+  const mediaType = videoUrl || type.includes("video") || type.includes("clip")
+    ? "video"
+    : images.length > 1 || type.includes("sidecar")
+    ? "carousel"
+    : "image";
+  if (!description && !videoUrl && images.length === 0) return null;
+  return {
+    mediaType,
+    videoUrl,
+    imageUrls: images.slice(0, 10),
+    description,
+    title: creator ? `Instagram @${creator}` : "Instagram投稿",
+  };
+}
+
+async function resolveApifyInstagramVideoUrl(
+  storeId: string,
+  rawUrl: string,
+  token: string,
+) {
+  const shortcode = /\/(?:p|reel|tv)\/([^/?#]+)/i.exec(rawUrl)?.[1] ?? "";
+  const response = await apifyFetch(
+    `https://api.apify.com/v2/key-value-stores/${encodeURIComponent(storeId)}/keys?limit=100`,
+    token,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  if (!response.ok) {
+    console.warn("apify_instagram_keys_failed", response.status);
+    return "";
+  }
+  const decoded = await response.json();
+  const items = Array.isArray(decoded?.data?.items) ? decoded.data.items : [];
+  const records = items.filter((value: unknown) => {
+    if (value == null || typeof value !== "object") return false;
+    const record = value as Record<string, unknown>;
+    const key = String(record.key ?? "");
+    const contentType = String(record.contentType ?? record.content_type ?? "");
+    return key.toLowerCase().endsWith(".mp4") ||
+      contentType.toLowerCase().startsWith("video/");
+  }) as Record<string, unknown>[];
+  const record = records.find((value) =>
+    shortcode && String(value.key ?? "").includes(shortcode)
+  ) ?? (records.length === 1 ? records[0] : undefined);
+  const publicUrl = String(record?.recordPublicUrl ?? "").trim();
+  return isAllowedApifyRecordUrl(publicUrl, storeId) ? publicUrl : "";
+}
+
+function isAllowedInstagramMediaUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:") return false;
+    if (host === "api.apify.com") {
+      return /^\/v2\/key-value-stores\/[A-Za-z0-9_-]{8,128}\/records\/[^/]+$/.test(
+        url.pathname,
+      ) && url.searchParams.has("signature");
+    }
+    return ["cdninstagram.com", "fbcdn.net", "instagram.com"].some(
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function createApifyVideoStore(token: string) {
