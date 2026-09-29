@@ -1,11 +1,11 @@
 {
-    "name": "Pinlogy",
-    "short_name": "Pinlogy",
+    "name": "ツクレピ",
+    "short_name": "ツクレピ",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFF9EB",
+    "theme_color": "#0B5B47",
+    "description": "SNSで見つけた料理をレシピにして、作るところまで支えるアプリ。",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
