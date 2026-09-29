@@ -500,7 +500,12 @@ async function prepareInstagramPayload(
       attempt: 0,
       started_at: new Date().toISOString(),
     } satisfies InstagramApifyState;
-    console.info("async_instagram_apify_started", jobId, runId);
+    console.info(
+      "async_instagram_apify_started",
+      jobId,
+      runId,
+      `kind=${instagramPostKind(instagramUrl!)}`,
+    );
     await requeueTikTokApify(jobId, request, 5_000);
     return null;
   }
@@ -616,16 +621,26 @@ function validInstagramPostUrl(rawUrl: string): string | null {
 }
 
 async function triggerApifyInstagramRun(rawUrl: string, token: string) {
-  // Reel Scraperは /reel/ だけでなく /p/ の動画・画像投稿にも対応する。
-  // 投稿種別をURLだけでは判別できないため、全Instagram投稿を同じActorへ渡す。
-  const actor = "apify~instagram-reel-scraper";
-  const input = {
-    username: [rawUrl],
-    resultsLimit: 1,
-    includeDownloadedVideo: true,
-    includeTranscript: false,
-    includeSharesCount: false,
-  };
+  const kind = instagramPostKind(rawUrl);
+  if (kind == null) throw new Error("apify_instagram_url_invalid");
+  // /p/ は単一画像・カルーセル・動画のいずれもあり得るためPost Scraperで
+  // 実体を判定する。Reel/TVだけ動画保存対応のReel Scraperへ送る。
+  const actor = kind === "post"
+    ? "apify~instagram-post-scraper"
+    : "apify~instagram-reel-scraper";
+  const input = kind === "post"
+    ? {
+      username: [rawUrl],
+      resultsLimit: 1,
+      dataDetailLevel: "detailedData",
+    }
+    : {
+      username: [rawUrl],
+      resultsLimit: 1,
+      includeDownloadedVideo: true,
+      includeTranscript: false,
+      includeSharesCount: false,
+    };
   const response = await apifyFetch(
     `https://api.apify.com/v2/acts/${actor}/runs`,
     token,
@@ -641,6 +656,18 @@ async function triggerApifyInstagramRun(rawUrl: string, token: string) {
   const runId = String(decoded?.data?.id ?? "").trim();
   if (!isApifyId(runId)) throw new Error("apify_instagram_run_id_missing");
   return runId;
+}
+
+function instagramPostKind(rawUrl: string): "post" | "reel" | "tv" | null {
+  try {
+    const path = new URL(rawUrl).pathname;
+    const match = /^\/(?:share\/)?(p|reel|tv)\/[^/?#]+\/?$/i.exec(path);
+    if (match == null) return null;
+    const kind = match[1].toLowerCase();
+    return kind === "p" ? "post" : kind as "reel" | "tv";
+  } catch {
+    return null;
+  }
 }
 
 function parseApifyInstagramPost(
