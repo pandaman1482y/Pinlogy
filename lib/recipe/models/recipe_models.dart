@@ -132,9 +132,7 @@ class RecipeIngredient {
 
   String quantityFor(double multiplier) {
     if (!scalable || amount == null) {
-      return originalText?.trim().isNotEmpty == true
-          ? originalText!.trim()
-          : [amount, unit].whereType<Object>().join(' ');
+      return _quantityOnlyFromOriginal(name, originalText);
     }
     final scaled = amount! * multiplier;
     final value = _practicalAmount(scaled, unit);
@@ -195,6 +193,24 @@ class RecipeIngredient {
         confidencePercent: (json['confidencePercent'] as num?)?.toInt(),
         userEdited: json['userEdited'] as bool? ?? false,
       );
+}
+
+String _quantityOnlyFromOriginal(String ingredientName, String? originalText) {
+  var value = originalText?.trim() ?? '';
+  if (value.isEmpty) return '';
+
+  final normalizedName = ingredientName.trim();
+  if (normalizedName.isNotEmpty) {
+    value = value.replaceFirst(
+      RegExp('^${RegExp.escape(normalizedName)}(?:\\s*[：:・…-])?\\s*'),
+      '',
+    );
+  }
+  value = value
+      .replaceFirst(RegExp(r'^[（(]'), '')
+      .replaceFirst(RegExp(r'[）)]$'), '');
+  if (value == normalizedName || value.isEmpty) return '';
+  return value.trim();
 }
 
 class RecipeStep {

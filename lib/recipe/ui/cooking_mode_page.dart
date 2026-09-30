@@ -888,7 +888,7 @@ class _IngredientLine extends StatelessWidget {
         ),
         const SizedBox(width: 5),
         Text(
-          missing ? '分量不明' : quantity,
+          missing ? '分量記載なし' : quantity,
           style: TextStyle(
             fontSize: compact ? 11.5 : 13,
             fontWeight: FontWeight.w700,

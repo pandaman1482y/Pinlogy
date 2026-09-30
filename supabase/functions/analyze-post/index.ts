@@ -194,6 +194,7 @@ Deno.serve(async (request) => {
           "材料は画面に出た『小さじ1』『1/2個』等をoriginal_textへ残し、数値化できる場合だけamountとunitを設定します。適量、少々、いつもの量など曖昧な表現は推測せずoriginal_textへそのまま残しscalable=falseにしてください。" +
           "amountとunitは必ず同じ根拠から組にして抽出します。別の材料の数字、画面番号、再生時間、人数を分量へ転用しません。大さじ・小さじ・カップとg・mlは、投稿自身が換算している場合を除いて相互換算しません。分数は3/4を0.75のようにamountへ入れ、original_textには元の『大さじ3/4』を保存します。" +
           "材料の分量は、その材料を実際に投入する瞬間だけでなく、直前の材料紹介、調味料を合わせる場面、画面字幕、投稿文、音声説明まで時系列で探してください。確認できた分量を対応するingredientのamount・unit・original_textへ保存し、『画像』『文字』『字幕』『音声』など根拠の種類を分量やunitへ入れないでください。" +
+          "画像内の材料表は行単位で読み、同じ行または明確に対応する左右の列にある材料名と分量だけを組にしてください。材料名だけ確認できて分量が読めない場合はamountとunitをnullにし、別行の数字を流用しないでください。" +
           "完成量はservingsとserving_unitに分けます。『2人分』は2と人分、『春巻き12本』は12と本、『クッキー20枚』は20と枚です。完成個数の本・個・枚を人数に変換しないでください。根拠がなければ両方nullにします。" +
           "工程は実際の表示・音声の順番、数値、作業内容を変えず、元の言い回しをできるだけ残します。方言・口語・重複を軽く整え、曖昧な指示語は根拠内で対象が明確な場合だけ材料名に置き換えます。前後の画像や別料理を混ぜず、短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
           "根拠から確認できる範囲で、下ごしらえ（切り方・大きさ・水気処理）、材料を入れる順番、混ぜ方・成形方法、使用する器具、火加減、加熱・待ち時間、裏返すタイミング、完成を判断する色・状態・食感をinstructionへ含めてください。" +
@@ -203,6 +204,8 @@ Deno.serve(async (request) => {
           "一般的な料理知識で補足するときは、元の手順を変えず安全性や操作を明確にする最小限の補足に留め、投稿にない具体的な分量・温度・時間を断定しないでください。" +
           "一瞬だけの文字、装飾フォント、背景と同化した字幕、音声だけの分量、料理が高速に切り替わる箇所は確信度を下げ、読めない内容を補完せずneeds_review_fieldsへ具体的に記載してください。" +
           "投稿文に完全な材料・工程があれば画像より優先します。ただし画像にしかない情報も追加し、矛盾はwarningsに残してください。取得できない動画内容は推測しません。" +
+          "投稿文に詳しい工程がなく画像だけが根拠の場合は、各画像で実際に確認できる手の動き、材料の状態、切り方、投入順、混ぜ方、器具、加熱前後の変化を時系列で具体的に記述してください。ただし画像に映らない火加減・温度・時間・分量・中間操作を一般知識で補完せず、不明点はneeds_review_fieldsへ記載してください。" +
+          "画像間で工程が飛んでいる場合は、間の操作を創作してつなげず、確認できる操作だけで工程を構成してください。安全上必要でも投稿から確認できない内容は断定せずtipsまたはwarningsで『確認が必要』と示してください。" +
           "工程を作る前に、入力画像を0から時系列順に見比べ、各画像で使っている材料と作業を確認してください。各工程のimage_indexには、その作業自体が最も明確に映る画像番号を設定します。材料名と画像内容が一致しない画像を割り当てず、判定できない場合はnullにします。" +
           "各工程のingredient_indexesには、その工程で実際に投入・使用する材料だけを、同じpartのingredientsの0始まり番号で使用順に設定します。その工程で使わない塩・こしょう・油などを機械的に含めず、対象がなければ空配列にします。" +
           "前工程で作った肉だね、タレ、生地、衣、スープなどを使う場合は、生の材料を再列挙せずprepared_itemsへ『STEP 2で作った肉だね（全量）』のように保存します。ラップ、耐熱容器、フライパン、包丁などは材料ではないためingredient_indexesへ入れずtoolsへ保存します。" +
@@ -1558,6 +1561,7 @@ function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
             `${String(ingredient.name ?? "材料")}の分量を確認してください`,
           );
         }
+        recoverExplicitIngredientQuantity(ingredient);
         const original = String(ingredient.original_text ?? "").trim();
         if (ingredient.amount == null && /^(?:適量|少々|お好み|ひとつまみ|適宜)$/u.test(original)) {
           ingredient.scalable = false;
@@ -1590,6 +1594,65 @@ function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
     recipe.needs_review_fields = [...new Set(review)].slice(0, 50);
     recipe.warnings = [...new Set(warnings)].slice(0, 30);
   }
+}
+
+function recoverExplicitIngredientQuantity(
+  ingredient: Record<string, unknown>,
+) {
+  if (ingredient.amount != null || ingredient.unit != null) return;
+  const name = String(ingredient.name ?? "").trim();
+  let source = String(ingredient.original_text ?? "").trim();
+  if (!source) {
+    ingredient.scalable = false;
+    return;
+  }
+  source = source
+    .replace(/[０-９]/g, (value) =>
+      String.fromCharCode(value.charCodeAt(0) - 0xfee0))
+    .replace(/[／]/g, "/")
+    .replace(/[．]/g, ".");
+  if (name) {
+    source = source.replace(
+      new RegExp(`^${escapeRegExp(name)}(?:\\s*[：:・…-])?\\s*`),
+      "",
+    );
+  }
+  const numberPattern = "(\\d+(?:\\.\\d+)?|\\d+\\s*\\/\\s*\\d+)";
+  const prefix = new RegExp(`^(大さじ|小さじ|カップ)\\s*${numberPattern}`)
+    .exec(source);
+  const suffix = new RegExp(
+    `${numberPattern}\\s*(kg|g|ml|mL|L|個|本|枚|束|袋|片|缶|パック|玉|丁|合|人分)(?:\\s|$|[（(])`,
+  ).exec(source);
+  const match = prefix ?? suffix;
+  if (match == null) {
+    ingredient.scalable = false;
+    return;
+  }
+  const rawAmount = prefix == null ? match[1] : match[2];
+  const rawUnit = prefix == null ? match[2] : match[1];
+  const parsedAmount = parseExplicitAmount(rawAmount);
+  if (parsedAmount == null || parsedAmount <= 0) {
+    ingredient.scalable = false;
+    return;
+  }
+  ingredient.amount = parsedAmount;
+  ingredient.unit = rawUnit === "mL" ? "ml" : rawUnit;
+  ingredient.scalable = true;
+}
+
+function parseExplicitAmount(value: string) {
+  const normalized = value.replace(/\s/g, "");
+  const fraction = /^(\d+)\/(\d+)$/.exec(normalized);
+  if (fraction != null) {
+    const denominator = Number(fraction[2]);
+    return denominator > 0 ? Number(fraction[1]) / denominator : null;
+  }
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function validBoundedIndex(value: unknown, length: number) {
