@@ -573,6 +573,14 @@ async function prepareInstagramPayload(
   }
   delete request.__apify_instagram;
   request.instagram_external_post = external;
+  // 外部メディア構造に加えてキャプションを通常本文にも保持し、
+  // 取得済みの投稿が解析側で「本文なし」になることを防ぐ。
+  const existingText = String(request.text ?? "").trim();
+  if (external.description && !existingText.includes(external.description)) {
+    request.text = [existingText, external.description]
+      .filter((value) => value.length > 0)
+      .join("\n\n");
+  }
   console.info(
     "async_instagram_apify_ready",
     jobId,

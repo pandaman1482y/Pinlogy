@@ -16,8 +16,20 @@ Deno.serve(async (request) => {
     }
     const sourcePostId = String(input.source_post_id ?? "");
     if (!sourcePostId) return reply({ error: "invalid_request" }, 400);
+    const suppliedInstagram = suppliedInstagramPostFromInput(
+      input.instagram_external_post,
+    );
+    if (suppliedInstagram != null) {
+      console.info(
+        "instagram_input_resolved",
+        `caption=${suppliedInstagram.description.length}`,
+        `images=${suppliedInstagram.imageUrls.length}`,
+        `video=${suppliedInstagram.videoUrl.length > 0}`,
+      );
+    }
     const sharedPage = await enrichSharedUrl(
       typeof input.url === "string" ? input.url : "",
+      suppliedInstagram,
     );
     if (input.preview_only === true) {
       const previewImages = await fetchSocialImages(
@@ -44,6 +56,7 @@ Deno.serve(async (request) => {
       input.ocr_text,
       sharedPage?.title,
       sharedPage?.description,
+      suppliedInstagram?.description,
     ].map((value) => String(value ?? "").trim())
       .filter((value) => {
         if (value.length < 3 || /^https?:\/\//i.test(value)) return false;
@@ -93,6 +106,7 @@ Deno.serve(async (request) => {
     const videoEvidence = await fetchVideoEvidence(
       sharedPage?.canonical_url ?? String(input.url ?? ""),
       externalTikTokPostFromInput(input.tiktok_external_post),
+      suppliedInstagram,
     );
 
     const content: Array<Record<string, unknown>> = [{
@@ -101,8 +115,11 @@ Deno.serve(async (request) => {
         `最優先の投稿文・コメント・キャプション:\n${[
           cleanSharedText(input.text, sharedPage),
           sharedPage?.description,
+          suppliedInstagram?.description,
           videoEvidence?.source_description,
-        ].filter(Boolean).join("\n")}`,
+        ].filter(Boolean).filter((value, index, values) =>
+          values.indexOf(value) === index
+        ).join("\n")}`,
         `補助根拠の端末OCR（投稿文・コメントと矛盾する場合は採用禁止）:\n${String(input.ocr_text ?? "")}`,
         `動画の音声文字起こし:\n${videoEvidence?.transcript ?? ""}`,
         `動画取得元のタイトル・説明:\n${[
@@ -636,9 +653,63 @@ function externalTikTokPostFromInput(value: unknown): ExternalTikTokPost | null 
   return { videoUrl, description, title };
 }
 
+type SuppliedInstagramPost = {
+  mediaType: "video" | "image" | "carousel";
+  videoUrl: string;
+  imageUrls: string[];
+  description: string;
+  title: string;
+};
+
+function suppliedInstagramPostFromInput(
+  value: unknown,
+): SuppliedInstagramPost | null {
+  if (value == null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const rawType = String(record.media_type ?? record.mediaType ?? "image");
+  const mediaType = ["video", "carousel"].includes(rawType)
+    ? rawType as "video" | "carousel"
+    : "image";
+  const videoCandidate = String(record.video_url ?? record.videoUrl ?? "").trim();
+  const videoUrl = isAllowedInstagramMediaUrl(videoCandidate)
+    ? videoCandidate
+    : "";
+  const imageValues = Array.isArray(record.image_urls)
+    ? record.image_urls
+    : Array.isArray(record.imageUrls)
+    ? record.imageUrls
+    : [];
+  const imageUrls = imageValues.map((item) => String(item ?? "").trim())
+    .filter(isAllowedInstagramMediaUrl).slice(0, maxSocialImages);
+  const description = String(record.description ?? "").trim().slice(0, 12_000);
+  const title = String(record.title ?? "Instagram投稿").trim().slice(0, 1000) ||
+    "Instagram投稿";
+  if (!description && !videoUrl && imageUrls.length === 0) return null;
+  return { mediaType, videoUrl, imageUrls, description, title };
+}
+
+function isAllowedInstagramMediaUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:") return false;
+    if (host === "api.apify.com") {
+      return /^\/v2\/key-value-stores\/[A-Za-z0-9_-]{8,128}\/records\/[^/]+$/.test(
+        url.pathname,
+      ) && url.searchParams.has("signature");
+    }
+    return ["cdninstagram.com", "fbcdn.net", "instagram.com"].some(
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchVideoEvidence(
   rawUrl: string,
   suppliedTikTok: ExternalTikTokPost | null = null,
+  suppliedInstagram: SuppliedInstagramPost | null = null,
 ): Promise<VideoEvidence | null> {
   if (!rawUrl) return null;
   let source: URL;
@@ -653,9 +724,12 @@ async function fetchVideoEvidence(
   if (!likelyVideo) return null;
   const isTikTok = source.hostname.toLowerCase() === "tiktok.com" ||
     source.hostname.toLowerCase().endsWith(".tiktok.com");
+  const isInstagram = source.hostname.toLowerCase() === "instagram.com" ||
+    source.hostname.toLowerCase().endsWith(".instagram.com");
   // enqueue-analysisがApifyへ保存したMP4の署名付きURLを受け取り、
   // TikTok CDNへ直接アクセスせずCloud Runでフレームと音声を抽出する。
   const externalTikTok = isTikTok ? suppliedTikTok : null;
+  const externalInstagram = isInstagram ? suppliedInstagram : null;
   if (isTikTok) {
     if (externalTikTok == null) {
       console.warn("tiktok_external_evidence_missing");
@@ -676,6 +750,22 @@ async function fetchVideoEvidence(
       };
     }
   }
+  if (isInstagram) {
+    if (externalInstagram == null) {
+      console.warn("instagram_external_evidence_missing");
+      return null;
+    }
+    if (!externalInstagram.videoUrl) {
+      return {
+        duration_seconds: 0,
+        transcript: "",
+        source_title: externalInstagram.title,
+        source_description: externalInstagram.description,
+        frames: [],
+      };
+    }
+  }
+  const externalSocial = externalTikTok ?? externalInstagram;
   const workerUrl = (Deno.env.get("VIDEO_WORKER_URL") ?? "").trim();
   const workerSecret = (Deno.env.get("VIDEO_WORKER_SECRET") ?? "").trim();
   if (!workerUrl || !workerSecret) {
@@ -696,7 +786,7 @@ async function fetchVideoEvidence(
       },
       body: JSON.stringify({
         url: source.toString(),
-        media_url: externalTikTok?.videoUrl ?? null,
+        media_url: externalSocial?.videoUrl ?? null,
       }),
       signal: AbortSignal.timeout(230_000),
     });
@@ -730,25 +820,26 @@ async function fetchVideoEvidence(
     return {
       duration_seconds: Math.max(0, Math.round(Number(decoded.duration_seconds ?? 0))),
       transcript: String(decoded.transcript ?? "").slice(0, 12000),
-      source_title: (externalTikTok?.title ?? String(decoded.source_title ?? ""))
+      source_title: (externalSocial?.title ?? String(decoded.source_title ?? ""))
         .slice(0, 1000),
       source_description: (
-        externalTikTok?.description ?? String(decoded.source_description ?? "")
+        externalSocial?.description ?? String(decoded.source_description ?? "")
       ).slice(0, 8000),
       frames,
     };
   } catch (error) {
     console.warn("video_worker_failed", String(error));
-    if (externalTikTok != null) {
+    if (externalSocial != null) {
       console.info(
-        "video_worker_tiktok_text_fallback",
-        `caption=${externalTikTok.description.length}`,
+        "video_worker_social_text_fallback",
+        `service=${isTikTok ? "tiktok" : "instagram"}`,
+        `caption=${externalSocial.description.length}`,
       );
       return {
         duration_seconds: 0,
         transcript: "",
-        source_title: externalTikTok.title.slice(0, 1000),
-        source_description: externalTikTok.description.slice(0, 8000),
+        source_title: externalSocial.title.slice(0, 1000),
+        source_description: externalSocial.description.slice(0, 8000),
         frames: [],
       };
     }
@@ -893,11 +984,32 @@ function isAllowedTikTokVideoUrl(rawUrl: string) {
   }
 }
 
-async function enrichSharedUrl(rawUrl: string): Promise<SharedPage | null> {
+async function enrichSharedUrl(
+  rawUrl: string,
+  suppliedInstagram: SuppliedInstagramPost | null = null,
+): Promise<SharedPage | null> {
   if (!rawUrl) return null;
   try {
     const initial = new URL(rawUrl);
     if (!isAllowedSocialUrl(initial)) return null;
+    if (suppliedInstagram != null &&
+      (initial.hostname.toLowerCase() === "instagram.com" ||
+        initial.hostname.toLowerCase().endsWith(".instagram.com"))) {
+      return {
+        service: "instagram",
+        canonical_url: initial.toString(),
+        title: suppliedInstagram.title,
+        description: suppliedInstagram.description || null,
+        is_photo_post: suppliedInstagram.mediaType !== "video",
+        photo_access: suppliedInstagram.imageUrls.length > 0
+          ? "available"
+          : suppliedInstagram.mediaType === "video"
+          ? "not_applicable"
+          : "unavailable",
+        image_urls: suppliedInstagram.imageUrls,
+        fetch_status: 200,
+      };
+    }
     const { response, finalUrl } = await fetchSocialPage(initial);
     const final = new URL(finalUrl);
     const isTikTok = final.hostname.toLowerCase().endsWith("tiktok.com");
