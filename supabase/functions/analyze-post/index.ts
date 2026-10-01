@@ -8,7 +8,6 @@ const maxAnalysisImages = maxSocialImages + maxVideoFrames;
 Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
   let deviceId = "";
-  let quotaReserved = false;
   try {
     const input = await request.json();
     if (input.action === "cooking_assistant") {
@@ -98,10 +97,12 @@ Deno.serve(async (request) => {
         });
       }
     }
-    if (!await consumeQuota(deviceId)) {
-      return reply({ error: "daily_limit_reached" }, 429);
+    // レシピ解析は必ずenqueue-analysisを経由させ、購入枠の迂回を防ぐ。
+    // preview_onlyとcooking_assistantは上で別処理として返している。
+    const asyncJobId = request.headers.get("x-pinlogy-async-job") ?? "";
+    if (!/^[0-9a-f-]{36}$/i.test(asyncJobId)) {
+      return reply({ error: "analysis_job_required" }, 403);
     }
-    quotaReserved = true;
 
     const videoEvidence = await fetchVideoEvidence(
       sharedPage?.canonical_url ?? String(input.url ?? ""),
@@ -221,8 +222,6 @@ Deno.serve(async (request) => {
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1000);
       console.error("openai_failed", response.status, detail);
-      await refundQuota(deviceId);
-      quotaReserved = false;
       return reply({ error: "openai_failed" }, 502);
     }
     const value = await response.json();
@@ -232,8 +231,6 @@ Deno.serve(async (request) => {
       | { text?: string }
       | undefined;
     if (!output?.text) {
-      await refundQuota(deviceId);
-      quotaReserved = false;
       return reply({ error: "empty_ai_response" }, 502);
     }
     const parsedOutput = sanitizeParsedOutput(
@@ -270,10 +267,8 @@ Deno.serve(async (request) => {
     if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
       await writeAnalysisCache(deviceHash, analysisKey, parsedOutput);
     }
-    quotaReserved = false;
     return reply(successfulResult);
   } catch (error) {
-    if (quotaReserved && deviceId) await refundQuota(deviceId);
     console.error("analysis_failed", error);
     return reply({ error: "analysis_failed" }, 500);
   }

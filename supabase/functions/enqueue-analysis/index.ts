@@ -121,6 +121,18 @@ Deno.serve(async (request) => {
     }
 
     const jobId = String(data.id);
+    const { data: credit, error: creditError } = await db.rpc(
+      "reserve_billing_credit",
+      { p_device_hash: deviceHash, p_job_id: jobId },
+    );
+    if (creditError || credit?.allowed !== true) {
+      await db.from("async_analysis_jobs").delete().eq("id", jobId);
+      if (creditError) {
+        console.error("billing_credit_reserve_failed", creditError.message);
+        return reply({ error: "billing_unavailable" }, 503);
+      }
+      return reply({ error: "credits_exhausted", billing: credit }, 402);
+    }
     console.info(
       "async_job_enqueued",
       jobId,
@@ -168,12 +180,14 @@ async function dispatchJob(jobId: string) {
 }
 
 async function markDispatchFailed(jobId: string) {
-  await adminClient().from("async_analysis_jobs").update({
+  const db = adminClient();
+  await db.from("async_analysis_jobs").update({
     status: "failed",
     error_message: "バックグラウンド解析を開始できませんでした",
     completed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }).eq("id", jobId).eq("status", "pending");
+  await db.rpc("refund_billing_credit", { p_job_id: jobId });
 }
 
 async function status(input: Record<string, unknown>, deviceHash: string) {
@@ -241,9 +255,9 @@ async function cancel(input: Record<string, unknown>, deviceHash: string) {
     console.error("async_job_cancel_failed", jobId, error.message);
     return reply({ error: "cancel_failed" }, 500);
   }
-  return data == null
-    ? reply({ error: "job_not_found" }, 404)
-    : reply({ job_id: jobId, status: "cancelled" });
+  if (data == null) return reply({ error: "job_not_found" }, 404);
+  await adminClient().rpc("refund_billing_credit", { p_job_id: jobId });
+  return reply({ job_id: jobId, status: "cancelled" });
 }
 
 async function processJob(jobId: string) {
@@ -325,6 +339,7 @@ async function processJob(jobId: string) {
       console.info("async_job_completion_skipped", jobId, "cancelled_or_replaced");
       return;
     }
+    await db.rpc("commit_billing_credit", { p_job_id: jobId });
     console.info(
       "async_job_completed",
       jobId,
@@ -350,6 +365,7 @@ async function processJob(jobId: string) {
       device_id: null,
       notification_token: null,
     }).eq("id", jobId).eq("status", "processing");
+    await db.rpc("refund_billing_credit", { p_job_id: jobId });
   }
 }
 

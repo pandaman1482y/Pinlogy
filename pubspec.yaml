@@ -29,6 +29,7 @@ dependencies:
   firebase_core: ^4.2.1
   firebase_messaging: ^16.0.4
   speech_to_text: ^7.4.0
+  purchases_flutter: ^10.13.2
 
 dev_dependencies:
   flutter_test:

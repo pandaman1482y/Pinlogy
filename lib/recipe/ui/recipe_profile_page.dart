@@ -5,6 +5,8 @@ import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 import 'recipe_widgets.dart';
 import '../../services/notification_service.dart';
+import 'billing_page.dart';
+import '../../services/billing_service.dart';
 
 class RecipeProfilePage extends StatelessWidget {
   const RecipeProfilePage({super.key});
@@ -24,14 +26,21 @@ class RecipeProfilePage extends StatelessWidget {
                 const CircleAvatar(
                   radius: 28,
                   backgroundColor: mint,
-                  child: Icon(Icons.person_outline_rounded, color: mossDeep, size: 30),
+                  child: Icon(
+                    Icons.person_outline_rounded,
+                    color: mossDeep,
+                    size: 30,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(user?.email ?? '端末に保存中', style: Theme.of(context).textTheme.titleLarge),
+                      Text(
+                        user?.email ?? '端末に保存中',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
                       const SizedBox(height: 3),
                       Text(
                         '${controller.savedRecipes.length}レシピ · ${controller.snapshot.cookingRecords.length}回作った',
@@ -49,7 +58,8 @@ class RecipeProfilePage extends StatelessWidget {
           _MenuTile(
             icon: Icons.shopping_cart_outlined,
             title: '買い物リスト',
-            subtitle: '${controller.snapshot.shoppingItems.where((item) => !item.checked).length}件',
+            subtitle:
+                '${controller.snapshot.shoppingItems.where((item) => !item.checked).length}件',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ShoppingListPage()),
             ),
@@ -59,7 +69,9 @@ class RecipeProfilePage extends StatelessWidget {
             title: 'コレクション',
             subtitle: '${controller.snapshot.collections.length}個',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const RecipeCollectionsPage()),
+              MaterialPageRoute<void>(
+                builder: (_) => const RecipeCollectionsPage(),
+              ),
             ),
           ),
           _MenuTile(
@@ -73,9 +85,25 @@ class RecipeProfilePage extends StatelessWidget {
           const SizedBox(height: 22),
           Text('設定', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
+          AnimatedBuilder(
+            animation: BillingService.instance,
+            builder: (context, _) => _MenuTile(
+              icon: Icons.workspace_premium_outlined,
+              title: '利用プラン・残り回数',
+              subtitle: BillingService.instance.status == null
+                  ? '購入プランを確認'
+                  : '残り${BillingService.instance.status!.remaining}回',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const BillingPage()),
+              ),
+            ),
+          ),
           SwitchListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            secondary: const Icon(Icons.notifications_outlined, color: mossDeep),
+            secondary: const Icon(
+              Icons.notifications_outlined,
+              color: mossDeep,
+            ),
             title: const Text('解析完了の通知'),
             subtitle: Text(
               controller.notificationsReady
@@ -104,7 +132,9 @@ class RecipeProfilePage extends StatelessWidget {
             title: 'アレルギー・苦手な食材',
             subtitle: 'AI提案と注意表示に使用',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const AllergySettingsPage()),
+              MaterialPageRoute<void>(
+                builder: (_) => const AllergySettingsPage(),
+              ),
             ),
           ),
           _MenuTile(
@@ -129,24 +159,23 @@ class RecipeProfilePage extends StatelessWidget {
               subtitle: 'iPhone・Androidで同じアカウントを使う',
               onTap: () => _signIn(context, apple: false),
             ),
-          ] else
-            ...[
-              _MenuTile(
-                icon: Icons.cloud_sync_rounded,
-                title: '今すぐ同期',
-                subtitle: 'iPhone・Android間でレシピを統合',
-                onTap: () => _syncCloud(context),
-              ),
-              _MenuTile(
-                icon: Icons.logout_rounded,
-                title: 'ログアウト',
-                subtitle: '端末内のレシピは残ります',
-                onTap: () async {
-                  await controller.legacy.cloud.signOut();
-                  if (context.mounted) controller.notifyListeners();
-                },
-              ),
-            ],
+          ] else ...[
+            _MenuTile(
+              icon: Icons.cloud_sync_rounded,
+              title: '今すぐ同期',
+              subtitle: 'iPhone・Android間でレシピを統合',
+              onTap: () => _syncCloud(context),
+            ),
+            _MenuTile(
+              icon: Icons.logout_rounded,
+              title: 'ログアウト',
+              subtitle: '端末内のレシピは残ります',
+              onTap: () async {
+                await controller.legacy.cloud.signOut();
+                if (context.mounted) controller.notifyListeners();
+              },
+            ),
+          ],
           const SizedBox(height: 22),
           const SoftPanel(
             child: Text(
@@ -164,13 +193,16 @@ class RecipeProfilePage extends StatelessWidget {
     if (!context.mounted) return;
     if (!accepted && value) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('通知を有効にできませんでした。iPhoneの設定とFirebase構成を確認してください。')),
+        const SnackBar(
+          content: Text('通知を有効にできませんでした。iPhoneの設定とFirebase構成を確認してください。'),
+        ),
       );
     }
   }
 
   Future<void> _testNotification(BuildContext context) async {
-    final sent = await PinlogyNotificationService.instance.sendTestNotification();
+    final sent = await PinlogyNotificationService.instance
+        .sendTestNotification();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -260,7 +292,9 @@ class RecipeProfilePage extends StatelessWidget {
       apple ? await cloud.signInWithApple() : await cloud.signInWithGoogle();
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ログインを開始できませんでした: $error')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('ログインを開始できませんでした: $error')));
     }
   }
 
@@ -269,20 +303,25 @@ class RecipeProfilePage extends StatelessWidget {
     try {
       await controller.syncCloud();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('レシピを同期しました')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('レシピを同期しました')));
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('同期できませんでした: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('同期できませんでした: $error')));
     }
   }
 }
 
 class _MenuTile extends StatelessWidget {
-  const _MenuTile({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _MenuTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
   final IconData icon;
   final String title;
   final String subtitle;
@@ -316,7 +355,10 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
         title: const Text('買い物リスト'),
         actions: [
           if (items.any((item) => item.checked))
-            TextButton(onPressed: controller.clearPurchasedItems, child: const Text('購入済みを削除')),
+            TextButton(
+              onPressed: controller.clearPurchasedItems,
+              child: const Text('購入済みを削除'),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -336,7 +378,11 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                   onChanged: (_) => controller.toggleShoppingItem(item),
                   title: Text(
                     item.name,
-                    style: TextStyle(decoration: item.checked ? TextDecoration.lineThrough : null),
+                    style: TextStyle(
+                      decoration: item.checked
+                          ? TextDecoration.lineThrough
+                          : null,
+                    ),
                   ),
                   subtitle: item.quantity.isEmpty ? null : Text(item.quantity),
                   controlAffinity: ListTileControlAffinity.leading,
@@ -356,14 +402,27 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: '品名')),
+            TextField(
+              controller: name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '品名'),
+            ),
             const SizedBox(height: 10),
-            TextField(controller: quantity, decoration: const InputDecoration(labelText: '数量（任意）')),
+            TextField(
+              controller: quantity,
+              decoration: const InputDecoration(labelText: '数量（任意）'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('キャンセル')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('追加')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('追加'),
+          ),
         ],
       ),
     );
@@ -396,7 +455,9 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
     _initialized = true;
     final settings = RecipeScope.read(context).snapshot.allergySettings;
     _selected = settings.allergens.where(common.contains).toSet();
-    _other.text = settings.allergens.where((value) => !common.contains(value)).join('、');
+    _other.text = settings.allergens
+        .where((value) => !common.contains(value))
+        .join('、');
     _disliked.text = settings.dislikedFoods.join('、');
   }
 
@@ -417,7 +478,9 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
       padding: const EdgeInsets.all(16),
       children: [
         const SoftPanel(
-          child: Text('AI提案では該当食材を避けます。ただし抽出漏れや製造時の混入まで保証できません。必ず元投稿と商品表示を確認してください。'),
+          child: Text(
+            'AI提案では該当食材を避けます。ただし抽出漏れや製造時の混入まで保証できません。必ず元投稿と商品表示を確認してください。',
+          ),
         ),
         const SizedBox(height: 22),
         Text('アレルギー', style: Theme.of(context).textTheme.titleLarge),
@@ -430,16 +493,24 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
               FilterChip(
                 label: Text(item),
                 selected: _selected.contains(item),
-                onSelected: (selected) => setState(() => selected ? _selected.add(item) : _selected.remove(item)),
+                onSelected: (selected) => setState(
+                  () => selected ? _selected.add(item) : _selected.remove(item),
+                ),
               ),
           ],
         ),
         const SizedBox(height: 14),
-        TextField(controller: _other, decoration: const InputDecoration(labelText: 'その他（読点区切り）')),
+        TextField(
+          controller: _other,
+          decoration: const InputDecoration(labelText: 'その他（読点区切り）'),
+        ),
         const SizedBox(height: 22),
         Text('苦手な食材', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        TextField(controller: _disliked, decoration: const InputDecoration(labelText: '例：パクチー、レバー')),
+        TextField(
+          controller: _disliked,
+          decoration: const InputDecoration(labelText: '例：パクチー、レバー'),
+        ),
       ],
     ),
   );
@@ -499,15 +570,26 @@ class RecipeCollectionsPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('コレクションを作成'),
-        content: TextField(controller: input, autofocus: true, decoration: const InputDecoration(hintText: '例：平日の時短ごはん')),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '例：平日の時短ごはん'),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('キャンセル')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, input.text), child: const Text('作成')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, input.text),
+            child: const Text('作成'),
+          ),
         ],
       ),
     );
     input.dispose();
-    if (value != null && context.mounted) await RecipeScope.read(context).createCollection(value);
+    if (value != null && context.mounted)
+      await RecipeScope.read(context).createCollection(value);
   }
 }
 
@@ -534,7 +616,10 @@ class ImportStatusPage extends StatelessWidget {
                   leading: SizedBox(
                     width: 54,
                     height: 54,
-                    child: RecipeImage(path: item.coverImagePath, borderRadius: BorderRadius.circular(10)),
+                    child: RecipeImage(
+                      path: item.coverImagePath,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   title: Text(item.status.label),
                   subtitle: Text(item.message ?? item.sourceService ?? '共有投稿'),

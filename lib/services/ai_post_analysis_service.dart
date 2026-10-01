@@ -13,6 +13,7 @@ import 'ai_analysis_consent.dart';
 import 'location_services.dart';
 import 'source_media_store.dart';
 import 'notification_service.dart';
+import 'billing_service.dart';
 
 class AnalysisPendingException implements Exception {
   const AnalysisPendingException();
@@ -207,6 +208,10 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (response.statusCode == 429) {
         return _asFallback(local, analysisSource: 'quota_fallback');
       }
+      if (response.statusCode == 402) {
+        await BillingService.instance.refreshStatus();
+        return _asFallback(local, analysisSource: 'credits_exhausted');
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return _asFallback(local, analysisSource: 'server_fallback');
       }
@@ -263,6 +268,7 @@ class AiPostAnalysisService implements PostAnalysisService {
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
+      await BillingService.instance.refreshStatus();
       debugPrint(
         'flutter_recipe_2_model_decoded '
         'source_post_id=${result.sourcePostId} '

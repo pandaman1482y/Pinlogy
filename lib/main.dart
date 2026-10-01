@@ -6,10 +6,12 @@ import 'app/pinlogy_controller.dart';
 import 'recipe/recipe_controller.dart';
 import 'recipe/recipe_scope.dart';
 import 'services/notification_service.dart';
+import 'services/billing_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await PinlogyNotificationService.instance.initialize();
+  await BillingService.instance.initialize();
   final controller = PinlogyController(seedIfEmpty: false);
   await controller.initialize();
   final recipeController = RecipeController(legacy: controller);

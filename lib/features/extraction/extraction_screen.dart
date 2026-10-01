@@ -47,6 +47,7 @@ class _AnalysisSourceBanner extends StatelessWidget {
       'auth_fallback' => 'AI認証に失敗しました。Supabaseのanon publicキーを確認してください',
       'function_missing_fallback' => 'AI解析機能が見つかりません。analyze-postを再デプロイしてください',
       'quota_fallback' => '本日のAI取り込み上限に達したため、端末内の簡易解析結果を表示しています',
+      'credits_exhausted' => '解析回数を使い切りました。マイページの「利用プラン・残り回数」から追加できます',
       'server_fallback' => 'AI解析サーバーでエラーが発生しました。SupabaseのFunctionログを確認してください',
       'invalid_response_fallback' => 'AI解析の応答を読み取れませんでした。Functionの設定を確認してください',
       'timeout_fallback' => 'AI解析が時間内に完了しませんでした。もう一度解析してください',
