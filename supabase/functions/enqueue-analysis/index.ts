@@ -47,7 +47,6 @@ Deno.serve(async (request) => {
     delete payload.action;
     delete payload.notification_token;
     delete payload.notification_enabled;
-    delete payload.__bright_data_tiktok;
     delete payload.__apify_tiktok;
     delete payload.tiktok_external_post;
     delete payload.__apify_instagram;
@@ -393,7 +392,6 @@ async function prepareTikTokPayload(
       attempt: 0,
       started_at: new Date().toISOString(),
     };
-    delete request.__bright_data_tiktok;
     request.__apify_tiktok = nextState;
     console.info("async_tiktok_apify_started", jobId, runId);
     await requeueTikTokApify(jobId, request, 5_000);
@@ -455,7 +453,6 @@ async function prepareTikTokPayload(
   if (external == null) throw new Error("apify_tiktok_result_invalid");
 
   delete request.__apify_tiktok;
-  delete request.__bright_data_tiktok;
   request.tiktok_external_post = external;
   console.info(
     "async_tiktok_apify_ready",
