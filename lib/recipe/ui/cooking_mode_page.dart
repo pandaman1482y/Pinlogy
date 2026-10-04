@@ -115,12 +115,7 @@ class _CookingModePageState extends State<CookingModePage> {
               // 同じ端末では全工程を同じ画像サイズで表示する。
               final imageHeight = compact ? 180.0 : 235.0;
               return Padding(
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  compact ? 8 : 12,
-                  16,
-                  compact ? 5 : 7,
-                ),
+                padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -233,7 +228,7 @@ class _CookingModePageState extends State<CookingModePage> {
                     const Spacer(),
                     if (_timerStepNumber != null ||
                         entry.step.durationSeconds != null) ...[
-                      SizedBox(height: compact ? 5 : 6),
+                      SizedBox(height: compact ? 7 : 9),
                       _TimerPanel(
                         label: _timerStepNumber == null
                             ? 'この工程のタイマー'
@@ -253,13 +248,12 @@ class _CookingModePageState extends State<CookingModePage> {
                         onClear: _clearTimer,
                       ),
                     ],
-                    SizedBox(height: compact ? 5 : 6),
+                    SizedBox(height: compact ? 7 : 9),
                     if (controller.cookingAssistantAvailable)
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              style: _footerButtonStyle(compact),
                               onPressed: () => _showAssistant(
                                 recipe,
                                 entry.part,
@@ -277,7 +271,6 @@ class _CookingModePageState extends State<CookingModePage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: OutlinedButton.icon(
-                              style: _footerButtonStyle(compact),
                               onPressed: () => _showAssistant(
                                 recipe,
                                 entry.part,
@@ -295,7 +288,7 @@ class _CookingModePageState extends State<CookingModePage> {
                           ),
                         ],
                       ),
-                    SizedBox(height: compact ? 5 : 6),
+                    SizedBox(height: compact ? 7 : 9),
                     Row(
                       children: [
                         Expanded(
@@ -527,19 +520,14 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 
   ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(
-    minimumSize: Size(0, compact ? 36 : 40),
-    padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 3 : 4),
+    minimumSize: Size(0, compact ? 38 : 42),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     visualDensity: VisualDensity.compact,
   );
 
   String? _imageFor(Recipe recipe, RecipeStep step, List<String> sourceImages) {
-    final directIndex = step.imageIndex;
-    if (directIndex != null &&
-        directIndex >= 0 &&
-        directIndex < sourceImages.length) {
-      return sourceImages[directIndex];
-    }
+    // 工程自身の根拠画像を優先し、全工程が同じ画像になるのを防ぐ。
     for (final evidence in recipe.evidence) {
       if (evidence.id == step.evidenceId &&
           (evidence.kind == EvidenceKind.image ||
@@ -547,6 +535,12 @@ class _CookingModePageState extends State<CookingModePage> {
           evidence.imagePath?.isNotEmpty == true) {
         return evidence.imagePath;
       }
+    }
+    final directIndex = step.imageIndex;
+    if (directIndex != null &&
+        directIndex >= 0 &&
+        directIndex < sourceImages.length) {
+      return sourceImages[directIndex];
     }
     // 工程画像が特定できない場合、均等割りやサムネイルで補完すると
     // 別材料・別工程の画像を表示するため、誤表示より画像なしを優先する。
@@ -608,6 +602,7 @@ class _CookingModePageState extends State<CookingModePage> {
         builder: (context, update) {
           Future<void> send() async {
             if (sending || input.text.trim().isEmpty) return;
+            FocusManager.instance.primaryFocus?.unfocus();
             update(() {
               sending = true;
               error = null;
@@ -1047,7 +1042,7 @@ class _TimerPanel extends StatelessWidget {
     final minutes = seconds ~/ 60;
     final rest = seconds % 60;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 4 : 6),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 6 : 9),
       decoration: BoxDecoration(
         color: mintSoft,
         borderRadius: BorderRadius.circular(16),
@@ -1075,15 +1070,6 @@ class _TimerPanel extends StatelessWidget {
             icon: const Icon(Icons.refresh_rounded),
           ),
           FilledButton.icon(
-            style: FilledButton.styleFrom(
-              minimumSize: Size(0, compact ? 36 : 40),
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 10 : 12,
-                vertical: compact ? 3 : 4,
-              ),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-            ),
             onPressed: onToggle,
             icon: Icon(
               running ? Icons.pause_rounded : Icons.play_arrow_rounded,

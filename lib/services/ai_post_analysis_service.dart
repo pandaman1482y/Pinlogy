@@ -105,7 +105,12 @@ class AiPostAnalysisService implements PostAnalysisService {
                 .toList(),
           }),
         )
-        .timeout(const Duration(seconds: 35));
+        .timeout(
+          const Duration(seconds: 75),
+          onTimeout: () {
+            throw StateError('AIの回答に時間がかかっています。もう一度お試しください');
+          },
+        );
     if (response.statusCode == 429) {
       throw StateError('本日のAI利用上限に達しました');
     }

@@ -198,7 +198,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   Future<void> _showDuplicateShare(DuplicateShareEvent event) async {
     if (!mounted) return;
     final controller = RecipeScope.read(context);
-    await controller.syncFromIntake();
+    await controller.refreshCompletedImport(sourcePostId);
     if (!mounted) return;
     final item = controller.snapshot.imports
         .where((value) => value.sourcePostId == event.post.id)
@@ -302,6 +302,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   Widget build(BuildContext context) => Scaffold(
     body: IndexedStack(index: _index, children: _pages),
     bottomNavigationBar: NavigationBar(
+      height: 64,
       selectedIndex: _index,
       onDestinationSelected: (value) => setState(() => _index = value),
       destinations: const [

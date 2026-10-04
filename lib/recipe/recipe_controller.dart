@@ -200,6 +200,31 @@ class RecipeController extends ChangeNotifier {
     }
   }
 
+  /// 完了通知のタップ時に、既存ジョブの最新結果を回収して同期する。
+  /// pending/processing中の既存ジョブだけを確認し、新規ジョブは作らない。
+  Future<void> refreshCompletedImport(String? sourcePostId) async {
+    if (sourcePostId == null || sourcePostId.isEmpty) {
+      await syncFromIntake();
+      return;
+    }
+    final post = legacy.hub.snapshot.sourcePosts
+        .where((value) => value.id == sourcePostId)
+        .firstOrNull;
+    final job = legacy.jobForPost(sourcePostId);
+    if (post != null &&
+        (job?.status == AnalysisJobStatus.pending ||
+            job?.status == AnalysisJobStatus.processing)) {
+      try {
+        await legacy.analyzeSharedPost(post);
+      } on AnalysisPendingException {
+        // サーバー反映待ちなら現在の進捗表示を維持する。
+      } on PreviousAnalysisFailedException {
+        // 失敗状態は通常の同期処理で画面へ反映する。
+      }
+    }
+    await syncFromIntake();
+  }
+
   Future<void> _performSync() async {
     final recipes = List<Recipe>.of(snapshot.recipes);
     final imports = List<RecipeImport>.of(snapshot.imports);
