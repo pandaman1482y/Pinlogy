@@ -48,6 +48,14 @@ def _is_tiktok_url(raw: str) -> bool:
         return False
 
 
+def _is_instagram_url(raw: str) -> bool:
+    try:
+        host = (urlparse(raw).hostname or "").lower()
+        return host == "instagram.com" or host.endswith(".instagram.com")
+    except ValueError:
+        return False
+
+
 def _allowed_tiktok_media_url(raw: str) -> bool:
     try:
         parsed = urlparse(raw)
@@ -70,6 +78,33 @@ def _allowed_tiktok_media_url(raw: str) -> bool:
             "ibytedtos.com",
         )
         return parsed.scheme == "https" and any(
+            host == suffix or host.endswith(f".{suffix}")
+            for suffix in allowed_suffixes
+        )
+    except ValueError:
+        return False
+
+
+def _allowed_instagram_media_url(raw: str) -> bool:
+    try:
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https":
+            return False
+        if host == "api.apify.com":
+            return (
+                re.fullmatch(
+                    r"/v2/key-value-stores/[A-Za-z0-9_-]{8,128}/records/[^/]+",
+                    parsed.path,
+                ) is not None
+                and "signature" in parse_qs(parsed.query)
+            )
+        allowed_suffixes = (
+            "cdninstagram.com",
+            "fbcdn.net",
+            "instagram.com",
+        )
+        return any(
             host == suffix or host.endswith(f".{suffix}")
             for suffix in allowed_suffixes
         )
@@ -266,11 +301,16 @@ def extract(
         raise HTTPException(status_code=401, detail="unauthorized")
     if not _allowed_url(request.url):
         raise HTTPException(status_code=400, detail="unsupported_url")
-    if request.media_url is not None and (
-        not _is_tiktok_url(request.url)
-        or not _allowed_tiktok_media_url(request.media_url)
-    ):
-        raise HTTPException(status_code=400, detail="unsupported_media_url")
+    if request.media_url is not None:
+        media_allowed = (
+            _is_tiktok_url(request.url)
+            and _allowed_tiktok_media_url(request.media_url)
+        ) or (
+            _is_instagram_url(request.url)
+            and _allowed_instagram_media_url(request.media_url)
+        )
+        if not media_allowed:
+            raise HTTPException(status_code=400, detail="unsupported_media_url")
 
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
