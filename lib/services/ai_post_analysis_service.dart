@@ -407,20 +407,41 @@ class AiPostAnalysisService implements PostAnalysisService {
     // snapshot側の上限（10分）と同じ時間まで待機する。
     final deadline = DateTime.now().add(const Duration(minutes: 10));
     while (DateTime.now().isBefore(deadline)) {
-      final response = await _client
-          .post(
-            uri,
-            headers: {
-              'Authorization': 'Bearer $_key',
-              'apikey': _key,
-              'Content-Type': 'application/json',
-              'X-Pinlogy-Device': deviceId,
-            },
-            body: jsonEncode({'action': 'status', 'job_id': jobId}),
-          )
-          .timeout(const Duration(seconds: 15));
+      late final http.Response response;
+      try {
+        response = await _client
+            .post(
+              uri,
+              headers: {
+                'Authorization': 'Bearer $_key',
+                'apikey': _key,
+                'Content-Type': 'application/json',
+                'X-Pinlogy-Device': deviceId,
+              },
+              body: jsonEncode({'action': 'status', 'job_id': jobId}),
+            )
+            .timeout(const Duration(seconds: 15));
+      } on TimeoutException {
+        // 状態確認1回のタイムアウトで、継続中のリモートジョブを
+        // 空のfallback結果として完了扱いにしない。
+        await Future<void>.delayed(const Duration(seconds: 3));
+        continue;
+      } on SocketException {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        continue;
+      } on http.ClientException {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        continue;
+      }
       if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
+        Object? decoded;
+        try {
+          decoded = jsonDecode(response.body);
+        } on FormatException {
+          // 一時的な不完全レスポンスも失敗とは確定せず、再確認する。
+          await Future<void>.delayed(const Duration(seconds: 3));
+          continue;
+        }
         if (decoded is Map) {
           final status = decoded['status']?.toString();
           if (status == 'completed' && decoded['result'] is Map) {
