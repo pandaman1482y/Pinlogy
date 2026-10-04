@@ -12,6 +12,7 @@ import '../recipe/ui/recipe_detail_page.dart';
 import '../recipe/ui/recipe_selection_page.dart';
 import '../services/ai_analysis_consent.dart';
 import '../services/notification_service.dart';
+import '../services/share_receiver_service.dart';
 
 class PinlogyApp extends StatelessWidget {
   const PinlogyApp({super.key});
@@ -62,13 +63,23 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline_rounded, size: 46, color: errorColor),
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 46,
+                  color: errorColor,
+                ),
                 const SizedBox(height: 12),
-                Text('起動に失敗しました', style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  '起動に失敗しました',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 8),
                 Text(controller.loadError!, textAlign: TextAlign.center),
                 const SizedBox(height: 16),
-                FilledButton(onPressed: controller.initialize, child: const Text('再試行')),
+                FilledButton(
+                  onPressed: controller.initialize,
+                  child: const Text('再試行'),
+                ),
               ],
             ),
           ),
@@ -77,7 +88,9 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
     }
     if (!_checkedConsent) {
       _checkedConsent = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _askConsentIfNeeded());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _askConsentIfNeeded(),
+      );
     }
     return const RecipeRootShell();
   }
@@ -96,8 +109,14 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
           '投稿文・共有画像・動画内の文字などをAI解析へ送信し、材料と工程に整理します。端末の個人写真や保存済みレシピを無断で送信することはありません。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('今は使わない')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('同意して使う')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('今は使わない'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('同意して使う'),
+          ),
         ],
       ),
     );
@@ -115,6 +134,8 @@ class RecipeRootShell extends StatefulWidget {
 class _RecipeRootShellState extends State<RecipeRootShell> {
   int _index = 0;
   StreamSubscription<String?>? _notificationSubscription;
+  StreamSubscription<DuplicateShareEvent>? _duplicateSubscription;
+  bool _duplicateDialogVisible = false;
 
   static const _pages = [
     RecipeHomePage(),
@@ -132,14 +153,99 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     );
     final initial = notifications.consumeInitialCompletionSourcePostId();
     if (initial != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openCompletedImport(initial));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openCompletedImport(initial),
+      );
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _duplicateSubscription ??= RecipeScope.read(
+      context,
+    ).legacy.shareIntake.onDuplicate.listen(_showDuplicateShare);
   }
 
   @override
   void dispose() {
     _notificationSubscription?.cancel();
+    _duplicateSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _showDuplicateShare(DuplicateShareEvent event) async {
+    if (!mounted || _duplicateDialogVisible) return;
+    _duplicateDialogVisible = true;
+    final controller = RecipeScope.read(context);
+    await controller.syncFromIntake();
+    if (!mounted) return;
+    final item = controller.snapshot.imports
+        .where((value) => value.sourcePostId == event.post.id)
+        .firstOrNull;
+    final saved = item == null
+        ? null
+        : controller
+              .recipesForImport(item)
+              .where((value) => value.isSaved)
+              .firstOrNull;
+    final failed =
+        event.job?.status.name == 'failed' ||
+        event.job?.status.name == 'cancelled';
+    final title = saved != null
+        ? 'この投稿は保存済みです'
+        : failed
+        ? 'この投稿は前回解析できませんでした'
+        : event.job?.status.name == 'pending'
+        ? 'この投稿は解析待ちです'
+        : 'この投稿は現在解析中です';
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(
+          saved != null
+              ? '新しい解析や回数消費は行いません。'
+              : failed
+              ? '共有しただけでは再試行しません。'
+              : '既存の解析状況を表示します。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('閉じる'),
+          ),
+          if (saved != null)
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'open'),
+              child: const Text('レシピを見る'),
+            )
+          else if (failed && item != null)
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'retry'),
+              child: const Text('再試行'),
+            )
+          else
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'progress'),
+              child: const Text('進捗を見る'),
+            ),
+        ],
+      ),
+    );
+    _duplicateDialogVisible = false;
+    if (!mounted) return;
+    if (action == 'open' && saved != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RecipeDetailPage(recipeId: saved.id),
+        ),
+      );
+    } else if (action == 'retry' && item != null) {
+      await controller.retryImport(item);
+    } else if (action == 'progress') {
+      setState(() => _index = 0);
+    }
   }
 
   Future<void> _openCompletedImport(String? sourcePostId) async {
@@ -154,14 +260,21 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     if (item == null) return;
     if (item.requiresSelection) {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => RecipeSelectionPage(importId: item.id)),
+        MaterialPageRoute<void>(
+          builder: (_) => RecipeSelectionPage(importId: item.id),
+        ),
       );
       return;
     }
-    final recipe = controller.recipesForImport(item).where((value) => value.isSaved).firstOrNull;
+    final recipe = controller
+        .recipesForImport(item)
+        .where((value) => value.isSaved)
+        .firstOrNull;
     if (recipe != null && mounted) {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => RecipeDetailPage(recipeId: recipe.id)),
+        MaterialPageRoute<void>(
+          builder: (_) => RecipeDetailPage(recipeId: recipe.id),
+        ),
       );
     }
   }
@@ -173,10 +286,22 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
       selectedIndex: _index,
       onDestinationSelected: (value) => setState(() => _index = value),
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories_rounded), label: 'レシピ'),
+        NavigationDestination(
+          icon: Icon(Icons.auto_stories_outlined),
+          selectedIcon: Icon(Icons.auto_stories_rounded),
+          label: 'レシピ',
+        ),
         NavigationDestination(icon: Icon(Icons.search_rounded), label: '検索'),
-        NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome_rounded), label: 'AI'),
-        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'マイページ'),
+        NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined),
+          selectedIcon: Icon(Icons.auto_awesome_rounded),
+          label: 'AI',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline_rounded),
+          selectedIcon: Icon(Icons.person_rounded),
+          label: 'マイページ',
+        ),
       ],
     ),
   );

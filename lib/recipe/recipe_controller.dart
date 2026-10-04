@@ -9,6 +9,7 @@ import '../models/source_post.dart';
 import '../services/ai_post_analysis_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
+import '../services/social_post_identity.dart';
 import 'data/recipe_store.dart';
 import 'models/recipe_models.dart';
 
@@ -634,6 +635,21 @@ class RecipeController extends ChangeNotifier {
     await syncFromIntake();
   }
 
+  Future<bool> reanalyzeRecipe(Recipe recipe) async {
+    final recipeImport = snapshot.imports.cast<RecipeImport?>().firstWhere(
+      (item) => item?.sourcePostId == recipe.sourcePostId,
+      orElse: () => null,
+    );
+    if (recipeImport == null ||
+        legacy.jobForPost(recipe.sourcePostId) == null) {
+      return false;
+    }
+    // Existing saved recipes and user edits stay in the snapshot until a new
+    // result is persisted successfully by the normal merge path.
+    await retryImport(recipeImport);
+    return true;
+  }
+
   Future<void> cancelImport(RecipeImport recipeImport) async {
     final job = legacy.jobForPost(recipeImport.sourcePostId);
     if (job != null) {
@@ -1053,16 +1069,7 @@ class RecipeController extends ChangeNotifier {
 }
 
 String? _normalizedUrl(String? rawUrl) {
-  final uri = Uri.tryParse(rawUrl?.trim() ?? '');
-  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return null;
-  final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
-  final supported =
-      host == 'instagram.com' ||
-      host.endsWith('.instagram.com') ||
-      host == 'tiktok.com' ||
-      host.endsWith('.tiktok.com');
-  if (!supported) return null;
-  return Uri(scheme: 'https', host: host, path: uri.path).toString();
+  return SocialPostIdentity.normalizedSupportedUrl(rawUrl);
 }
 
 RecipeSnapshot _mergeSnapshots(RecipeSnapshot local, RecipeSnapshot remote) {

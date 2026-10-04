@@ -88,9 +88,20 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                 color: Colors.white,
                 iconColor: Colors.white,
                 onSelected: (value) {
+                  if (value == 'reanalyze') _reanalyzeRecipe(context, recipe);
                   if (value == 'delete') _deleteRecipe(context, recipe);
                 },
                 itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'reanalyze',
+                    child: Row(
+                      children: [
+                        Icon(Icons.refresh_rounded),
+                        SizedBox(width: 10),
+                        Text('再解析'),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'delete',
                     child: Row(
@@ -410,6 +421,33 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _reanalyzeRecipe(BuildContext context, Recipe recipe) async {
+    final controller = RecipeScope.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('この投稿を再解析しますか？'),
+        content: const Text('解析に成功した場合、残り回数を1回消費します。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('再解析する'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final started = await controller.reanalyzeRecipe(recipe);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(started ? '再解析を開始しました' : 'このレシピは再解析できません')),
     );
   }
 

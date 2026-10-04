@@ -19,6 +19,13 @@ class AnalysisPendingException implements Exception {
   const AnalysisPendingException();
 }
 
+class PreviousAnalysisFailedException implements Exception {
+  const PreviousAnalysisFailedException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
 /// 明示同意時だけEdge Functionで解析し、未同意・障害時は端末解析へ戻す。
 class AiPostAnalysisService implements PostAnalysisService {
   AiPostAnalysisService({required this.fallback, http.Client? client})
@@ -120,7 +127,13 @@ class AiPostAnalysisService implements PostAnalysisService {
       return local;
     }
     final cacheKey = _cacheKey(request, local.evidenceText);
-    final cached = await _readCache(cacheKey);
+    final preferences = await SharedPreferences.getInstance();
+    final forceReanalysis =
+        preferences.getBool(_reanalysisKey(request.sourcePostId)) == true;
+    if (forceReanalysis) {
+      await preferences.remove(_reanalysisKey(request.sourcePostId));
+    }
+    final cached = forceReanalysis ? null : await _readCache(cacheKey);
     if (cached != null &&
         cached.recipes.isNotEmpty &&
         await _cachedMediaAvailable(cached)) {
@@ -141,7 +154,6 @@ class AiPostAnalysisService implements PostAnalysisService {
       );
       final encodedImages = await _readImages(request.imageUrls);
       final deviceId = await _deviceId();
-      final preferences = await SharedPreferences.getInstance();
       final pendingKey = _pendingJobKey(request.sourcePostId);
       final existingJobId = preferences.getString(pendingKey);
       http.Response response;
@@ -174,6 +186,7 @@ class AiPostAnalysisService implements PostAnalysisService {
                 'ocr_text': local.evidenceText,
                 'image_data_urls': encodedImages.dataUrls,
                 'analysis_key': cacheKey,
+                'force_reanalysis': forceReanalysis,
                 'notification_enabled': notification.enabled,
                 'notification_token': notificationToken,
               }),
@@ -211,6 +224,15 @@ class AiPostAnalysisService implements PostAnalysisService {
       if (response.statusCode == 402) {
         await BillingService.instance.refreshStatus();
         return _asFallback(local, analysisSource: 'credits_exhausted');
+      }
+      if (response.statusCode == 409 || response.statusCode == 500) {
+        final errorBody = jsonDecode(response.body);
+        final code = errorBody is Map ? errorBody['error']?.toString() : null;
+        if (code == 'analysis_failed' || code == 'analysis_cancelled') {
+          throw PreviousAnalysisFailedException(
+            code == 'analysis_failed' ? '前回の解析を完了できませんでした' : '解析はキャンセルされました',
+          );
+        }
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return _asFallback(local, analysisSource: 'server_fallback');
@@ -303,6 +325,8 @@ class AiPostAnalysisService implements PostAnalysisService {
       return result;
     } on AnalysisPendingException {
       rethrow;
+    } on PreviousAnalysisFailedException {
+      rethrow;
     } on TimeoutException {
       return _asFallback(local, analysisSource: 'timeout_fallback');
     } on SocketException {
@@ -319,6 +343,13 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   static String _pendingJobKey(String sourcePostId) =>
       'pinlogy_async_analysis_job_v1_$sourcePostId';
+  static String _reanalysisKey(String sourcePostId) =>
+      'pinlogy_explicit_reanalysis_v1_$sourcePostId';
+
+  Future<void> prepareExplicitReanalysis(String sourcePostId) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_reanalysisKey(sourcePostId), true);
+  }
 
   /// ユーザーが明示的に再解析した場合は、タイムアウトした古いサーバージョブを
   /// 再利用せず、新しいジョブを登録できるようにする。

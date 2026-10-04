@@ -269,46 +269,72 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
     final controller = RecipeScope.read(context);
     final existing = controller.existingRecipeForUrl(rawUrl);
     if (existing != null) {
-      final choice = await showDialog<_DuplicateChoice>(
+      final openExisting = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('すでに保存されています'),
-          content: Text('「${existing.title}」を開くか、投稿をもう一度解析できます。'),
+          title: const Text('この投稿は保存済みです'),
+          content: Text('「${existing.title}」を開きますか？'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('キャンセル'),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, _DuplicateChoice.reimport),
-              child: const Text('再取り込み'),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('閉じる'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, _DuplicateChoice.openExisting),
-              child: const Text('保存済みを開く'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('レシピを見る'),
             ),
           ],
         ),
       );
-      if (!context.mounted || choice == null) return;
-      if (choice == _DuplicateChoice.openExisting) {
+      if (!context.mounted) return;
+      if (openExisting == true) {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => RecipeDetailPage(recipeId: existing.id),
           ),
         );
-        return;
       }
+      return;
     } else {
       final active = controller.existingImportForUrl(rawUrl);
       if (active != null &&
           active.status != RecipeImportStatus.completed &&
           active.status != RecipeImportStatus.cancelled) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('この投稿はすでに取り込み中です')));
+        final failed =
+            active.status == RecipeImportStatus.failed ||
+            active.status == RecipeImportStatus.retryWaiting;
+        final retry = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(
+              failed
+                  ? 'この投稿は前回解析できませんでした'
+                  : active.status == RecipeImportStatus.queued
+                  ? 'この投稿は解析待ちです'
+                  : 'この投稿は現在解析中です',
+            ),
+            content: Text(
+              failed ? '再試行する場合だけ解析を開始します。' : '新しい解析や利用回数の追加予約は行いません。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('閉じる'),
+              ),
+              if (failed)
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('再試行'),
+                )
+              else
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('進捗を見る'),
+                ),
+            ],
+          ),
+        );
+        if (retry == true) await controller.retryImport(active);
         return;
       }
     }
@@ -326,8 +352,6 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
     }
   }
 }
-
-enum _DuplicateChoice { openExisting, reimport }
 
 class _ImportCard extends StatelessWidget {
   const _ImportCard({required this.item});

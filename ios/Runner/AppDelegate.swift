@@ -69,7 +69,10 @@ import UIKit
       switch call.method {
       case "getInitialSharedMedia":
         self.dartReady = true
-        result(self.consumePendingShares())
+        result(self.pendingShares())
+      case "acknowledgeSharedMedia":
+        self.clearPendingShares()
+        result(true)
       case "configureBackgroundIntake":
         guard
           let values = call.arguments as? [String: Any],
@@ -151,13 +154,15 @@ import UIKit
 
   private func dispatchPendingShareIfReady() {
     guard dartReady, let methodChannel else { return }
-    let payloads = consumePendingShares()
+    let payloads = pendingShares()
     if !payloads.isEmpty {
-      methodChannel.invokeMethod("onShared", arguments: payloads)
+      methodChannel.invokeMethod("onShared", arguments: payloads) { result in
+        if result as? Bool == true { self.clearPendingShares() }
+      }
     }
   }
 
-  private func consumePendingShares() -> [[String: Any]] {
+  private func pendingShares() -> [[String: Any]] {
     guard let defaults = UserDefaults(suiteName: appGroupId) else { return [] }
     var payloads: [[String: Any]] = []
     if
@@ -174,9 +179,13 @@ import UIKit
     {
       payloads.append(legacy)
     }
+    return payloads
+  }
+
+  private func clearPendingShares() {
+    guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
     defaults.removeObject(forKey: pendingQueueKey)
     defaults.removeObject(forKey: pendingKey)
     defaults.synchronize()
-    return payloads
   }
 }

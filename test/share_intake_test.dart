@@ -85,6 +85,33 @@ void main() {
 
       await intake.dispose();
     });
+
+    test('同じ投稿の共有パラメータ違いは投稿と解析を増やさない', () async {
+      final hub = LocalRepositoryHub(InMemoryDataStore());
+      await hub.load(seedIfEmpty: false);
+      final receiver = LocalShareReceiverService(
+        sourcePosts: hub.sourcePosts,
+        analysis: hub.analysis,
+        analysisService: _CapturingAnalysis(),
+        autoAnalyze: false,
+      );
+      final first = await receiver.receive(
+        const SharedContent(
+          url: 'https://www.instagram.com/p/Duplicate01/?igsh=first',
+        ),
+      );
+      await expectLater(
+        receiver.receive(
+          const SharedContent(
+            url: 'https://instagram.com/reel/Duplicate01/?utm_source=share',
+          ),
+        ),
+        throwsA(isA<DuplicateShareException>()),
+      );
+      expect((await hub.sourcePosts.getAll()), hasLength(1));
+      expect((await hub.analysis.getAll()), hasLength(1));
+      expect(first.id, 'social-instagram-Duplicate01');
+    });
   });
 }
 

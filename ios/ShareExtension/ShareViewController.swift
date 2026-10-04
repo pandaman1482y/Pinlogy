@@ -84,6 +84,8 @@ final class ShareViewController: UIViewController {
       ) {
         payload["remoteAnalysisJobId"] = remote.jobId
         payload["analysisDeviceId"] = remote.deviceId
+        payload["sourcePostId"] = remote.sourcePostId
+        payload["duplicateShare"] = remote.reused
       }
       guard persist(payload) else {
         await MainActor.run {
@@ -99,11 +101,14 @@ final class ShareViewController: UIViewController {
         ? await openHostApp()
         : false
       let queued = payload["remoteAnalysisJobId"] != nil
+      let duplicate = payload["duplicateShare"] as? Bool == true
       await MainActor.run {
         self.activityIndicator.stopAnimating()
         self.titleLabel.text = opened ? "Pinlogyを開きます" : "保存しました"
         self.messageLabel.text = opened
           ? "アプリで取り込み内容を確認できます。"
+          : duplicate
+            ? "この投稿はすでに登録されています。アプリで状態を確認できます。"
           : queued
             ? "画像取得とレシピ解析をバックグラウンドで開始しました。"
             : "アプリを一度開くと、取り込み状況から解析を続けられます。"
@@ -119,7 +124,7 @@ final class ShareViewController: UIViewController {
   private func enqueueBackgroundAnalysis(
     payload: [String: Any],
     sourcePostId: String
-  ) async -> (jobId: String, deviceId: String)? {
+  ) async -> (jobId: String, deviceId: String, sourcePostId: String, reused: Bool)? {
     guard
       let defaults = UserDefaults(suiteName: appGroupId),
       let base = defaults.string(forKey: backendUrlKey),
@@ -169,7 +174,9 @@ final class ShareViewController: UIViewController {
       let jobId = json["job_id"] as? String,
       !jobId.isEmpty
     else { return nil }
-    return (jobId, deviceId)
+    let returnedSourcePostId = json["source_post_id"] as? String ?? sourcePostId
+    let reused = json["reused"] as? Bool ?? false
+    return (jobId, deviceId, returnedSourcePostId, reused)
   }
 
   @objc private func cancelShare() {

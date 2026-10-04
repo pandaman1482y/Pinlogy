@@ -12,7 +12,22 @@ import '../repositories/repository_interfaces.dart';
 import 'ai_post_analysis_service.dart';
 import 'location_services.dart';
 import 'platform_share_bridge.dart';
+import 'social_post_identity.dart';
 import 'source_media_store.dart';
+
+class DuplicateShareException implements Exception {
+  const DuplicateShareException(this.post, this.job);
+
+  final SourcePost post;
+  final AnalysisJob? job;
+}
+
+class DuplicateShareEvent {
+  const DuplicateShareEvent(this.post, this.job);
+
+  final SourcePost post;
+  final AnalysisJob? job;
+}
 
 class SharedContent {
   const SharedContent({
@@ -215,6 +230,38 @@ class LocalShareReceiverService implements ShareReceiverService {
     try {
       final service =
           content.service ?? _guessService(content.url, content.text);
+      final identityUrl = await _resolveIdentityUrl(content.url);
+      final identity = SocialPostIdentity.tryParse(identityUrl);
+      final normalizedUrl = SocialPostIdentity.normalizedSupportedUrl(
+        identityUrl,
+      );
+      final stableSourcePostId = content.sourcePostId ?? identity?.storageId;
+      final existingPosts = await sourcePosts.getAll();
+      SourcePost? existing;
+      for (final candidate in existingPosts) {
+        final sameId =
+            stableSourcePostId != null && candidate.id == stableSourcePostId;
+        final candidateIdentity = SocialPostIdentity.tryParse(candidate.url);
+        final sameIdentity =
+            identity != null &&
+            candidateIdentity != null &&
+            candidateIdentity.key == identity.key;
+        final sameFallback =
+            identity == null &&
+            normalizedUrl != null &&
+            SocialPostIdentity.normalizedSupportedUrl(candidate.url) ==
+                normalizedUrl;
+        if (sameId || sameIdentity || sameFallback) {
+          existing = candidate;
+          break;
+        }
+      }
+      if (existing != null) {
+        throw DuplicateShareException(
+          existing,
+          await analysis.getBySourcePostId(existing.id),
+        );
+      }
       final firstLine = content.text
           ?.split('\n')
           .map((e) => e.trim())
@@ -227,7 +274,7 @@ class LocalShareReceiverService implements ShareReceiverService {
           '共有された投稿';
 
       final draft = SourcePost(
-        id: content.sourcePostId,
+        id: stableSourcePostId,
         url: content.url,
         service: service,
         title: title,
@@ -296,6 +343,50 @@ class LocalShareReceiverService implements ShareReceiverService {
     } catch (_) {
       // 画像は補助情報。失敗しても投稿保存と場所解析は継続する。
       return post;
+    }
+  }
+
+  Future<String?> _resolveIdentityUrl(String? rawUrl) async {
+    final trimmed = rawUrl?.trim();
+    if (trimmed == null ||
+        trimmed.isEmpty ||
+        SocialPostIdentity.tryParse(trimmed) != null) {
+      return trimmed;
+    }
+    final uri = Uri.tryParse(trimmed);
+    final host = uri?.host.toLowerCase() ?? '';
+    final isTikTok =
+        uri?.scheme == 'https' &&
+        (host == 'tiktok.com' || host.endsWith('.tiktok.com'));
+    if (!isTikTok) return trimmed;
+    final preferences = await SharedPreferences.getInstance();
+    final cacheKey =
+        'pinlogy_resolved_share_url_v1_${base64Url.encode(utf8.encode(trimmed))}';
+    final cached = preferences.getString(cacheKey);
+    if (cached != null && SocialPostIdentity.tryParse(cached) != null) {
+      return cached;
+    }
+    try {
+      final client = http.Client();
+      final request = http.Request('GET', uri!)
+        ..followRedirects = true
+        ..maxRedirects = 4;
+      try {
+        final response = await client
+            .send(request)
+            .timeout(const Duration(seconds: 5));
+        await response.stream.drain<void>();
+        final resolved = response.request?.url.toString();
+        if (SocialPostIdentity.tryParse(resolved) != null) {
+          await preferences.setString(cacheKey, resolved!);
+          return resolved;
+        }
+      } finally {
+        client.close();
+      }
+      throw const FormatException('投稿URLを確認できませんでした');
+    } catch (_) {
+      throw StateError('状態を確認できませんでした。時間をおいてもう一度お試しください');
     }
   }
 
@@ -462,6 +553,7 @@ class AnalysisRunner {
       // 端末の参照だけを消すと、旧ジョブがバックグラウンドで完了して
       // 新ジョブとは別の通知を送る。先に旧ジョブをサーバーでも停止する。
       await service.cancelPendingJob(job.sourcePostId);
+      await service.prepareExplicitReanalysis(job.sourcePostId);
     }
     await hub.analysis.retry(jobId);
     await runJob(jobId);
@@ -634,6 +726,9 @@ class ShareIntakeCoordinator {
 
   final _savedController = StreamController<SourcePost>.broadcast();
   Stream<SourcePost> get onSaved => _savedController.stream;
+  final _duplicateController =
+      StreamController<DuplicateShareEvent>.broadcast();
+  Stream<DuplicateShareEvent> get onDuplicate => _duplicateController.stream;
 
   String? lastSavedMessage;
   bool _started = false;
@@ -648,6 +743,7 @@ class ShareIntakeCoordinator {
   Future<void> dispose() async {
     await bridge.detach();
     await _savedController.close();
+    await _duplicateController.close();
   }
 
   Future<SourcePost?> _handleShared(SharedContent content) async {
@@ -661,19 +757,48 @@ class ShareIntakeCoordinator {
         _savedController.add(post);
       }
       return post;
+    } on DuplicateShareException catch (duplicate) {
+      lastSavedMessage = _duplicateMessage(duplicate.job?.status);
+      if (!_duplicateController.isClosed) {
+        _duplicateController.add(
+          DuplicateShareEvent(duplicate.post, duplicate.job),
+        );
+      }
+      return duplicate.post;
     } catch (_) {
       lastSavedMessage = '共有の保存に失敗しました。投稿内容は再共有してください。';
-      return null;
+      rethrow;
     }
   }
 
   /// テストやUIからの手動投入用。
   Future<SourcePost> ingest(SharedContent content) async {
-    final post = await shareReceiver.receive(content);
+    late final SourcePost post;
+    try {
+      post = await shareReceiver.receive(content);
+    } on DuplicateShareException catch (duplicate) {
+      lastSavedMessage = _duplicateMessage(duplicate.job?.status);
+      if (!_duplicateController.isClosed) {
+        _duplicateController.add(
+          DuplicateShareEvent(duplicate.post, duplicate.job),
+        );
+      }
+      return duplicate.post;
+    }
     lastSavedMessage = '受信箱に保存しました';
     if (!_savedController.isClosed) {
       _savedController.add(post);
     }
     return post;
   }
+
+  static String _duplicateMessage(AnalysisJobStatus? status) =>
+      switch (status) {
+        AnalysisJobStatus.pending => 'この投稿は解析待ちです',
+        AnalysisJobStatus.processing => 'この投稿は現在解析中です',
+        AnalysisJobStatus.failed ||
+        AnalysisJobStatus.cancelled => 'この投稿は前回解析できませんでした',
+        AnalysisJobStatus.completed => 'この投稿は保存済みです',
+        null => 'この投稿はすでに登録されています',
+      };
 }

@@ -43,6 +43,8 @@ Deno.serve(async (request) => {
 
     const sourcePostId = String(input.source_post_id ?? "");
     if (!sourcePostId) return reply({ error: "invalid_request" }, 400);
+    const sourceKey = await sourceIdentityKey(String(input.url ?? ""), sourcePostId);
+    const forceReanalysis = input.force_reanalysis === true;
     const payload = { ...input };
     delete payload.action;
     delete payload.notification_token;
@@ -51,22 +53,27 @@ Deno.serve(async (request) => {
     delete payload.tiktok_external_post;
     delete payload.__apify_instagram;
     delete payload.instagram_external_post;
+    delete payload.force_reanalysis;
 
     const db = adminClient();
-    const { data: existing, error: existingError } = await db
+    const { data: existingRows, error: existingError } = await db
       .from("async_analysis_jobs")
-      .select("id,status")
-      .eq("source_post_id", sourcePostId)
+      .select("id,status,source_post_id")
+      .eq("source_key", sourceKey)
       .eq("device_hash", deviceHash)
-      .in("status", ["pending", "processing"])
       .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(20);
     if (existingError) {
       console.error("async_job_lookup_failed", existingError.message);
       return reply({ error: "job_lookup_failed" }, 500);
     }
-    if (existing != null) {
+    const existing = existingRows?.find((job) =>
+      ["pending", "processing"].includes(String(job.status))
+    ) ?? existingRows?.find((job) => String(job.status) === "completed") ??
+      existingRows?.[0] ?? null;
+    if (existing != null &&
+      (["pending", "processing"].includes(String(existing.status)) ||
+        !forceReanalysis)) {
       const existingJobId = String(existing.id);
       console.info(
         "async_job_reused",
@@ -79,11 +86,15 @@ Deno.serve(async (request) => {
       return reply({
         job_id: existingJobId,
         status: String(existing.status),
+        source_post_id: String(existing.source_post_id),
         reused: true,
+        duplicate: true,
       }, 202);
     }
     const { data, error } = await db.from("async_analysis_jobs").insert({
       source_post_id: sourcePostId,
+      source_key: sourceKey,
+      analysis_key: String(input.analysis_key ?? "default"),
       device_hash: deviceHash,
       device_id: deviceId,
       status: "pending",
@@ -96,8 +107,8 @@ Deno.serve(async (request) => {
       // インデックスが二重登録を止める。競合時は勝った既存ジョブを返す。
       if (error?.code === "23505") {
         const { data: raced } = await db.from("async_analysis_jobs")
-          .select("id,status")
-          .eq("source_post_id", sourcePostId)
+          .select("id,status,source_post_id")
+          .eq("source_key", sourceKey)
           .eq("device_hash", deviceHash)
           .in("status", ["pending", "processing"])
           .order("updated_at", { ascending: false })
@@ -112,7 +123,9 @@ Deno.serve(async (request) => {
           return reply({
             job_id: racedJobId,
             status: String(raced.status),
+            source_post_id: String(raced.source_post_id),
             reused: true,
+            duplicate: true,
           }, 202);
         }
       }
@@ -140,7 +153,12 @@ Deno.serve(async (request) => {
       `token=${validFcmToken(input.notification_token) != null}`,
     );
     EdgeRuntime.waitUntil(dispatchJob(jobId));
-    return reply({ job_id: jobId, status: "pending" }, 202);
+    return reply({
+      job_id: jobId,
+      status: "pending",
+      source_post_id: sourcePostId,
+      reused: false,
+    }, 202);
   } catch (error) {
     console.error("async_enqueue_failed", String(error));
     return reply({ error: "invalid_request" }, 400);
@@ -1006,6 +1024,85 @@ async function resolveTikTokVideoUrl(
     console.warn("async_tiktok_url_resolve_failed", String(error));
     return null;
   }
+}
+
+const sourceResolutionCache = new Map<string, { value: string; expires: number }>();
+const trackingQueryKeys = new Set([
+  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+  "igsh", "igshid", "ig_mid", "share_app_id", "share_item_id", "_r",
+]);
+
+async function sourceIdentityKey(rawUrl: string, fallbackId: string) {
+  let candidate = rawUrl.trim();
+  try {
+    const initial = new URL(candidate);
+    const host = initial.hostname.toLowerCase();
+    const isTikTok = host === "tiktok.com" || host.endsWith(".tiktok.com");
+    if (isTikTok && !/\/video\/\d{8,30}/i.test(initial.pathname)) {
+      candidate = await resolveShortSocialUrl(candidate) ?? candidate;
+    }
+    const url = new URL(candidate);
+    const normalizedHost = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (normalizedHost === "instagram.com" ||
+      normalizedHost.endsWith(".instagram.com")) {
+      const match = /^\/(?:share\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,80})/i
+        .exec(url.pathname);
+      if (match != null) return `instagram:${match[1]}`;
+    }
+    if (normalizedHost === "tiktok.com" ||
+      normalizedHost.endsWith(".tiktok.com")) {
+      const match = /\/video\/(\d{8,30})/i.exec(url.pathname);
+      if (match != null) return `tiktok:${match[1]}`;
+    }
+    for (const key of [...url.searchParams.keys()]) {
+      if (trackingQueryKeys.has(key.toLowerCase()) || key.toLowerCase().startsWith("utm_")) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.hash = "";
+    url.hostname = normalizedHost;
+    return `url:${url.toString()}`;
+  } catch {
+    return `legacy:${fallbackId}`;
+  }
+}
+
+async function resolveShortSocialUrl(rawUrl: string): Promise<string | null> {
+  const cached = sourceResolutionCache.get(rawUrl);
+  if (cached != null && cached.expires > Date.now()) return cached.value;
+  try {
+    let current = new URL(rawUrl);
+    for (let redirect = 0; redirect < 4; redirect++) {
+      const host = current.hostname.toLowerCase();
+      if (!(host === "tiktok.com" || host.endsWith(".tiktok.com"))) return null;
+      if (/\/video\/\d{8,30}/i.test(current.pathname)) break;
+      const response = await fetch(current, {
+        method: "HEAD",
+        redirect: "manual",
+        signal: AbortSignal.timeout(5_000),
+      });
+      await response.body?.cancel();
+      const location = response.headers.get("location");
+      if (location == null) break;
+      current = new URL(location, current);
+    }
+    const host = current.hostname.toLowerCase();
+    if ((host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
+      /\/video\/\d{8,30}/i.test(current.pathname)) {
+      if (sourceResolutionCache.size >= 256) {
+        const oldest = sourceResolutionCache.keys().next().value;
+        if (oldest != null) sourceResolutionCache.delete(oldest);
+      }
+      sourceResolutionCache.set(rawUrl, {
+        value: current.toString(),
+        expires: Date.now() + 6 * 60 * 60_000,
+      });
+      return current.toString();
+    }
+  } catch (error) {
+    console.warn("source_url_resolution_failed", String(error));
+  }
+  return null;
 }
 
 const analysisMediaBucket = "recipe-analysis-media";
