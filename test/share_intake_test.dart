@@ -6,6 +6,8 @@ import 'package:pinlogy/services/location_services.dart';
 import 'package:pinlogy/services/share_receiver_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('SharedContent.tryParse', () {
     test('URL文字列をurlへ変換する', () {
       final content = SharedContent.tryParse('https://www.instagram.com/p/abc');
@@ -46,7 +48,7 @@ void main() {
 
       final post = await receiver.receive(
         const SharedContent(
-          url: 'https://www.tiktok.com/@shop/video/1',
+          url: 'https://www.tiktok.com/@shop/video/1234567890123456789',
           title: 'カフェ・ピンロジー',
           text: '大阪府八尾市本町1丁目1番1号',
         ),
