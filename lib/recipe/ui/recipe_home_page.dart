@@ -42,6 +42,11 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
         title: const Text('レシピ'),
         actions: [
           IconButton(
+            tooltip: '並び順',
+            onPressed: () => _selectSort(context),
+            icon: const Icon(Icons.swap_vert_rounded),
+          ),
+          IconButton(
             tooltip: 'レシピを追加',
             onPressed: () => _showAddMenu(context),
             icon: const Icon(Icons.add_rounded),
@@ -135,6 +140,38 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _selectSort(BuildContext context) async {
+    final controller = RecipeScope.read(context);
+    final selected = await showModalBottomSheet<RecipeSort>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '一覧の並び順',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+            ),
+            for (final sort in RecipeSort.values)
+              RadioListTile<RecipeSort>(
+                value: sort,
+                groupValue: controller.snapshot.sort,
+                title: Text(sort.label),
+                onChanged: (value) => Navigator.pop(sheetContext, value),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) await controller.setSort(selected);
   }
 
   Future<void> _showAddMenu(BuildContext context) async {

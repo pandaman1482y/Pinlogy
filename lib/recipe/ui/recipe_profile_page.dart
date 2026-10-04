@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
@@ -8,283 +9,234 @@ import '../../services/notification_service.dart';
 import 'billing_page.dart';
 import '../../services/billing_service.dart';
 
-class RecipeProfilePage extends StatelessWidget {
+class RecipeProfilePage extends StatefulWidget {
   const RecipeProfilePage({super.key});
+
+  @override
+  State<RecipeProfilePage> createState() => _RecipeProfilePageState();
+}
+
+class _RecipeProfilePageState extends State<RecipeProfilePage> {
+  DateTime? _lastSyncAt;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadLastSync();
+  }
+
+  Future<void> _loadLastSync() async {
+    try {
+      final value = await RecipeScope.read(context).legacy.cloud.lastSyncAt();
+      if (mounted && value != _lastSyncAt) setState(() => _lastSyncAt = value);
+    } catch (_) {
+      // Supabase未設定の開発環境では端末保存表示を継続する。
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final controller = RecipeScope.of(context);
     final user = controller.legacy.cloud.user;
+    final pending = controller.activeImports;
+    final reviewCount = pending
+        .where(
+          (item) =>
+              item.status == RecipeImportStatus.awaitingSelection ||
+              item.status == RecipeImportStatus.failed,
+        )
+        .length;
     return Scaffold(
       appBar: AppBar(title: const Text('マイページ')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
         children: [
-          SoftPanel(
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 28,
-                  backgroundColor: mint,
-                  child: Icon(
-                    Icons.person_outline_rounded,
-                    color: mossDeep,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user?.email ?? '端末に保存中',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${controller.savedRecipes.length}レシピ · ${controller.snapshot.cookingRecords.length}回作った',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          _AccountPlanCard(
+            email: user?.email,
+            isAnonymous: user?.isAnonymous ?? true,
+            recipeCount: controller.savedRecipes.length,
+            cookedCount: controller.snapshot.cookingRecords.length,
+            lastSyncAt: _lastSyncAt,
+            onAccountTap: () => user == null || user.isAnonymous
+                ? _showLoginOptions(context)
+                : _showAccountActions(context),
+            onPlanTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const BillingPage()),
             ),
           ),
           const SizedBox(height: 24),
           Text('レシピ管理', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          _MenuTile(
-            icon: Icons.shopping_cart_outlined,
-            title: '買い物リスト',
-            subtitle:
-                '${controller.snapshot.shoppingItems.where((item) => !item.checked).length}件',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ShoppingListPage()),
-            ),
-          ),
-          _MenuTile(
-            icon: Icons.folder_outlined,
-            title: 'コレクション',
-            subtitle: '${controller.snapshot.collections.length}個',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const RecipeCollectionsPage(),
+          const SizedBox(height: 8),
+          _GroupedCard(
+            children: [
+              _MenuRow(
+                icon: Icons.shopping_cart_outlined,
+                title: '買い物リスト',
+                value:
+                    '${controller.snapshot.shoppingItems.where((item) => !item.checked).length}件',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ShoppingListPage(),
+                  ),
+                ),
               ),
-            ),
-          ),
-          _MenuTile(
-            icon: Icons.cloud_sync_outlined,
-            title: '取り込み状況',
-            subtitle: '${controller.activeImports.length}件の確認・処理中',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ImportStatusPage()),
-            ),
+              _MenuRow(
+                icon: Icons.folder_outlined,
+                title: 'コレクション',
+                value: '${controller.snapshot.collections.length}個',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const RecipeCollectionsPage(),
+                  ),
+                ),
+              ),
+              _MenuRow(
+                icon: Icons.cloud_sync_outlined,
+                title: '取り込み状況',
+                value: reviewCount > 0
+                    ? '要確認 $reviewCount件'
+                    : pending.isNotEmpty
+                    ? '処理中 ${pending.length}件'
+                    : '完了',
+                statusColor: reviewCount > 0
+                    ? warningColor
+                    : pending.isNotEmpty
+                    ? moss
+                    : null,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ImportStatusPage(),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 22),
           Text('設定', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          AnimatedBuilder(
-            animation: BillingService.instance,
-            builder: (context, _) => _MenuTile(
-              icon: Icons.workspace_premium_outlined,
-              title: '利用プラン・残り回数',
-              subtitle: BillingService.instance.status == null
-                  ? '購入プランを確認'
-                  : '残り${BillingService.instance.status!.remaining}回',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const BillingPage()),
+          const SizedBox(height: 8),
+          _GroupedCard(
+            children: [
+              _MenuRow(
+                icon: Icons.health_and_safety_outlined,
+                title: 'アレルギー・苦手な食材',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AllergySettingsPage(),
+                  ),
+                ),
               ),
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            secondary: const Icon(
-              Icons.notifications_outlined,
-              color: mossDeep,
-            ),
-            title: const Text('解析完了の通知'),
-            subtitle: Text(
-              controller.notificationsReady
-                  ? 'アプリを閉じていても完了を知らせます'
-                  : 'Firebaseまたは端末の通知設定を確認してください',
-            ),
-            value: controller.notificationsEnabled,
-            onChanged: (value) => _setNotifications(context, value),
-          ),
-          _MenuTile(
-            icon: Icons.notification_important_outlined,
-            title: 'テスト通知を送る',
-            subtitle: controller.notificationsReady
-                ? 'APNs・FCM・サーバー設定をまとめて確認'
-                : 'Firebaseが未接続です',
-            onTap: () => _testNotification(context),
-          ),
-          _MenuTile(
-            icon: Icons.info_outline_rounded,
-            title: '通知の接続状態',
-            subtitle: '端末権限と通知トークンを確認',
-            onTap: () => _showNotificationStatus(context),
-          ),
-          _MenuTile(
-            icon: Icons.health_and_safety_outlined,
-            title: 'アレルギー・苦手な食材',
-            subtitle: 'AI提案と注意表示に使用',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AllergySettingsPage(),
+              _MenuRow(
+                icon: Icons.notifications_outlined,
+                title: '通知設定',
+                value: controller.notificationsEnabled ? 'オン' : 'オフ',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const NotificationSettingsPage(),
+                  ),
+                ),
               ),
-            ),
-          ),
-          _MenuTile(
-            icon: Icons.swap_vert_rounded,
-            title: '一覧の並び順',
-            subtitle: controller.snapshot.sort.label,
-            onTap: () => _selectSort(context),
+            ],
           ),
           const SizedBox(height: 22),
-          Text('アカウント', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          if (user == null) ...[
-            _MenuTile(
-              icon: Icons.apple,
-              title: 'Appleでログイン',
-              subtitle: 'iPhoneで同じレシピを引き継ぐ',
-              onTap: () => _signIn(context, apple: true),
-            ),
-            _MenuTile(
-              icon: Icons.g_mobiledata_rounded,
-              title: 'Googleでログイン',
-              subtitle: 'iPhone・Androidで同じアカウントを使う',
-              onTap: () => _signIn(context, apple: false),
-            ),
-          ] else ...[
-            _MenuTile(
-              icon: Icons.cloud_sync_rounded,
-              title: '今すぐ同期',
-              subtitle: 'iPhone・Android間でレシピを統合',
-              onTap: () => _syncCloud(context),
-            ),
-            _MenuTile(
-              icon: Icons.logout_rounded,
-              title: 'ログアウト',
-              subtitle: '端末内のレシピは残ります',
-              onTap: () async {
-                await controller.legacy.cloud.signOut();
-                if (context.mounted) controller.notifyListeners();
-              },
-            ),
-          ],
-          const SizedBox(height: 22),
-          const SoftPanel(
-            child: Text(
-              'AI解析は投稿内の文字・音声・画像をもとに整理します。内容やアレルゲンを完全には判定できないため、調理前に必ず元投稿と商品表示を確認してください。',
-            ),
+          Text('サポート', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          _GroupedCard(
+            children: [
+              _MenuRow(
+                title: 'お知らせ',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AnnouncementsPage(),
+                  ),
+                ),
+              ),
+              _MenuRow(
+                title: 'ヘルプ・お問い合わせ',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const HelpSupportPage(),
+                  ),
+                ),
+              ),
+              _MenuRow(
+                title: '注意事項',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ImportantNotesPage(),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Future<void> _setNotifications(BuildContext context, bool value) async {
-    final controller = RecipeScope.read(context);
-    final accepted = await controller.setNotificationsEnabled(value);
-    if (!context.mounted) return;
-    if (!accepted && value) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('通知を有効にできませんでした。iPhoneの設定とFirebase構成を確認してください。'),
+  Future<void> _showLoginOptions(BuildContext context) =>
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('ログイン', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 10),
+                ListTile(
+                  leading: const Icon(Icons.apple),
+                  title: const Text('Appleでログイン'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _signIn(context, apple: true);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.g_mobiledata_rounded),
+                  title: const Text('Googleでログイン'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _signIn(context, apple: false);
+                  },
+                ),
+              ],
+            ),
+          ),
         ),
       );
-    }
-  }
 
-  Future<void> _testNotification(BuildContext context) async {
-    final sent = await PinlogyNotificationService.instance
-        .sendTestNotification();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          sent
-              ? 'テスト通知を送信しました。数秒待って確認してください。'
-              : '送信できませんでした。通知権限・Firebase・Edge Functionの設定を確認してください。',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showNotificationStatus(BuildContext context) async {
-    final status = await PinlogyNotificationService.instance.diagnostics();
-    if (!context.mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('通知の接続状態'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                status.firebaseReady
-                    ? Icons.check_circle_rounded
-                    : Icons.error_outline_rounded,
-                color: status.firebaseReady ? moss : errorColor,
+  Future<void> _showAccountActions(BuildContext context) =>
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.cloud_sync_rounded),
+                title: const Text('今すぐ同期'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _syncCloud(context);
+                },
               ),
-              title: const Text('Firebase'),
-              trailing: Text(status.firebaseReady ? '接続済み' : '未接続'),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.notifications_outlined),
-              title: const Text('端末の通知権限'),
-              trailing: Text(status.permission),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                status.tokenReady
-                    ? Icons.vpn_key_rounded
-                    : Icons.key_off_rounded,
+              ListTile(
+                leading: const Icon(Icons.logout_rounded),
+                title: const Text('ログアウト'),
+                subtitle: const Text('端末内のレシピは残ります'),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  await RecipeScope.read(context).legacy.cloud.signOut();
+                  if (context.mounted)
+                    RecipeScope.read(context).notifyListeners();
+                },
               ),
-              title: const Text('通知トークン'),
-              trailing: Text(status.tokenReady ? '取得済み' : '未取得'),
-            ),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('閉じる'),
+            ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _selectSort(BuildContext context) async {
-    final controller = RecipeScope.read(context);
-    final selected = await showModalBottomSheet<RecipeSort>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final sort in RecipeSort.values)
-              RadioListTile<RecipeSort>(
-                value: sort,
-                groupValue: controller.snapshot.sort,
-                title: Text(sort.label),
-                onChanged: (value) => Navigator.pop(sheetContext, value),
-              ),
-          ],
         ),
-      ),
-    );
-    if (selected != null) await controller.setSort(selected);
-  }
+      );
 
   Future<void> _signIn(BuildContext context, {required bool apple}) async {
     final cloud = RecipeScope.read(context).legacy.cloud;
@@ -302,6 +254,7 @@ class RecipeProfilePage extends StatelessWidget {
     final controller = RecipeScope.read(context);
     try {
       await controller.syncCloud();
+      await _loadLastSync();
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -315,26 +268,493 @@ class RecipeProfilePage extends StatelessWidget {
   }
 }
 
-class _MenuTile extends StatelessWidget {
-  const _MenuTile({
-    required this.icon,
+class _GroupedCard extends StatelessWidget {
+  const _GroupedCard({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: mintSoft,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: borderSubtle),
+    ),
+    child: Column(
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index < children.length - 1) const Divider(height: 1, indent: 52),
+        ],
+      ],
+    ),
+  );
+}
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({
+    this.icon,
     required this.title,
-    required this.subtitle,
+    this.value,
+    this.statusColor,
     required this.onTap,
   });
-  final IconData icon;
+  final IconData? icon;
   final String title;
-  final String subtitle;
+  final String? value;
+  final Color? statusColor;
   final VoidCallback onTap;
-
   @override
   Widget build(BuildContext context) => ListTile(
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-    leading: Icon(icon, color: mossDeep),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
+    leading: icon == null
+        ? null
+        : SizedBox(width: 24, child: Icon(icon, color: mossDeep, size: 23)),
     title: Text(title),
-    subtitle: Text(subtitle),
-    trailing: const Icon(Icons.chevron_right_rounded),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (statusColor != null) ...[
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 7),
+        ],
+        if (value != null)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 130),
+            child: Text(
+              value!,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_right_rounded, size: 20),
+      ],
+    ),
     onTap: onTap,
+  );
+}
+
+class _AccountPlanCard extends StatelessWidget {
+  const _AccountPlanCard({
+    required this.email,
+    required this.isAnonymous,
+    required this.recipeCount,
+    required this.cookedCount,
+    required this.lastSyncAt,
+    required this.onAccountTap,
+    required this.onPlanTap,
+  });
+  final String? email;
+  final bool isAnonymous;
+  final int recipeCount;
+  final int cookedCount;
+  final DateTime? lastSyncAt;
+  final VoidCallback onAccountTap;
+  final VoidCallback onPlanTap;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: BillingService.instance,
+    builder: (context, _) {
+      final status = BillingService.instance.status;
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: mintSoft,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderSubtle),
+        ),
+        child: Column(
+          children: [
+            InkWell(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              onTap: onAccountTap,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 25,
+                      backgroundColor: mint,
+                      child: Icon(
+                        Icons.person_outline_rounded,
+                        color: mossDeep,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isAnonymous
+                                ? '端末に保存中'
+                                : (email?.trim().isNotEmpty == true
+                                      ? email!
+                                      : 'ログイン済み'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isAnonymous
+                                ? 'ログインすると端末間で同期できます'
+                                : _syncLabel(lastSyncAt),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            '$recipeCountレシピ・$cookedCount回作った',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isAnonymous ? 'ログイン' : 'アカウント',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelLarge?.copyWith(color: mossDeep),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: mossDeep,
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            InkWell(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(20),
+              ),
+              onTap: onPlanTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '現在の利用プラン',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          Text(
+                            _planLabel(status?.plan),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      status == null ? '回数を確認' : '解析あと${status.remaining}回',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelLarge?.copyWith(color: mossDeep),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: mossDeep,
+                      size: 20,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  static String _planLabel(String? plan) => switch (plan) {
+    'monthly' => '月額プラン',
+    'annual' => '年額プラン',
+    _ => '無料プラン',
+  };
+  static String _syncLabel(DateTime? value) {
+    if (value == null) return '同期可能';
+    final local = value.toLocal();
+    return '同期済み ${local.month}/${local.day} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class NotificationSettingsPage extends StatefulWidget {
+  const NotificationSettingsPage({super.key});
+  @override
+  State<NotificationSettingsPage> createState() =>
+      _NotificationSettingsPageState();
+}
+
+class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
+  NotificationDiagnostics? _status;
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final value = await PinlogyNotificationService.instance.diagnostics();
+    if (mounted) setState(() => _status = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = RecipeScope.of(context);
+    final permission = _status?.permission ?? '確認中';
+    return Scaffold(
+      appBar: AppBar(title: const Text('通知設定')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        children: [
+          _GroupedCard(
+            children: [
+              SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                title: const Text('解析完了の通知'),
+                subtitle: const Text('解析が完了したときにお知らせします'),
+                value: controller.notificationsEnabled,
+                onChanged: (value) => _setEnabled(context, value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text('端末の通知許可', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          SoftPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  permission,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  permission == '拒否'
+                      ? '端末の設定でツクレピの通知を許可してください。'
+                      : '通知が届かない場合は、端末側でもツクレピの通知が許可されているか確認してください。',
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _openSystemSettings,
+                  child: const Text('端末の設定を開く'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setEnabled(BuildContext context, bool value) async {
+    final accepted = await RecipeScope.read(
+      context,
+    ).setNotificationsEnabled(value);
+    await _refresh();
+    if (!context.mounted) return;
+    if (!accepted && value)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('通知を有効にできませんでした。端末の通知設定を確認してください。')),
+      );
+  }
+
+  Future<void> _openSystemSettings() async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse('app-settings:'),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('端末の「設定」からツクレピの通知を開いてください。')),
+      );
+    }
+  }
+}
+
+class AnnouncementsPage extends StatelessWidget {
+  const AnnouncementsPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('お知らせ')),
+    body: const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.notifications_none_rounded,
+              size: 42,
+              color: secondaryInk,
+            ),
+            SizedBox(height: 12),
+            Text('現在のお知らせはありません'),
+            SizedBox(height: 4),
+            Text('新機能やメンテナンス情報がある場合に表示します。', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class HelpSupportPage extends StatelessWidget {
+  const HelpSupportPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('ヘルプ・お問い合わせ')),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const SoftPanel(child: Text('お問い合わせ先は現在未設定です。公開前に正式な連絡先を設定してください。')),
+        const SizedBox(height: 18),
+        Text('法的情報', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        _GroupedCard(
+          children: [
+            _MenuRow(
+              title: '利用規約',
+              value: '未設定',
+              onTap: () => _notConfigured(context),
+            ),
+            _MenuRow(
+              title: 'プライバシーポリシー',
+              value: '未設定',
+              onTap: () => _notConfigured(context),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+  static void _notConfigured(BuildContext context) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(const SnackBar(content: Text('公開先がまだ設定されていません')));
+}
+
+class ImportantNotesPage extends StatelessWidget {
+  const ImportantNotesPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('注意事項')),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+      children: [
+        _NoticeSection(
+          title: 'AI解析について',
+          body: 'AI解析では、材料・分量・調理手順などに誤りや抜けが生じる場合があります。調理前に必ず元投稿の内容を確認してください。',
+        ),
+        _NoticeSection(
+          title: 'アレルギー・苦手な食材',
+          body:
+              'アレルギーや苦手な食材の検出・注意表示は確認を補助する機能であり、完全な検出を保証するものではありません。使用する食品の原材料や商品表示も必ず確認してください。',
+        ),
+        _NoticeSection(
+          title: '加熱・保存について',
+          body:
+              '加熱時間や保存期間は、食材の状態、調理器具、室温や保存環境によって変わります。食材の状態を確認し、安全を優先して調整してください。',
+        ),
+        _NoticeSection(
+          title: '投稿の権利について',
+          body:
+              '元投稿のレシピ、文章、画像、動画などの権利は、それぞれの権利者に帰属します。保存した内容は元投稿への確認を補助する目的で利用してください。',
+        ),
+      ],
+    ),
+  );
+}
+
+class _NoticeSection extends StatelessWidget {
+  const _NoticeSection({required this.title, required this.body});
+  final String title;
+  final String body;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: SoftPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(body),
+        ],
+      ),
+    ),
+  );
+}
+
+/// 通常のマイページには表示せず、開発・サポート時だけ直接開く診断画面。
+class NotificationDiagnosticsPage extends StatelessWidget {
+  const NotificationDiagnosticsPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('通知診断')),
+    body: FutureBuilder<NotificationDiagnostics>(
+      future: PinlogyNotificationService.instance.diagnostics(),
+      builder: (context, snapshot) {
+        final status = snapshot.data;
+        if (status == null)
+          return const Center(child: CircularProgressIndicator());
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            ListTile(
+              title: const Text('Firebase'),
+              trailing: Text(status.firebaseReady ? '接続済み' : '未接続'),
+            ),
+            ListTile(
+              title: const Text('端末の通知権限'),
+              trailing: Text(status.permission),
+            ),
+            ListTile(
+              title: const Text('通知トークン'),
+              trailing: Text(status.tokenReady ? '取得済み' : '未取得'),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () async {
+                final sent = await PinlogyNotificationService.instance
+                    .sendTestNotification();
+                if (context.mounted)
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(sent ? 'テスト通知を送信しました' : 'テスト通知を送信できませんでした'),
+                    ),
+                  );
+              },
+              child: const Text('テスト通知'),
+            ),
+          ],
+        );
+      },
+    ),
   );
 }
 
