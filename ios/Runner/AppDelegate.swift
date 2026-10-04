@@ -71,7 +71,7 @@ import UIKit
         self.dartReady = true
         result(self.pendingShares())
       case "acknowledgeSharedMedia":
-        self.clearPendingShares()
+        self.acknowledgePendingShares(call.arguments as? [String] ?? [])
         result(true)
       case "configureBackgroundIntake":
         guard
@@ -157,7 +157,9 @@ import UIKit
     let payloads = pendingShares()
     if !payloads.isEmpty {
       methodChannel.invokeMethod("onShared", arguments: payloads) { result in
-        if result as? Bool == true { self.clearPendingShares() }
+        if let processedIds = result as? [String], !processedIds.isEmpty {
+          self.acknowledgePendingShares(processedIds)
+        }
       }
     }
   }
@@ -182,10 +184,34 @@ import UIKit
     return payloads
   }
 
-  private func clearPendingShares() {
+  private func acknowledgePendingShares(_ sourcePostIds: [String]) {
+    guard !sourcePostIds.isEmpty else { return }
     guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
-    defaults.removeObject(forKey: pendingQueueKey)
-    defaults.removeObject(forKey: pendingKey)
+    let processed = Set(sourcePostIds)
+    if
+      let data = defaults.data(forKey: pendingQueueKey),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let queue = object as? [[String: Any]]
+    {
+      let remaining = queue.filter { payload in
+        guard let id = payload["sourcePostId"] as? String else { return true }
+        return !processed.contains(id)
+      }
+      if remaining.isEmpty {
+        defaults.removeObject(forKey: pendingQueueKey)
+      } else if let encoded = try? JSONSerialization.data(withJSONObject: remaining) {
+        defaults.set(encoded, forKey: pendingQueueKey)
+      }
+    }
+    if
+      let data = defaults.data(forKey: pendingKey),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let legacy = object as? [String: Any],
+      let id = legacy["sourcePostId"] as? String,
+      processed.contains(id)
+    {
+      defaults.removeObject(forKey: pendingKey)
+    }
     defaults.synchronize()
   }
 }

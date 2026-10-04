@@ -136,6 +136,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   StreamSubscription<String?>? _notificationSubscription;
   StreamSubscription<DuplicateShareEvent>? _duplicateSubscription;
   bool _duplicateDialogVisible = false;
+  final List<DuplicateShareEvent> _pendingDuplicateEvents = [];
 
   static const _pages = [
     RecipeHomePage(),
@@ -164,7 +165,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     super.didChangeDependencies();
     _duplicateSubscription ??= RecipeScope.read(
       context,
-    ).legacy.shareIntake.onDuplicate.listen(_showDuplicateShare);
+    ).legacy.shareIntake.onDuplicate.listen(_enqueueDuplicateShare);
   }
 
   @override
@@ -174,9 +175,28 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     super.dispose();
   }
 
-  Future<void> _showDuplicateShare(DuplicateShareEvent event) async {
-    if (!mounted || _duplicateDialogVisible) return;
+  void _enqueueDuplicateShare(DuplicateShareEvent event) {
+    final alreadyQueued = _pendingDuplicateEvents.any(
+      (value) => value.post.id == event.post.id,
+    );
+    if (!alreadyQueued) _pendingDuplicateEvents.add(event);
+    if (!_duplicateDialogVisible) unawaited(_drainDuplicateShares());
+  }
+
+  Future<void> _drainDuplicateShares() async {
     _duplicateDialogVisible = true;
+    try {
+      while (mounted && _pendingDuplicateEvents.isNotEmpty) {
+        final event = _pendingDuplicateEvents.removeAt(0);
+        await _showDuplicateShare(event);
+      }
+    } finally {
+      _duplicateDialogVisible = false;
+    }
+  }
+
+  Future<void> _showDuplicateShare(DuplicateShareEvent event) async {
+    if (!mounted) return;
     final controller = RecipeScope.read(context);
     await controller.syncFromIntake();
     if (!mounted) return;
@@ -233,7 +253,6 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
         ],
       ),
     );
-    _duplicateDialogVisible = false;
     if (!mounted) return;
     if (action == 'open' && saved != null) {
       await Navigator.of(context).push(

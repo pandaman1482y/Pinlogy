@@ -59,8 +59,13 @@ class PlatformShareBridge {
       final initial = await _channel
           .invokeMethod<dynamic>('getInitialSharedMedia')
           .timeout(const Duration(seconds: 3));
-      await _dispatch(initial);
-      await _channel.invokeMethod<bool>('acknowledgeSharedMedia');
+      final processedIds = await _dispatch(initial);
+      if (processedIds.isNotEmpty) {
+        await _channel.invokeMethod<bool>(
+          'acknowledgeSharedMedia',
+          processedIds,
+        );
+      }
     } on TimeoutException {
       // テストや未配線環境では応答がないことがある
     } catch (_) {
@@ -77,8 +82,7 @@ class PlatformShareBridge {
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     switch (call.method) {
       case 'onShared':
-        await _dispatch(call.arguments);
-        return true;
+        return _dispatch(call.arguments);
       default:
         throw PlatformException(
           code: 'unsupported',
@@ -87,18 +91,24 @@ class PlatformShareBridge {
     }
   }
 
-  Future<void> _dispatch(dynamic raw) async {
+  Future<List<String>> _dispatch(dynamic raw) async {
     if (raw is List) {
+      final processedIds = <String>[];
       for (final item in raw) {
-        await _dispatch(item);
+        processedIds.addAll(await _dispatch(item));
       }
-      return;
+      return processedIds;
     }
     final content = SharedContent.tryParse(raw);
-    if (content == null || content.isEmpty) return;
+    if (content == null || content.isEmpty) return const [];
     final handler = onShared;
     if (handler != null) {
       await handler(content);
+      final sourcePostId = content.sourcePostId?.trim();
+      return sourcePostId == null || sourcePostId.isEmpty
+          ? const []
+          : [sourcePostId];
     }
+    return const [];
   }
 }
