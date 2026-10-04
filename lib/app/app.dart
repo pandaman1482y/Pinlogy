@@ -198,7 +198,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   Future<void> _showDuplicateShare(DuplicateShareEvent event) async {
     if (!mounted) return;
     final controller = RecipeScope.read(context);
-    await controller.refreshCompletedImport(sourcePostId);
+    await controller.syncFromIntake();
     if (!mounted) return;
     final item = controller.snapshot.imports
         .where((value) => value.sourcePostId == event.post.id)
@@ -271,7 +271,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     if (!mounted) return;
     setState(() => _index = 0);
     final controller = RecipeScope.read(context);
-    await controller.syncFromIntake();
+    await controller.refreshCompletedImport(sourcePostId);
     if (!mounted || sourcePostId == null || sourcePostId.isEmpty) return;
     final item = controller.snapshot.imports
         .where((value) => value.sourcePostId == sourcePostId)
