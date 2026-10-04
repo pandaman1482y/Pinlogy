@@ -39,6 +39,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>料理中の状態を撮影し、AIに確認するためにカメラを使用します。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>選択した画像から材料や作り方を読み取り、レシピとして保存するために写真を使用します。</string>
 	<key>NSMicrophoneUsageDescription</key>

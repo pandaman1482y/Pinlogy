@@ -115,7 +115,12 @@ class _CookingModePageState extends State<CookingModePage> {
               // 同じ端末では全工程を同じ画像サイズで表示する。
               final imageHeight = compact ? 180.0 : 235.0;
               return Padding(
-                padding: EdgeInsets.fromLTRB(16, compact ? 8 : 12, 16, 12),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  compact ? 8 : 12,
+                  16,
+                  compact ? 5 : 7,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -228,7 +233,7 @@ class _CookingModePageState extends State<CookingModePage> {
                     const Spacer(),
                     if (_timerStepNumber != null ||
                         entry.step.durationSeconds != null) ...[
-                      SizedBox(height: compact ? 7 : 9),
+                      SizedBox(height: compact ? 5 : 6),
                       _TimerPanel(
                         label: _timerStepNumber == null
                             ? 'この工程のタイマー'
@@ -248,12 +253,13 @@ class _CookingModePageState extends State<CookingModePage> {
                         onClear: _clearTimer,
                       ),
                     ],
-                    SizedBox(height: compact ? 7 : 9),
+                    SizedBox(height: compact ? 5 : 6),
                     if (controller.cookingAssistantAvailable)
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
+                              style: _footerButtonStyle(compact),
                               onPressed: () => _showAssistant(
                                 recipe,
                                 entry.part,
@@ -271,6 +277,7 @@ class _CookingModePageState extends State<CookingModePage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: OutlinedButton.icon(
+                              style: _footerButtonStyle(compact),
                               onPressed: () => _showAssistant(
                                 recipe,
                                 entry.part,
@@ -288,7 +295,7 @@ class _CookingModePageState extends State<CookingModePage> {
                           ),
                         ],
                       ),
-                    SizedBox(height: compact ? 7 : 9),
+                    SizedBox(height: compact ? 5 : 6),
                     Row(
                       children: [
                         Expanded(
@@ -520,8 +527,8 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 
   ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(
-    minimumSize: Size(0, compact ? 38 : 42),
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    minimumSize: Size(0, compact ? 36 : 40),
+    padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 3 : 4),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     visualDensity: VisualDensity.compact,
   );
@@ -556,13 +563,34 @@ class _CookingModePageState extends State<CookingModePage> {
   }) async {
     String? imagePath;
     if (withCamera) {
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 72,
-        maxWidth: 1280,
-      );
-      if (image == null || !mounted) return;
-      imagePath = image.path;
+      try {
+        final image = await ImagePicker().pickImage(
+          source: ImageSource.camera,
+          imageQuality: 72,
+          maxWidth: 1280,
+        );
+        if (image == null || !mounted) return;
+        if (!await File(image.path).exists()) {
+          _showCameraError('撮影した写真を読み込めませんでした。もう一度お試しください。');
+          return;
+        }
+        imagePath = image.path;
+      } on PlatformException catch (exception) {
+        if (!mounted) return;
+        final denied =
+            exception.code == 'camera_access_denied' ||
+            exception.code == 'camera_access_restricted';
+        _showCameraError(
+          denied
+              ? 'カメラを使用できません。端末の設定からツクレピのカメラ利用を許可してください。'
+              : 'カメラを起動できませんでした。時間をおいてもう一度お試しください。',
+        );
+        return;
+      } catch (_) {
+        if (!mounted) return;
+        _showCameraError('カメラを起動できませんでした。時間をおいてもう一度お試しください。');
+        return;
+      }
     }
     if (!mounted) return;
     final controller = RecipeScope.of(context);
@@ -713,6 +741,13 @@ class _CookingModePageState extends State<CookingModePage> {
       ),
     );
     input.dispose();
+  }
+
+  void _showCameraError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _move(int amount, int length) {
@@ -1012,7 +1047,7 @@ class _TimerPanel extends StatelessWidget {
     final minutes = seconds ~/ 60;
     final rest = seconds % 60;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 6 : 9),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 4 : 6),
       decoration: BoxDecoration(
         color: mintSoft,
         borderRadius: BorderRadius.circular(16),
@@ -1040,6 +1075,15 @@ class _TimerPanel extends StatelessWidget {
             icon: const Icon(Icons.refresh_rounded),
           ),
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              minimumSize: Size(0, compact ? 36 : 40),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 10 : 12,
+                vertical: compact ? 3 : 4,
+              ),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
             onPressed: onToggle,
             icon: Icon(
               running ? Icons.pause_rounded : Icons.play_arrow_rounded,
