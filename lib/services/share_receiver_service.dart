@@ -14,6 +14,38 @@ import 'platform_share_bridge.dart';
 import 'social_post_identity.dart';
 import 'source_media_store.dart';
 
+class AnalysisFailureEvent {
+  const AnalysisFailureEvent({
+    required this.jobId,
+    required this.sourcePostId,
+    required this.message,
+  });
+
+  final String jobId;
+  final String sourcePostId;
+  final String message;
+
+  bool get creditsExhausted => message.contains('解析回数が不足しています');
+  bool get blocked => message.contains('権利者からの申し出により登録できません');
+  bool get recipeNotFound => message.contains('レシピを検出できませんでした');
+}
+
+final _analysisFailureController =
+    StreamController<AnalysisFailureEvent>.broadcast();
+Stream<AnalysisFailureEvent> get analysisFailureEvents =>
+    _analysisFailureController.stream;
+
+void _notifyAnalysisFailure(AnalysisJob job, String message) {
+  if (_analysisFailureController.isClosed) return;
+  _analysisFailureController.add(
+    AnalysisFailureEvent(
+      jobId: job.id,
+      sourcePostId: job.sourcePostId,
+      message: message,
+    ),
+  );
+}
+
 class DuplicateShareException implements Exception {
   const DuplicateShareException(this.post, this.job);
 
@@ -456,6 +488,9 @@ class LocalShareReceiverService implements ShareReceiverService {
           selectedImagesOnly: post.analysisImagePaths.isNotEmpty,
         ),
       );
+      if (result.recipes.isEmpty) {
+        throw StateError('レシピを検出できませんでした。元投稿の材料・分量・作り方を確認してください。');
+      }
       final mergedImages = _mergedAnalysisImages(post, result);
       final fetchedThumbnail =
           result.previewImagePath ??
@@ -500,12 +535,11 @@ class LocalShareReceiverService implements ShareReceiverService {
       // サーバー側では解析継続中。復帰時に同じジョブから結果を回収する。
       return;
     } catch (e) {
+      final message = toUserMessage(e);
       await analysis.update(
-        job.copyWith(
-          status: AnalysisJobStatus.failed,
-          errorMessage: toUserMessage(e),
-        ),
+        job.copyWith(status: AnalysisJobStatus.failed, errorMessage: message),
       );
+      _notifyAnalysisFailure(job, message);
     }
   }
 
@@ -586,6 +620,9 @@ class AnalysisRunner {
           selectedImagesOnly: post.analysisImagePaths.isNotEmpty,
         ),
       );
+      if (result.recipes.isEmpty) {
+        throw StateError('レシピを検出できませんでした。元投稿の材料・分量・作り方を確認してください。');
+      }
       final mergedImages = _mergedAnalysisImages(post, result);
       final fetchedThumbnail =
           result.previewImagePath ??
@@ -630,12 +667,11 @@ class AnalysisRunner {
       // processingのまま保持し、再起動後も同じリモートジョブを再開する。
       return;
     } catch (e) {
+      final message = toUserMessage(e);
       await hub.analysis.update(
-        job.copyWith(
-          status: AnalysisJobStatus.failed,
-          errorMessage: toUserMessage(e),
-        ),
+        job.copyWith(status: AnalysisJobStatus.failed, errorMessage: message),
       );
+      _notifyAnalysisFailure(job, message);
     }
   }
 }

@@ -59,6 +59,11 @@ Deno.serve(async (request) => {
     delete payload.force_reanalysis;
 
     const db = adminClient();
+    const blockedPost = await findBlockedPost(db, sourceKey);
+    if (blockedPost) {
+      console.info("blocked_social_source_rejected", sourceKey, "scope=post");
+      return reply({ error: "source_blocked", scope: "post" }, 451);
+    }
     const { data: existingRows, error: existingError } = await db
       .from("async_analysis_jobs")
       .select("id,status,source_post_id")
@@ -249,6 +254,10 @@ async function status(input: Record<string, unknown>, ownerHashes: string[]) {
     status: data.status,
     result,
     error: data.status === "failed" ? data.error_message : null,
+    error_code: data.status === "failed" &&
+        String(data.error_message ?? "").startsWith("blocked:")
+      ? String(data.error_message).slice("blocked:".length)
+      : null,
     updated_at: data.updated_at,
   });
 }
@@ -308,6 +317,16 @@ async function processJob(jobId: string) {
     if (preparedPayload == null) return;
     preparedPayload = await prepareInstagramPayload(jobId, preparedPayload);
     if (preparedPayload == null) return;
+    const blockedCreator = await blockedCreatorForPayload(db, preparedPayload);
+    if (blockedCreator != null) {
+      console.info(
+        "blocked_social_source_rejected",
+        blockedCreator.service,
+        `creator=${blockedCreator.username}`,
+      );
+      await markBlockedJob(jobId, "creator_blocked");
+      return;
+    }
     const baseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
     const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
     const response = await fetch(`${baseUrl}/functions/v1/analyze-post`, {
@@ -401,6 +420,7 @@ type TikTokExternalPost = {
   videoUrl: string;
   description: string;
   title: string;
+  ownerUsername: string;
 };
 
 // ApifyのActor開始・進捗確認を別々のEdge Function実行へ分割する。
@@ -512,6 +532,7 @@ type InstagramExternalPost = {
   imageUrls: string[];
   description: string;
   title: string;
+  ownerUsername: string;
 };
 
 async function prepareInstagramPayload(
@@ -773,6 +794,7 @@ function parseApifyInstagramPost(
     imageUrls: images.slice(0, 10),
     description,
     title: creator ? `Instagram @${creator}` : "Instagram投稿",
+    ownerUsername: creator,
   };
 }
 
@@ -959,6 +981,7 @@ function parseApifyTikTokPost(
     videoUrl,
     description,
     title: creator ? `TikTok @${creator}` : "TikTok投稿",
+    ownerUsername: creator,
   };
 }
 
@@ -1068,6 +1091,86 @@ async function sourceIdentityKey(rawUrl: string, fallbackId: string) {
   } catch {
     return `legacy:${fallbackId}`;
   }
+}
+
+type AdminDb = ReturnType<typeof adminClient>;
+
+async function findBlockedPost(db: AdminDb, sourceKey: string) {
+  const match = /^(instagram|tiktok):(.+)$/.exec(sourceKey);
+  if (match == null) return false;
+  const { data, error } = await db.from("blocked_social_sources")
+    .select("id")
+    .eq("service", match[1])
+    .eq("scope", "post")
+    .eq("source_post_id", match[2])
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("blocked_social_source_lookup_failed", error.message);
+    throw new Error("blocked_source_lookup_failed");
+  }
+  return data != null;
+}
+
+async function blockedCreatorForPayload(
+  db: AdminDb,
+  payload: Record<string, unknown>,
+): Promise<{ service: "instagram" | "tiktok"; username: string } | null> {
+  const candidates: Array<{
+    service: "instagram" | "tiktok";
+    value: unknown;
+  }> = [
+    {
+      service: "instagram",
+      value: (payload.instagram_external_post as Record<string, unknown> | undefined)
+        ?.ownerUsername,
+    },
+    {
+      service: "tiktok",
+      value: (payload.tiktok_external_post as Record<string, unknown> | undefined)
+        ?.ownerUsername,
+    },
+  ];
+  for (const candidate of candidates) {
+    const username = normalizeCreatorUsername(candidate.value);
+    if (!username) continue;
+    const { data, error } = await db.from("blocked_social_sources")
+      .select("id")
+      .eq("service", candidate.service)
+      .eq("scope", "creator")
+      .eq("owner_username_normalized", username)
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error("blocked_social_creator_lookup_failed", error.message);
+      throw new Error("blocked_source_lookup_failed");
+    }
+    if (data != null) return { service: candidate.service, username };
+  }
+  return null;
+}
+
+function normalizeCreatorUsername(value: unknown) {
+  const normalized = String(value ?? "").trim().replace(/^@+/, "")
+    .normalize("NFKC").toLowerCase();
+  return /^[a-z0-9._-]{1,80}$/.test(normalized) ? normalized : "";
+}
+
+async function markBlockedJob(jobId: string, errorCode: string) {
+  const db = adminClient();
+  const now = new Date().toISOString();
+  await db.from("async_analysis_jobs").update({
+    status: "failed",
+    error_message: `blocked:${errorCode}`,
+    completed_at: now,
+    updated_at: now,
+    request_json: {},
+    device_id: null,
+    notification_token: null,
+  }).eq("id", jobId).eq("status", "processing");
+  await db.rpc("refund_billing_credit", { p_job_id: jobId });
 }
 
 async function resolveShortSocialUrl(rawUrl: string): Promise<string | null> {
@@ -1338,6 +1441,9 @@ function validFcmToken(value: unknown) {
 
 function userSafeError(error: unknown) {
   const text = String(error);
+  if (text.includes("recipe_not_found")) {
+    return "レシピを検出できませんでした。元投稿の材料・分量・作り方を確認してください。";
+  }
   if (text.includes("Timeout")) return "解析がタイムアウトしました";
   return "解析を完了できませんでした";
 }

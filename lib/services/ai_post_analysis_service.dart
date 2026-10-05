@@ -228,7 +228,13 @@ class AiPostAnalysisService implements PostAnalysisService {
       }
       if (response.statusCode == 402) {
         await BillingService.instance.refreshStatus();
-        return _asFallback(local, analysisSource: 'credits_exhausted');
+        throw StateError('解析回数が不足しています。利用プランまたは追加回数を確認してください。');
+      }
+      if (response.statusCode == 451) {
+        throw StateError(_blockedSourceMessage(response.body));
+      }
+      if (response.statusCode == 422) {
+        throw StateError(_analysisFailureMessage(response.body));
       }
       if (response.statusCode == 409 || response.statusCode == 500) {
         final errorBody = jsonDecode(response.body);
@@ -332,6 +338,9 @@ class AiPostAnalysisService implements PostAnalysisService {
       rethrow;
     } on PreviousAnalysisFailedException {
       rethrow;
+    } on StateError catch (error) {
+      if (_isDialogFailureMessage(error.message)) rethrow;
+      return _fallbackWithPreview(local, request, 'invalid_response_fallback');
     } on TimeoutException {
       return _asFallback(local, analysisSource: 'timeout_fallback');
     } on SocketException {
@@ -451,6 +460,12 @@ class AiPostAnalysisService implements PostAnalysisService {
             return _jsonResponse(decoded['result'], 200);
           }
           if (status == 'failed') {
+            if (decoded['error_code'] == 'creator_blocked' ||
+                decoded['error_code'] == 'source_blocked') {
+              final preferences = await SharedPreferences.getInstance();
+              await preferences.remove(_pendingJobKey(sourcePostId));
+              return _jsonResponse({'error': decoded['error_code']}, 451);
+            }
             // ワーカー側の再試行と状態更新が前後した場合、一時的にfailedが
             // 見えても直後にcompletedへ変わることがある。単発のfailedでは
             // 失敗画面へ遷移せず、連続して確認できた場合だけ確定する。
@@ -463,7 +478,7 @@ class AiPostAnalysisService implements PostAnalysisService {
             await preferences.remove(_pendingJobKey(sourcePostId));
             return _jsonResponse({
               'error': decoded['error'] ?? 'analysis_failed',
-            }, 500);
+            }, 422);
           }
           consecutiveFailedResponses = 0;
           if (status == 'cancelled') {
@@ -489,6 +504,37 @@ class AiPostAnalysisService implements PostAnalysisService {
       headers: const {'content-type': 'application/json; charset=utf-8'},
     );
   }
+
+  static String _blockedSourceMessage(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map && decoded['error'] == 'creator_blocked') {
+        return 'この投稿者の投稿は権利者からの申し出により登録できません。';
+      }
+    } catch (_) {}
+    return 'この投稿は権利者からの申し出により登録できません。';
+  }
+
+  static String _analysisFailureMessage(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final message = decoded['error']?.toString().trim();
+        if (message != null &&
+            message.isNotEmpty &&
+            message != 'analysis_failed') {
+          return message;
+        }
+      }
+    } catch (_) {}
+    return '解析を完了できませんでした。時間をおいて再試行してください。';
+  }
+
+  static bool _isDialogFailureMessage(String value) =>
+      value.contains('権利者からの申し出により登録できません') ||
+      value.contains('解析回数が不足しています') ||
+      value.contains('レシピを検出できませんでした') ||
+      value.contains('解析を完了できませんでした');
 
   Future<PostAnalysisResponse> _fallbackWithPreview(
     PostAnalysisResponse local,

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/theme.dart';
 import '../recipe/recipe_scope.dart';
+import '../recipe/ui/billing_page.dart';
 import '../recipe/ui/recipe_ai_page.dart';
 import '../recipe/ui/recipe_home_page.dart';
 import '../recipe/ui/recipe_profile_page.dart';
@@ -217,8 +218,12 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   int _index = 0;
   StreamSubscription<String?>? _notificationSubscription;
   StreamSubscription<DuplicateShareEvent>? _duplicateSubscription;
+  StreamSubscription<AnalysisFailureEvent>? _failureSubscription;
   bool _duplicateDialogVisible = false;
+  bool _failureDialogVisible = false;
   final List<DuplicateShareEvent> _pendingDuplicateEvents = [];
+  final List<AnalysisFailureEvent> _pendingFailureEvents = [];
+  final Set<String> _shownFailureJobIds = {};
 
   static const _pages = [
     RecipeHomePage(),
@@ -248,12 +253,16 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     _duplicateSubscription ??= RecipeScope.read(
       context,
     ).legacy.shareIntake.onDuplicate.listen(_enqueueDuplicateShare);
+    _failureSubscription ??= analysisFailureEvents.listen(
+      _enqueueAnalysisFailure,
+    );
   }
 
   @override
   void dispose() {
     _notificationSubscription?.cancel();
     _duplicateSubscription?.cancel();
+    _failureSubscription?.cancel();
     super.dispose();
   }
 
@@ -262,7 +271,9 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
       (value) => value.post.id == event.post.id,
     );
     if (!alreadyQueued) _pendingDuplicateEvents.add(event);
-    if (!_duplicateDialogVisible) unawaited(_drainDuplicateShares());
+    if (!_duplicateDialogVisible && !_failureDialogVisible) {
+      unawaited(_drainDuplicateShares());
+    }
   }
 
   Future<void> _drainDuplicateShares() async {
@@ -274,6 +285,73 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
       }
     } finally {
       _duplicateDialogVisible = false;
+      if (mounted && _pendingFailureEvents.isNotEmpty) {
+        unawaited(_drainAnalysisFailures());
+      }
+    }
+  }
+
+  void _enqueueAnalysisFailure(AnalysisFailureEvent event) {
+    if (!_shownFailureJobIds.add(event.jobId)) return;
+    _pendingFailureEvents.add(event);
+    if (!_failureDialogVisible && !_duplicateDialogVisible) {
+      unawaited(_drainAnalysisFailures());
+    }
+  }
+
+  Future<void> _drainAnalysisFailures() async {
+    _failureDialogVisible = true;
+    try {
+      while (mounted && _pendingFailureEvents.isNotEmpty) {
+        await _showAnalysisFailure(_pendingFailureEvents.removeAt(0));
+      }
+    } finally {
+      _failureDialogVisible = false;
+      if (mounted && _pendingDuplicateEvents.isNotEmpty) {
+        unawaited(_drainDuplicateShares());
+      }
+    }
+  }
+
+  Future<void> _showAnalysisFailure(AnalysisFailureEvent event) async {
+    if (!mounted) return;
+    final title = event.creditsExhausted
+        ? '解析回数が足りません'
+        : event.blocked
+        ? 'この投稿は登録できません'
+        : event.recipeNotFound
+        ? 'レシピを確認できませんでした'
+        : '解析に失敗しました';
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(event.message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('閉じる'),
+          ),
+          if (event.creditsExhausted)
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'billing'),
+              child: const Text('利用プランを見る'),
+            )
+          else if (!event.blocked)
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'progress'),
+              child: const Text('取り込み状況を見る'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'billing') {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const BillingPage()));
+    } else if (action == 'progress') {
+      setState(() => _index = 0);
     }
   }
 
