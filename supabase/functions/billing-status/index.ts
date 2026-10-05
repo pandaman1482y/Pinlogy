@@ -12,14 +12,44 @@ Deno.serve(async (request) => {
     const db = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data, error } = await db.rpc("billing_status", { p_device_hash: deviceHash });
+    const userId = await authenticatedUserId(request);
+    let accountHash = deviceHash;
+    if (userId != null) {
+      const userHash = await sha256(userId);
+      const linked = await db.rpc("link_billing_account", {
+        p_device_hash: deviceHash,
+        p_user_id: userId,
+        p_user_hash: userHash,
+      });
+      if (linked.error) throw linked.error;
+      accountHash = String(linked.data ?? userHash);
+    } else {
+      const resolved = await db.rpc("resolve_billing_account_hash", {
+        p_device_hash: deviceHash,
+      });
+      if (resolved.error) throw resolved.error;
+      accountHash = String(resolved.data ?? deviceHash);
+    }
+    const { data, error } = await db.rpc("billing_status", { p_device_hash: accountHash });
     if (error) throw error;
-    return reply({ ...data, app_user_id: deviceId });
+    return reply({ ...data, app_user_id: userId ?? deviceId, account_linked: userId != null });
   } catch (error) {
     console.error("billing_status_failed", String(error));
     return reply({ error: "billing_status_failed" }, 500);
   }
 });
+
+async function authenticatedUserId(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return null;
+  const auth = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_ANON_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await auth.auth.getUser(token);
+  if (error || data.user == null || data.user.is_anonymous === true) return null;
+  return data.user.id;
+}
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));

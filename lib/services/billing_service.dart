@@ -52,6 +52,8 @@ class BillingService extends ChangeNotifier {
   bool loading = false;
   bool configured = false;
   String? error;
+  String? _accessToken;
+  String? _revenueCatUserId;
 
   Future<void> initialize() async {
     if (configured) return;
@@ -100,7 +102,7 @@ class BillingService extends ChangeNotifier {
               '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/billing-status',
             ),
             headers: {
-              'Authorization': 'Bearer $_anonKey',
+              'Authorization': 'Bearer ${_accessToken ?? _anonKey}',
               'apikey': _anonKey,
               'Content-Type': 'application/json',
               'X-Pinlogy-Device': await deviceId(),
@@ -117,6 +119,26 @@ class BillingService extends ChangeNotifier {
     } catch (_) {
       // 残回数表示の更新失敗で、解析済みレシピや購入処理を失敗扱いにしない。
     }
+  }
+
+  /// RevenueCatの購入者とSupabaseのログインユーザーを同じIDへ揃える。
+  /// 未ログイン購入からログインした場合、RevenueCat側のaliasも引き継がれる。
+  Future<void> syncAuthenticatedUser({
+    String? userId,
+    String? accessToken,
+  }) async {
+    _accessToken = accessToken?.isNotEmpty == true ? accessToken : null;
+    if (configured && userId != null && userId.isNotEmpty) {
+      if (_revenueCatUserId != userId) {
+        await Purchases.logIn(userId);
+        _revenueCatUserId = userId;
+      }
+    } else if (configured && userId == null && _revenueCatUserId != null) {
+      await Purchases.logOut();
+      await Purchases.logIn(await deviceId());
+      _revenueCatUserId = null;
+    }
+    await refreshStatus();
   }
 
   Future<void> purchase(Package package) async {

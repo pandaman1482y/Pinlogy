@@ -28,9 +28,12 @@ Deno.serve(async (request) => {
     if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) {
       return reply({ error: "device_id_required" }, 400);
     }
-    const deviceHash = await sha256(deviceId);
-    if (action === "status") return status(input, deviceHash);
-    if (action === "cancel") return cancel(input, deviceHash);
+    const rawDeviceHash = await sha256(deviceId);
+    const identity = await billingIdentity(request, rawDeviceHash);
+    const deviceHash = identity.accountHash;
+    const ownerHashes = [...new Set([rawDeviceHash, deviceHash])];
+    if (action === "status") return status(input, ownerHashes);
+    if (action === "cancel") return cancel(input, ownerHashes);
     if (action === "test_notification") {
       const token = validFcmToken(input.notification_token);
       if (token == null) return reply({ error: "notification_token_required" }, 400);
@@ -60,7 +63,7 @@ Deno.serve(async (request) => {
       .from("async_analysis_jobs")
       .select("id,status,source_post_id")
       .eq("source_key", sourceKey)
-      .eq("device_hash", deviceHash)
+      .in("device_hash", ownerHashes)
       .order("updated_at", { ascending: false })
       .limit(20);
     if (existingError) {
@@ -208,14 +211,14 @@ async function markDispatchFailed(jobId: string) {
   await db.rpc("refund_billing_credit", { p_job_id: jobId });
 }
 
-async function status(input: Record<string, unknown>, deviceHash: string) {
+async function status(input: Record<string, unknown>, ownerHashes: string[]) {
   const jobId = String(input.job_id ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) return reply({ error: "invalid_job" }, 400);
   const { data, error } = await adminClient()
     .from("async_analysis_jobs")
     .select("status,result_json,error_message,updated_at")
     .eq("id", jobId)
-    .eq("device_hash", deviceHash)
+    .in("device_hash", ownerHashes)
     .maybeSingle();
   if (error) {
     console.error("async_job_status_failed", error.message);
@@ -250,7 +253,7 @@ async function status(input: Record<string, unknown>, deviceHash: string) {
   });
 }
 
-async function cancel(input: Record<string, unknown>, deviceHash: string) {
+async function cancel(input: Record<string, unknown>, ownerHashes: string[]) {
   const jobId = String(input.job_id ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) return reply({ error: "invalid_job" }, 400);
   const now = new Date().toISOString();
@@ -265,7 +268,7 @@ async function cancel(input: Record<string, unknown>, deviceHash: string) {
       notification_token: null,
     })
     .eq("id", jobId)
-    .eq("device_hash", deviceHash)
+    .in("device_hash", ownerHashes)
     .in("status", ["pending", "processing"])
     .select("id")
     .maybeSingle();
@@ -1281,6 +1284,44 @@ function adminClient() {
     requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
+}
+
+type BillingIdentity = { accountHash: string; userId: string | null };
+
+async function billingIdentity(
+  request: Request,
+  deviceHash: string,
+): Promise<BillingIdentity> {
+  const db = adminClient();
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
+  let userId: string | null = null;
+  if (token) {
+    const auth = createClient(
+      requiredEnv("SUPABASE_URL"),
+      requiredEnv("SUPABASE_ANON_KEY"),
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const user = await auth.auth.getUser(token);
+    if (!user.error && user.data.user != null && user.data.user.is_anonymous !== true) {
+      userId = user.data.user.id;
+    }
+  }
+  if (userId != null) {
+    const userHash = await sha256(userId);
+    const linked = await db.rpc("link_billing_account", {
+      p_device_hash: deviceHash,
+      p_user_id: userId,
+      p_user_hash: userHash,
+    });
+    if (linked.error) throw linked.error;
+    return { accountHash: String(linked.data ?? userHash), userId };
+  }
+  const resolved = await db.rpc("resolve_billing_account_hash", {
+    p_device_hash: deviceHash,
+  });
+  if (resolved.error) throw resolved.error;
+  return { accountHash: String(resolved.data ?? deviceHash), userId: null };
 }
 
 function requiredEnv(name: string) {

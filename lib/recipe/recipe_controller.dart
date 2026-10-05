@@ -7,6 +7,7 @@ import '../app/pinlogy_controller.dart';
 import '../models/enums.dart';
 import '../models/source_post.dart';
 import '../services/ai_post_analysis_service.dart';
+import '../services/billing_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 import '../services/social_post_identity.dart';
@@ -164,6 +165,7 @@ class RecipeController extends ChangeNotifier {
           (_) => _onAuthChanged(),
           onError: (_) {},
         );
+        await _syncBillingIdentity();
       }
       await syncFromIntake();
     } catch (error) {
@@ -181,7 +183,23 @@ class RecipeController extends ChangeNotifier {
   void _onAuthChanged() {
     if (_disposed) return;
     notifyListeners();
+    unawaited(_syncBillingIdentity());
     if (legacy.cloud.user != null) unawaited(syncCloud());
+  }
+
+  Future<void> _syncBillingIdentity() async {
+    final user = legacy.cloud.user;
+    final authenticatedUser = user != null && !user.isAnonymous ? user : null;
+    try {
+      await BillingService.instance.syncAuthenticatedUser(
+        userId: authenticatedUser?.id,
+        accessToken: authenticatedUser == null
+            ? null
+            : legacy.cloud.accessToken,
+      );
+    } catch (error) {
+      debugPrint('billing_identity_sync_failed $error');
+    }
   }
 
   Future<void> syncFromIntake() async {

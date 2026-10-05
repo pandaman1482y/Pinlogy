@@ -57,6 +57,8 @@ class CloudSyncService {
   bool get isConfigured => url.startsWith('https://') && anonKey.isNotEmpty;
   SupabaseClient get _client => Supabase.instance.client;
   User? get user => _initialized ? _client.auth.currentUser : null;
+  String? get accessToken =>
+      _initialized ? _client.auth.currentSession?.accessToken : null;
   bool get hasRecoverableAccount => user?.email?.isNotEmpty == true;
   static const _lastSyncPrefix = 'cloud_last_sync_v1_';
   static const authCallbackUrl = 'pinlogy://auth-callback';
