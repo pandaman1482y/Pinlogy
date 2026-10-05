@@ -406,6 +406,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     // 継続するが、アプリが前面にいる間は完了結果をそのまま回収できるよう、
     // snapshot側の上限（10分）と同じ時間まで待機する。
     final deadline = DateTime.now().add(const Duration(minutes: 10));
+    var consecutiveFailedResponses = 0;
     while (DateTime.now().isBefore(deadline)) {
       late final http.Response response;
       try {
@@ -450,12 +451,21 @@ class AiPostAnalysisService implements PostAnalysisService {
             return _jsonResponse(decoded['result'], 200);
           }
           if (status == 'failed') {
+            // ワーカー側の再試行と状態更新が前後した場合、一時的にfailedが
+            // 見えても直後にcompletedへ変わることがある。単発のfailedでは
+            // 失敗画面へ遷移せず、連続して確認できた場合だけ確定する。
+            consecutiveFailedResponses++;
+            if (consecutiveFailedResponses < 3) {
+              await Future<void>.delayed(const Duration(seconds: 3));
+              continue;
+            }
             final preferences = await SharedPreferences.getInstance();
             await preferences.remove(_pendingJobKey(sourcePostId));
             return _jsonResponse({
               'error': decoded['error'] ?? 'analysis_failed',
             }, 500);
           }
+          consecutiveFailedResponses = 0;
           if (status == 'cancelled') {
             final preferences = await SharedPreferences.getInstance();
             await preferences.remove(_pendingJobKey(sourcePostId));

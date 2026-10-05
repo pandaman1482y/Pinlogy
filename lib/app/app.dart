@@ -384,7 +384,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   Widget build(BuildContext context) => Scaffold(
     body: IndexedStack(index: _index, children: _pages),
     bottomNavigationBar: NavigationBar(
-      height: 64,
+      height: 58,
       selectedIndex: _index,
       onDestinationSelected: (value) => setState(() => _index = value),
       destinations: const [

@@ -207,19 +207,27 @@ class RecipeController extends ChangeNotifier {
       await syncFromIntake();
       return;
     }
-    final post = legacy.hub.snapshot.sourcePosts
-        .where((value) => value.id == sourcePostId)
-        .firstOrNull;
-    final job = legacy.jobForPost(sourcePostId);
-    if (post != null &&
-        (job?.status == AnalysisJobStatus.pending ||
-            job?.status == AnalysisJobStatus.processing)) {
+    // 通知配信と結果DB反映にはわずかな順序差があり得るため、通知タップ時は
+    // 新規ジョブを作らず、既存ジョブだけを短時間再確認する。
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final post = legacy.hub.snapshot.sourcePosts
+          .where((value) => value.id == sourcePostId)
+          .firstOrNull;
+      final job = legacy.jobForPost(sourcePostId);
+      if (post == null ||
+          (job?.status != AnalysisJobStatus.pending &&
+              job?.status != AnalysisJobStatus.processing)) {
+        break;
+      }
       try {
         await legacy.analyzeSharedPost(post);
+        break;
       } on AnalysisPendingException {
-        // サーバー反映待ちなら現在の進捗表示を維持する。
+        if (attempt < 2) {
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
       } on PreviousAnalysisFailedException {
-        // 失敗状態は通常の同期処理で画面へ反映する。
+        break;
       }
     }
     await syncFromIntake();

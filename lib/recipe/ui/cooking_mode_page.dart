@@ -527,7 +527,15 @@ class _CookingModePageState extends State<CookingModePage> {
   );
 
   String? _imageFor(Recipe recipe, RecipeStep step, List<String> sourceImages) {
-    // 工程自身の根拠画像を優先し、全工程が同じ画像になるのを防ぐ。
+    // 工程に直接付与された画像番号を最優先する。共通の根拠IDを先に見ると、
+    // imageIndexが工程ごとに正しくても全工程が同じ画像になるため。
+    final directIndex = step.imageIndex;
+    if (directIndex != null &&
+        directIndex >= 0 &&
+        directIndex < sourceImages.length) {
+      return sourceImages[directIndex];
+    }
+    // 直接の画像番号がない旧データでは、工程自身の根拠画像を利用する。
     for (final evidence in recipe.evidence) {
       if (evidence.id == step.evidenceId &&
           (evidence.kind == EvidenceKind.image ||
@@ -535,12 +543,6 @@ class _CookingModePageState extends State<CookingModePage> {
           evidence.imagePath?.isNotEmpty == true) {
         return evidence.imagePath;
       }
-    }
-    final directIndex = step.imageIndex;
-    if (directIndex != null &&
-        directIndex >= 0 &&
-        directIndex < sourceImages.length) {
-      return sourceImages[directIndex];
     }
     // 工程画像が特定できない場合、均等割りやサムネイルで補完すると
     // 別材料・別工程の画像を表示するため、誤表示より画像なしを優先する。
