@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/theme.dart';
 import '../recipe/recipe_scope.dart';
@@ -12,8 +11,10 @@ import '../recipe/ui/recipe_profile_page.dart';
 import '../recipe/ui/recipe_search_page.dart';
 import '../recipe/ui/recipe_detail_page.dart';
 import '../recipe/ui/recipe_selection_page.dart';
+import '../recipe/ui/legal_document_page.dart';
 import '../services/ai_analysis_consent.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/legal_consent_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 
@@ -40,7 +41,6 @@ class RecipeBootstrapScreen extends StatefulWidget {
 
 class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
   bool _checkedConsent = false;
-  static const _loginPromptKey = 'tsukurepi_login_prompt_v1_completed';
 
   @override
   Widget build(BuildContext context) {
@@ -137,8 +137,7 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
     final controller = RecipeScope.read(context);
     final cloud = controller.legacy.cloud;
     if (!cloud.isConfigured) return;
-    final preferences = await SharedPreferences.getInstance();
-    if (preferences.getBool(_loginPromptKey) == true || !mounted) return;
+    if (!mounted) return;
     try {
       await cloud.prepareAuth();
     } catch (_) {
@@ -147,133 +146,138 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
     if (!mounted) return;
     final current = cloud.user;
     if (current != null && !current.isAnonymous) {
-      await preferences.setBool(_loginPromptKey, true);
       return;
     }
-
-    final action = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Align(
-                  child: CircleAvatar(
-                    radius: 27,
-                    backgroundColor: mintSoft,
-                    child: Icon(
-                      Icons.cloud_done_outlined,
-                      color: mossDeep,
-                      size: 29,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'レシピを安全に引き継ぐ',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(dialogContext).textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'ログインすると保存したレシピを同期し、機種変更後も引き継げます。',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: () => Navigator.pop(dialogContext, 'apple'),
-                    icon: const Icon(Icons.apple, size: 24),
-                    label: const Text('Appleで続ける'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+    final legalConsent = LegalConsentService();
+    var accepted = await legalConsent.hasAcceptedCurrentVersion();
+    while (mounted && (cloud.user == null || cloud.user?.isAnonymous == true)) {
+      final action = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 20,
+              vertical: 20,
+            ),
+            contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Align(
+                      child: CircleAvatar(
+                        radius: 27,
+                        backgroundColor: mintSoft,
+                        child: Icon(
+                          Icons.cloud_done_outlined,
+                          color: mossDeep,
+                          size: 29,
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 52,
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.pop(dialogContext, 'google'),
-                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                    label: const Text('Googleで続ける'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Theme.of(
-                        dialogContext,
-                      ).colorScheme.onSurface,
-                      side: BorderSide(
-                        color: Theme.of(
-                          dialogContext,
-                        ).colorScheme.outlineVariant,
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    const SizedBox(height: 14),
+                    Text(
+                      'ツクレピをはじめる',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(dialogContext).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '無料3回の管理と、レシピの安全な引き継ぎのためログインしてください。',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(dialogContext).textTheme.bodyMedium
+                          ?.copyWith(
+                            color: Theme.of(
+                              dialogContext,
+                            ).colorScheme.onSurfaceVariant,
+                            height: 1.45,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    LegalConsentCheckbox(
+                      initiallyAccepted: accepted,
+                      onChanged: (value) async {
+                        setDialogState(() => accepted = value);
+                        if (value) await legalConsent.acceptCurrentVersion();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: accepted
+                            ? () => Navigator.pop(dialogContext, 'apple')
+                            : null,
+                        icon: const Icon(Icons.apple, size: 24),
+                        label: const Text('Appleで続ける'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          disabledBackgroundColor: Colors.black26,
+                          foregroundColor: Colors.white,
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: accepted
+                            ? () => Navigator.pop(dialogContext, 'google')
+                            : null,
+                        icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                        label: const Text('Googleで続ける'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Theme.of(
+                            dialogContext,
+                          ).colorScheme.onSurface,
+                          side: BorderSide(
+                            color: Theme.of(
+                              dialogContext,
+                            ).colorScheme.outlineVariant,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'later'),
-                  child: const Text('今はしない'),
-                ),
-                Text(
-                  'ログインしなくても、端末内で引き続き利用できます。',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-    if (!mounted || action == null) return;
-    if (action == 'later') {
-      await preferences.setBool(_loginPromptKey, true);
-      return;
-    }
-
-    try {
-      if (action == 'apple') {
-        await cloud.signInWithApple();
-      } else {
-        await cloud.signInWithGoogle();
-      }
-      await preferences.setBool(_loginPromptKey, true);
-      if (mounted && cloud.user != null && cloud.user?.isAnonymous != true) {
+      );
+      if (!mounted || action == null) return;
+      try {
+        if (action == 'apple') {
+          await cloud.signInWithApple();
+        } else {
+          await cloud.signInWithGoogle();
+        }
+        if (mounted && cloud.user != null && cloud.user?.isAnonymous != true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('ログインしました。レシピを同期します。')));
+        }
+      } on CloudSignInCancelled {
+        // 必須ログインのため、キャンセル時は同じ案内へ戻る。
+      } catch (error) {
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('ログインしました。レシピを同期します。')));
+        ).showSnackBar(SnackBar(content: Text('ログインできませんでした: $error')));
       }
-    } on CloudSignInCancelled {
-      // キャンセルは失敗表示にせず、次回起動時にもう一度案内できるようにする。
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('ログインできませんでした: $error')));
     }
   }
 }

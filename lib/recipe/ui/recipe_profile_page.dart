@@ -9,6 +9,8 @@ import '../../services/notification_service.dart';
 import 'billing_page.dart';
 import '../../services/billing_service.dart';
 import '../../services/cloud_sync_service.dart';
+import '../../services/legal_consent_service.dart';
+import 'legal_document_page.dart';
 
 class RecipeProfilePage extends StatefulWidget {
   const RecipeProfilePage({super.key});
@@ -174,14 +176,18 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
     );
   }
 
-  Future<void> _showLoginOptions(BuildContext context) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        showDragHandle: true,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        builder: (sheetContext) => SingleChildScrollView(
+  Future<void> _showLoginOptions(BuildContext context) async {
+    final legalConsent = LegalConsentService();
+    var accepted = await legalConsent.hasAcceptedCurrentVersion();
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             20,
             2,
@@ -224,14 +230,24 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   height: 1.45,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              LegalConsentCheckbox(
+                initiallyAccepted: accepted,
+                onChanged: (value) async {
+                  setSheetState(() => accepted = value);
+                  if (value) await legalConsent.acceptCurrentVersion();
+                },
+              ),
+              const SizedBox(height: 12),
               SizedBox(
                 height: 52,
                 child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _signIn(context, apple: true);
-                  },
+                  onPressed: accepted
+                      ? () {
+                          Navigator.pop(sheetContext);
+                          _signIn(context, apple: true);
+                        }
+                      : null,
                   icon: const Icon(Icons.apple, size: 24),
                   label: const Text('Appleで続ける'),
                   style: FilledButton.styleFrom(
@@ -248,10 +264,12 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
               SizedBox(
                 height: 52,
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    _signIn(context, apple: false);
-                  },
+                  onPressed: accepted
+                      ? () {
+                          Navigator.pop(sheetContext);
+                          _signIn(context, apple: false);
+                        }
+                      : null,
                   icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
                   label: const Text('Googleで続ける'),
                   style: OutlinedButton.styleFrom(
@@ -268,23 +286,12 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              TextButton(
-                onPressed: () => Navigator.pop(sheetContext),
-                child: const Text('今はしない'),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'ログインしなくても、端末内で引き続き利用できます。',
-                textAlign: TextAlign.center,
-                style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
-                ),
-              ),
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
 
   Future<void> _showAccountActions(BuildContext context) =>
       showModalBottomSheet<void>(
@@ -731,22 +738,27 @@ class HelpSupportPage extends StatelessWidget {
           children: [
             _MenuRow(
               title: '利用規約',
-              value: '未設定',
-              onTap: () => _notConfigured(context),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      const LegalDocumentPage(document: LegalDocument.terms),
+                ),
+              ),
             ),
             _MenuRow(
               title: 'プライバシーポリシー',
-              value: '未設定',
-              onTap: () => _notConfigured(context),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      const LegalDocumentPage(document: LegalDocument.privacy),
+                ),
+              ),
             ),
           ],
         ),
       ],
     ),
   );
-  static void _notConfigured(BuildContext context) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(const SnackBar(content: Text('公開先がまだ設定されていません')));
 }
 
 class ImportantNotesPage extends StatelessWidget {
