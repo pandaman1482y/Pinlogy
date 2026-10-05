@@ -177,32 +177,108 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
   Future<void> _showLoginOptions(BuildContext context) =>
       showModalBottomSheet<void>(
         context: context,
-        builder: (sheetContext) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('ログイン', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 10),
-                ListTile(
-                  leading: const Icon(Icons.apple),
-                  title: const Text('Appleでログイン'),
-                  onTap: () {
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        builder: (sheetContext) => SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            2,
+            20,
+            20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                child: Container(
+                  width: 54,
+                  height: 54,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: const BoxDecoration(
+                    color: mintSoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.cloud_done_outlined,
+                    color: mossDeep,
+                    size: 28,
+                  ),
+                ),
+              ),
+              Text(
+                'レシピを安全に引き継ぐ',
+                textAlign: TextAlign.center,
+                style: Theme.of(sheetContext).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'ログインすると保存したレシピを同期し、機種変更後も引き継げます。',
+                textAlign: TextAlign.center,
+                style: Theme.of(sheetContext).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: () {
                     Navigator.pop(sheetContext);
                     _signIn(context, apple: true);
                   },
+                  icon: const Icon(Icons.apple, size: 24),
+                  label: const Text('Appleで続ける'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.g_mobiledata_rounded),
-                  title: const Text('Googleでログイン'),
-                  onTap: () {
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: () {
                     Navigator.pop(sheetContext);
                     _signIn(context, apple: false);
                   },
+                  icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                  label: const Text('Googleで続ける'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(sheetContext).colorScheme.onSurface,
+                    side: BorderSide(
+                      color: Theme.of(sheetContext).colorScheme.outlineVariant,
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ],
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('今はしない'),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'ログインしなくても、端末内で引き続き利用できます。',
+                textAlign: TextAlign.center,
+                style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
           ),
         ),
@@ -230,8 +306,9 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   await RecipeScope.read(context).legacy.cloud.signOut();
-                  if (context.mounted)
-                    RecipeScope.read(context).notifyListeners();
+                  if (context.mounted) {
+                    setState(() => _lastSyncAt = null);
+                  }
                 },
               ),
             ],
@@ -245,7 +322,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
       apple ? await cloud.signInWithApple() : await cloud.signInWithGoogle();
       if (!context.mounted) return;
       if (cloud.user != null && cloud.user?.isAnonymous != true) {
-        RecipeScope.read(context).notifyListeners();
+        setState(() {});
         await _loadLastSync();
         if (!context.mounted) return;
         ScaffoldMessenger.of(
