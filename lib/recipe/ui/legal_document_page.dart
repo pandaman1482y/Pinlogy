@@ -120,19 +120,13 @@ class LegalConsentCheckbox extends StatefulWidget {
 }
 
 class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
-  late bool _termsViewed;
-  late bool _privacyViewed;
   late bool _accepted;
 
   @override
   void initState() {
     super.initState();
-    _termsViewed = widget.initiallyAccepted;
-    _privacyViewed = widget.initiallyAccepted;
     _accepted = widget.initiallyAccepted;
   }
-
-  bool get _canAccept => _termsViewed && _privacyViewed;
 
   Future<void> _open(LegalDocument document) async {
     await Navigator.of(context).push<void>(
@@ -140,14 +134,6 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
         builder: (_) => LegalDocumentPage(document: document),
       ),
     );
-    if (!mounted) return;
-    setState(() {
-      if (document == LegalDocument.terms) {
-        _termsViewed = true;
-      } else {
-        _privacyViewed = true;
-      }
-    });
   }
 
   @override
@@ -161,23 +147,21 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
         children: [
           TextButton(
             onPressed: () => _open(LegalDocument.terms),
-            child: Text(_termsViewed ? '✓ 利用規約' : '利用規約'),
+            child: const Text('利用規約'),
           ),
           const Text('と'),
           TextButton(
             onPressed: () => _open(LegalDocument.privacy),
-            child: Text(_privacyViewed ? '✓ プライバシーポリシー' : 'プライバシーポリシー'),
+            child: const Text('プライバシーポリシー'),
           ),
         ],
       ),
       CheckboxListTile(
         value: _accepted,
-        enabled: _canAccept,
         controlAffinity: ListTileControlAffinity.leading,
         contentPadding: EdgeInsets.zero,
         dense: true,
-        title: const Text('内容を確認し、同意します'),
-        subtitle: _canAccept ? null : const Text('上の2つの文書を開いて確認してください'),
+        title: const Text('利用規約とプライバシーポリシーに同意します'),
         onChanged: (value) {
           final accepted = value == true;
           setState(() => _accepted = accepted);
