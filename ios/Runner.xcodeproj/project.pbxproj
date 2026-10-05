@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0D5E2B513072BC2F002CA319 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D5E2B503072BC2F002CA319 /* StoreKit.framework */; };
 		0DB1A7D13041DEB900AF717F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0DB1A7D03041DEB900AF717F /* GoogleService-Info.plist */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -67,6 +68,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0D5E2B503072BC2F002CA319 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		0DB1A7D03041DEB900AF717F /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
@@ -114,6 +116,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0D5E2B513072BC2F002CA319 /* StoreKit.framework in Frameworks */,
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				F0310E8BA5497511B835678E /* Pods_Runner.framework in Frameworks */,
 			);
@@ -153,6 +156,7 @@
 		62519FB34A561DEAF46062DE /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				0D5E2B503072BC2F002CA319 /* StoreKit.framework */,
 				587D37176E823BB9F52A82F0 /* Pods_Runner.framework */,
 				A58C03F2E1DC3F34B133E333 /* Pods_RunnerTests.framework */,
 			);

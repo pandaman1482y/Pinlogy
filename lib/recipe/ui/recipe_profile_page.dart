@@ -8,6 +8,7 @@ import 'recipe_widgets.dart';
 import '../../services/notification_service.dart';
 import 'billing_page.dart';
 import '../../services/billing_service.dart';
+import '../../services/cloud_sync_service.dart';
 
 class RecipeProfilePage extends StatefulWidget {
   const RecipeProfilePage({super.key});
@@ -242,6 +243,17 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
     final cloud = RecipeScope.read(context).legacy.cloud;
     try {
       apple ? await cloud.signInWithApple() : await cloud.signInWithGoogle();
+      if (!context.mounted) return;
+      if (cloud.user != null && cloud.user?.isAnonymous != true) {
+        RecipeScope.read(context).notifyListeners();
+        await _loadLastSync();
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('ログインしました。レシピを同期します。')));
+      }
+    } on CloudSignInCancelled {
+      return;
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(

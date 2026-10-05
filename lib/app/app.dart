@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/theme.dart';
 import '../recipe/recipe_scope.dart';
@@ -11,6 +12,7 @@ import '../recipe/ui/recipe_search_page.dart';
 import '../recipe/ui/recipe_detail_page.dart';
 import '../recipe/ui/recipe_selection_page.dart';
 import '../services/ai_analysis_consent.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 
@@ -20,7 +22,7 @@ class PinlogyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
-    title: 'レシピ',
+    title: 'ツクレピ',
     theme: buildPinlogyTheme(),
     darkTheme: buildPinlogyTheme(),
     themeMode: ThemeMode.light,
@@ -37,6 +39,7 @@ class RecipeBootstrapScreen extends StatefulWidget {
 
 class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
   bool _checkedConsent = false;
+  static const _loginPromptKey = 'tsukurepi_login_prompt_v1_completed';
 
   @override
   Widget build(BuildContext context) {
@@ -89,10 +92,16 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
     if (!_checkedConsent) {
       _checkedConsent = true;
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _askConsentIfNeeded(),
+        (_) => _runFirstLaunchFlow(),
       );
     }
     return const RecipeRootShell();
+  }
+
+  Future<void> _runFirstLaunchFlow() async {
+    await _askConsentIfNeeded();
+    if (!mounted) return;
+    await _showLoginPromptIfNeeded();
   }
 
   Future<void> _askConsentIfNeeded() async {
@@ -121,6 +130,79 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
       ),
     );
     await consent.setConsented(accepted == true);
+  }
+
+  Future<void> _showLoginPromptIfNeeded() async {
+    final controller = RecipeScope.read(context);
+    final cloud = controller.legacy.cloud;
+    if (!cloud.isConfigured) return;
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool(_loginPromptKey) == true || !mounted) return;
+    try {
+      await cloud.prepareAuth();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    final current = cloud.user;
+    if (current != null && !current.isAnonymous) {
+      await preferences.setBool(_loginPromptKey, true);
+      return;
+    }
+
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.cloud_done_outlined, color: mossDeep),
+        title: const Text('レシピを安全に引き継ぐ'),
+        content: const Text(
+          'ログインすると、保存したレシピをクラウドに同期し、機種変更後も引き継げます。ログインせずに試すこともできます。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'later'),
+            child: const Text('あとで'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, 'google'),
+            icon: const Icon(Icons.g_mobiledata_rounded),
+            label: const Text('Google'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, 'apple'),
+            icon: const Icon(Icons.apple),
+            label: const Text('Apple'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'later') {
+      await preferences.setBool(_loginPromptKey, true);
+      return;
+    }
+
+    try {
+      if (action == 'apple') {
+        await cloud.signInWithApple();
+      } else {
+        await cloud.signInWithGoogle();
+      }
+      await preferences.setBool(_loginPromptKey, true);
+      if (mounted && cloud.user != null && cloud.user?.isAnonymous != true) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('ログインしました。レシピを同期します。')));
+      }
+    } on CloudSignInCancelled {
+      // キャンセルは失敗表示にせず、次回起動時にもう一度案内できるようにする。
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('ログインできませんでした: $error')));
+    }
   }
 }
 

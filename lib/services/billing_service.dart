@@ -67,6 +67,9 @@ class BillingService extends ChangeNotifier {
     }
     final configuration = PurchasesConfiguration(key)
       ..appUserID = await deviceId();
+    if (kDebugMode) {
+      await Purchases.setLogLevel(LogLevel.debug);
+    }
     await Purchases.configure(configuration);
     configured = true;
     Purchases.addCustomerInfoUpdateListener((_) => refreshStatus());

@@ -1,5 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../models/models.dart';
 import '../repositories/local_repositories.dart';
@@ -35,6 +40,10 @@ class ActiveMapShare {
   final DateTime createdAt;
 }
 
+class CloudSignInCancelled implements Exception {
+  const CloudSignInCancelled();
+}
+
 class CloudSyncService {
   CloudSyncService({
     this.url = const String.fromEnvironment('SUPABASE_URL'),
@@ -68,6 +77,9 @@ class CloudSyncService {
     await Supabase.initialize(url: url, publishableKey: anonKey);
     _initialized = true;
   }
+
+  /// 起動時のログイン案内など、同期を始めず認証状態だけ確認したい場合に使う。
+  Future<void> prepareAuth() => _initialize();
 
   Stream<void> watchAuthChanges() async* {
     await _initialize();
@@ -136,10 +148,58 @@ class CloudSyncService {
 
   Future<void> signInWithApple() async {
     await _initialize();
-    await _client.auth.signInWithOAuth(
-      OAuthProvider.apple,
-      redirectTo: authCallbackUrl,
+    if (!Platform.isIOS && !Platform.isMacOS) {
+      await _client.auth.signInWithOAuth(
+        OAuthProvider.apple,
+        redirectTo: authCallbackUrl,
+      );
+      return;
+    }
+
+    final rawNonce = _client.auth.generateRawNonce();
+    final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+    late final AuthorizationCredentialAppleID credential;
+    try {
+      credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+    } on SignInWithAppleAuthorizationException catch (error) {
+      if (error.code == AuthorizationErrorCode.canceled) {
+        throw const CloudSignInCancelled();
+      }
+      rethrow;
+    }
+
+    final idToken = credential.identityToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthException('Appleから認証情報を取得できませんでした');
+    }
+    await _client.auth.signInWithIdToken(
+      provider: OAuthProvider.apple,
+      idToken: idToken,
+      nonce: rawNonce,
     );
+
+    // Appleが氏名を返すのは原則初回だけなので、その場で保存する。
+    final displayName = [credential.familyName, credential.givenName]
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .join(' ');
+    if (displayName.isNotEmpty &&
+        (_client.auth.currentUser?.userMetadata?['full_name']
+                ?.toString()
+                .trim()
+                .isEmpty ??
+            true)) {
+      await _client.auth.updateUser(
+        UserAttributes(data: {'full_name': displayName}),
+      );
+    }
   }
 
   Future<void> signInWithGoogle() async {
