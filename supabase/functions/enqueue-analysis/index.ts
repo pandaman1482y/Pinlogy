@@ -30,6 +30,7 @@ Deno.serve(async (request) => {
     }
     const rawDeviceHash = await sha256(deviceId);
     const identity = await billingIdentity(request, rawDeviceHash);
+    if (identity == null) return reply({ error: "authentication_required" }, 401);
     const deviceHash = identity.accountHash;
     const ownerHashes = [...new Set([rawDeviceHash, deviceHash])];
     if (action === "status") return status(input, ownerHashes);
@@ -1389,12 +1390,12 @@ function adminClient() {
   );
 }
 
-type BillingIdentity = { accountHash: string; userId: string | null };
+type BillingIdentity = { accountHash: string; userId: string };
 
 async function billingIdentity(
   request: Request,
   deviceHash: string,
-): Promise<BillingIdentity> {
+): Promise<BillingIdentity | null> {
   const db = adminClient();
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.replace(/^Bearer\s+/i, "").trim();
@@ -1410,21 +1411,47 @@ async function billingIdentity(
       userId = user.data.user.id;
     }
   }
-  if (userId != null) {
-    const userHash = await sha256(userId);
-    const linked = await db.rpc("link_billing_account", {
-      p_device_hash: deviceHash,
-      p_user_id: userId,
-      p_user_hash: userHash,
-    });
-    if (linked.error) throw linked.error;
-    return { accountHash: String(linked.data ?? userHash), userId };
-  }
-  const resolved = await db.rpc("resolve_billing_account_hash", {
+  if (userId == null) return null;
+  const userHash = await sha256(userId);
+  const linked = await db.rpc("link_billing_account", {
     p_device_hash: deviceHash,
+    p_user_id: userId,
+    p_user_hash: userHash,
   });
-  if (resolved.error) throw resolved.error;
-  return { accountHash: String(resolved.data ?? deviceHash), userId: null };
+  if (linked.error) throw linked.error;
+  const accountHash = String(linked.data ?? userHash);
+  const identities = await trialIdentityHashes(db, userId);
+  const trial = await db.rpc("enforce_billing_trial_claim", {
+    p_account_hash: accountHash,
+    p_user_id: userId,
+    p_identity_hashes: identities,
+  });
+  if (trial.error) throw trial.error;
+  return { accountHash, userId };
+}
+
+async function trialIdentityHashes(db: ReturnType<typeof createClient>, userId: string) {
+  const { data, error } = await db.auth.admin.getUserById(userId);
+  if (error || data.user == null) throw error ?? new Error("user_not_found");
+  const values = (data.user.identities ?? []).flatMap((identity) => {
+    const provider = String(identity.provider ?? "").toLowerCase();
+    const id = String(identity.identity_id ?? identity.id ?? "").trim();
+    return ["apple", "google"].includes(provider) && id ? [`${provider}:${id}`] : [];
+  });
+  if (values.length === 0) throw new Error("verified_identity_required");
+  return Promise.all(values.map(hmacIdentity));
+}
+
+async function hmacIdentity(value: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(requiredEnv("TRIAL_IDENTITY_HMAC_SECRET")),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function requiredEnv(name: string) {

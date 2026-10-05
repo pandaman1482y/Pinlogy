@@ -138,6 +138,11 @@ class BillingService extends ChangeNotifier {
       await Purchases.logIn(await deviceId());
       _revenueCatUserId = null;
     }
+    if (userId == null) {
+      status = null;
+      notifyListeners();
+      return;
+    }
     await refreshStatus();
   }
 

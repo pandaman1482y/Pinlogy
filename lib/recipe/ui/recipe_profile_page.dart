@@ -320,10 +320,86 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   }
                 },
               ),
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_forever_rounded,
+                  color: Colors.red,
+                ),
+                title: const Text(
+                  'アカウントを削除',
+                  style: TextStyle(color: Colors.red),
+                ),
+                subtitle: const Text('クラウドデータと残り回数を削除します'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _confirmDeleteAccount(context);
+                },
+              ),
             ],
           ),
         ),
       );
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('アカウントを削除しますか？'),
+        content: const Text(
+          'クラウド上のレシピ、解析履歴、残り回数は完全に削除され、元に戻せません。'
+          '無料3回は再登録しても復活しません。\n\n'
+          'App StoreまたはGoogle Playの定期購入は自動解約されません。削除前にストアで解約してください。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('削除する'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final controller = RecipeScope.read(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 18),
+            Expanded(child: Text('アカウントを削除しています…')),
+          ],
+        ),
+      ),
+    );
+    try {
+      await controller.legacy.cloud.deleteAccount();
+      await controller.clearAfterAccountDeletion();
+      await BillingService.instance.syncAuthenticatedUser();
+      if (!context.mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      setState(() => _lastSyncAt = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('アカウントを削除しました。利用を続けるには再度ログインしてください。')),
+      );
+    } on CloudSignInCancelled {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    } catch (error) {
+      if (!context.mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Bad state: ', '')),
+        ),
+      );
+    }
+  }
 
   Future<void> _signIn(BuildContext context, {required bool apple}) async {
     final cloud = RecipeScope.read(context).legacy.cloud;

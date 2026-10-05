@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -236,10 +237,54 @@ class CloudSyncService {
 
   Future<void> deleteAccount() async {
     await _initialize();
-    if (_client.auth.currentUser == null) {
+    final currentUser = _client.auth.currentUser;
+    final session = _client.auth.currentSession;
+    if (currentUser == null || session == null) {
       throw StateError('ログインしているアカウントがありません');
     }
-    await _client.rpc('delete_my_account');
+    String? appleAuthorizationCode;
+    final usesApple =
+        currentUser.identities?.any(
+          (identity) => identity.provider == 'apple',
+        ) ??
+        false;
+    if (usesApple && (Platform.isIOS || Platform.isMacOS)) {
+      try {
+        final credential = await SignInWithApple.getAppleIDCredential(
+          scopes: const [],
+        );
+        appleAuthorizationCode = credential.authorizationCode;
+      } on SignInWithAppleAuthorizationException catch (error) {
+        if (error.code == AuthorizationErrorCode.canceled) {
+          throw const CloudSignInCancelled();
+        }
+        rethrow;
+      }
+    }
+    final response = await http
+        .post(
+          Uri.parse(
+            '${url.replaceAll(RegExp(r'/$'), '')}/functions/v1/delete-account',
+          ),
+          headers: {
+            'Authorization': 'Bearer ${session.accessToken}',
+            'apikey': anonKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            if (appleAuthorizationCode != null)
+              'apple_authorization_code': appleAuthorizationCode,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>?;
+      final code = body?['error']?.toString();
+      if (code == 'apple_reauthentication_required') {
+        throw StateError('安全のためAppleで再認証してから削除してください');
+      }
+      throw StateError('アカウントを削除できませんでした。時間をおいて再度お試しください。');
+    }
     await _client.auth.signOut(scope: SignOutScope.local);
   }
 

@@ -92,6 +92,12 @@ class RecipeController extends ChangeNotifier {
       legacy.analysisService is AiPostAnalysisService &&
       AiPostAnalysisService.backendConfigured;
 
+  Future<void> clearAfterAccountDeletion() async {
+    snapshot = RecipeSnapshot();
+    await store.save(snapshot);
+    notifyListeners();
+  }
+
   Future<String> askCookingAssistant({
     required Recipe recipe,
     required RecipePart part,
