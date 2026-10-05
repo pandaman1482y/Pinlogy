@@ -255,7 +255,9 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
                   label: const Text('Googleで続ける'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Theme.of(sheetContext).colorScheme.onSurface,
+                    foregroundColor: Theme.of(
+                      sheetContext,
+                    ).colorScheme.onSurface,
                     side: BorderSide(
                       color: Theme.of(sheetContext).colorScheme.outlineVariant,
                     ),
@@ -279,7 +281,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
                 ),
               ),
-            ),
+            ],
           ),
         ),
       );

@@ -155,27 +155,98 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.cloud_done_outlined, color: mossDeep),
-        title: const Text('レシピを安全に引き継ぐ'),
-        content: const Text(
-          'ログインすると、保存したレシピをクラウドに同期し、機種変更後も引き継げます。ログインせずに試すこともできます。',
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Align(
+                  child: CircleAvatar(
+                    radius: 27,
+                    backgroundColor: mintSoft,
+                    child: Icon(
+                      Icons.cloud_done_outlined,
+                      color: mossDeep,
+                      size: 29,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'レシピを安全に引き継ぐ',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(dialogContext).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'ログインすると保存したレシピを同期し、機種変更後も引き継げます。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, 'apple'),
+                    icon: const Icon(Icons.apple, size: 24),
+                    label: const Text('Appleで続ける'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, 'google'),
+                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                    label: const Text('Googleで続ける'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        dialogContext,
+                      ).colorScheme.onSurface,
+                      side: BorderSide(
+                        color: Theme.of(
+                          dialogContext,
+                        ).colorScheme.outlineVariant,
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'later'),
+                  child: const Text('今はしない'),
+                ),
+                Text(
+                  'ログインしなくても、端末内で引き続き利用できます。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'later'),
-            child: const Text('あとで'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, 'google'),
-            icon: const Icon(Icons.g_mobiledata_rounded),
-            label: const Text('Google'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, 'apple'),
-            icon: const Icon(Icons.apple),
-            label: const Text('Apple'),
-          ),
-        ],
       ),
     );
     if (!mounted || action == null) return;
