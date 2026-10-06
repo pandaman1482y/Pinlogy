@@ -35,7 +35,29 @@ final _analysisFailureController =
 Stream<AnalysisFailureEvent> get analysisFailureEvents =>
     _analysisFailureController.stream;
 
-void _notifyAnalysisFailure(AnalysisJob job, String message) {
+const _notifiedFailureJobsKey = 'pinlogy_notified_failure_jobs_v1';
+const _maxNotifiedFailureJobs = 100;
+final Set<String> _notifyingFailureJobs = {};
+
+Future<void> _notifyAnalysisFailure(AnalysisJob job, String message) async {
+  if (_analysisFailureController.isClosed ||
+      !_notifyingFailureJobs.add(job.id)) {
+    return;
+  }
+  try {
+    final preferences = await SharedPreferences.getInstance();
+    final notified = preferences.getStringList(_notifiedFailureJobsKey) ?? [];
+    if (notified.contains(job.id)) return;
+    notified.add(job.id);
+    if (notified.length > _maxNotifiedFailureJobs) {
+      notified.removeRange(0, notified.length - _maxNotifiedFailureJobs);
+    }
+    await preferences.setStringList(_notifiedFailureJobsKey, notified);
+  } catch (_) {
+    // 保存に失敗しても、新しい解析失敗自体は通知する。
+  } finally {
+    _notifyingFailureJobs.remove(job.id);
+  }
   if (_analysisFailureController.isClosed) return;
   _analysisFailureController.add(
     AnalysisFailureEvent(
@@ -44,6 +66,17 @@ void _notifyAnalysisFailure(AnalysisJob job, String message) {
       message: message,
     ),
   );
+}
+
+Future<void> _allowFailureNotification(String jobId) async {
+  try {
+    final preferences = await SharedPreferences.getInstance();
+    final notified = preferences.getStringList(_notifiedFailureJobsKey) ?? [];
+    if (!notified.remove(jobId)) return;
+    await preferences.setStringList(_notifiedFailureJobsKey, notified);
+  } catch (_) {
+    // 通知履歴の保存失敗で再試行を止めない。
+  }
 }
 
 class DuplicateShareException implements Exception {
@@ -539,7 +572,7 @@ class LocalShareReceiverService implements ShareReceiverService {
       await analysis.update(
         job.copyWith(status: AnalysisJobStatus.failed, errorMessage: message),
       );
-      _notifyAnalysisFailure(job, message);
+      await _notifyAnalysisFailure(job, message);
     }
   }
 
@@ -569,6 +602,7 @@ class AnalysisRunner {
       orElse: () => null,
     );
     if (job == null) return;
+    await _allowFailureNotification(jobId);
     if (analysisService case final AiPostAnalysisService service) {
       await service.cancelPendingJob(job.sourcePostId);
     }
@@ -671,7 +705,7 @@ class AnalysisRunner {
       await hub.analysis.update(
         job.copyWith(status: AnalysisJobStatus.failed, errorMessage: message),
       );
-      _notifyAnalysisFailure(job, message);
+      await _notifyAnalysisFailure(job, message);
     }
   }
 }

@@ -638,7 +638,7 @@ class _AccountPlanCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      status == null ? '回数を確認' : '解析あと${status.remaining}回',
+                      '解析あと${status?.remaining ?? 0}回',
                       style: Theme.of(
                         context,
                       ).textTheme.labelLarge?.copyWith(color: mossDeep),

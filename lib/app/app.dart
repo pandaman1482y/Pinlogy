@@ -298,7 +298,6 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   bool _failureDialogVisible = false;
   final List<DuplicateShareEvent> _pendingDuplicateEvents = [];
   final List<AnalysisFailureEvent> _pendingFailureEvents = [];
-  final Set<String> _shownFailureJobIds = {};
 
   static const _pages = [
     RecipeHomePage(),
@@ -367,7 +366,6 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   }
 
   void _enqueueAnalysisFailure(AnalysisFailureEvent event) {
-    if (!_shownFailureJobIds.add(event.jobId)) return;
     _pendingFailureEvents.add(event);
     if (!_failureDialogVisible && !_duplicateDialogVisible) {
       unawaited(_drainAnalysisFailures());

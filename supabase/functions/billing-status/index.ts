@@ -7,14 +7,17 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
   const deviceId = request.headers.get("x-pinlogy-device") ?? "";
   if (!/^[0-9a-f-]{32,40}$/i.test(deviceId)) return reply({ error: "device_id_required" }, 400);
+  let stage = "initialize";
   try {
     const deviceHash = await sha256(deviceId);
     const db = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    stage = "authenticate";
     const userId = await authenticatedUserId(request);
     if (userId == null) return reply({ error: "authentication_required" }, 401);
     const userHash = await sha256(userId);
+    stage = "link_account";
     const linked = await db.rpc("link_billing_account", {
       p_device_hash: deviceHash,
       p_user_id: userId,
@@ -22,24 +25,43 @@ Deno.serve(async (request) => {
     });
     if (linked.error) throw linked.error;
     const accountHash = String(linked.data ?? userHash);
+    stage = "load_trial_identity";
     const identities = await trialIdentityHashes(db, userId);
+    stage = "claim_trial";
     const trial = await db.rpc("enforce_billing_trial_claim", {
       p_account_hash: accountHash,
       p_user_id: userId,
       p_identity_hashes: identities,
     });
     if (trial.error) throw trial.error;
+    stage = "read_status";
     const { data, error } = await db.rpc("billing_status", { p_device_hash: accountHash });
     if (error) throw error;
     return reply({ ...data, app_user_id: userId, account_linked: true });
   } catch (error) {
     console.error(
       "billing_status_failed",
-      JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      JSON.stringify({ stage, error: serializeError(error) }),
     );
-    return reply({ error: "billing_status_failed" }, 500);
+    return reply({ error: "billing_status_failed", stage }, 500);
   }
 });
+
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message, stack: error.stack };
+  }
+  if (typeof error === "object" && error !== null) {
+    const value = error as Record<string, unknown>;
+    return {
+      code: value.code,
+      message: value.message,
+      details: value.details,
+      hint: value.hint,
+    };
+  }
+  return { message: String(error) };
+}
 
 async function authenticatedUserId(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";

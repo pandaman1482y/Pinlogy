@@ -35,7 +35,9 @@ class BillingPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      status == null ? 'プラン情報を確認中' : _planLabel(status.plan),
+                      status == null
+                          ? '無料プラン（解析あと0回）'
+                          : _planLabel(status.plan),
                     ),
                     if ((status?.bonusCredits ?? 0) > 0)
                       Text(

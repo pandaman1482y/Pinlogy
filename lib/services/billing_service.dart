@@ -72,7 +72,7 @@ class BillingService extends ChangeNotifier {
       return;
     }
     final configuration = PurchasesConfiguration(key)
-      ..appUserID = await deviceId();
+      ..appUserID = _revenueCatUserId ?? await deviceId();
     if (kDebugMode) {
       await Purchases.setLogLevel(LogLevel.debug);
     }
@@ -99,6 +99,11 @@ class BillingService extends ChangeNotifier {
 
   Future<void> refreshStatus() async {
     if (!_url.startsWith('https://') || _anonKey.isEmpty) return;
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      error = null;
+      notifyListeners();
+      return;
+    }
     try {
       final response = await http
           .post(
@@ -106,7 +111,7 @@ class BillingService extends ChangeNotifier {
               '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/billing-status',
             ),
             headers: {
-              'Authorization': 'Bearer ${_accessToken ?? _anonKey}',
+              'Authorization': 'Bearer $_accessToken',
               'apikey': _anonKey,
               'Content-Type': 'application/json',
               'X-Pinlogy-Device': await deviceId(),
@@ -144,16 +149,18 @@ class BillingService extends ChangeNotifier {
     String? accessToken,
   }) async {
     _accessToken = accessToken?.isNotEmpty == true ? accessToken : null;
+    final previousRevenueCatUserId = _revenueCatUserId;
     if (configured && userId != null && userId.isNotEmpty) {
-      if (_revenueCatUserId != userId) {
+      if (previousRevenueCatUserId != userId) {
         await Purchases.logIn(userId);
-        _revenueCatUserId = userId;
       }
-    } else if (configured && userId == null && _revenueCatUserId != null) {
+    } else if (configured &&
+        userId == null &&
+        previousRevenueCatUserId != null) {
       await Purchases.logOut();
       await Purchases.logIn(await deviceId());
-      _revenueCatUserId = null;
     }
+    _revenueCatUserId = userId?.isNotEmpty == true ? userId : null;
     if (userId == null) {
       status = null;
       notifyListeners();
