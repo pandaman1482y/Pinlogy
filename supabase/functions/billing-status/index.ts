@@ -33,7 +33,10 @@ Deno.serve(async (request) => {
     if (error) throw error;
     return reply({ ...data, app_user_id: userId, account_linked: true });
   } catch (error) {
-    console.error("billing_status_failed", String(error));
+    console.error(
+      "billing_status_failed",
+      JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    );
     return reply({ error: "billing_status_failed" }, 500);
   }
 });
