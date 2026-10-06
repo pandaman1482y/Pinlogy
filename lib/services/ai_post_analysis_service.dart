@@ -43,6 +43,8 @@ class AiPostAnalysisService implements PostAnalysisService {
   static bool get backendConfigured =>
       _url.startsWith('https://') && _key.isNotEmpty;
 
+  String get _authorizationToken => BillingService.instance.accessToken ?? _key;
+
   Future<String> askCookingAssistant({
     required String recipeTitle,
     required String partName,
@@ -79,7 +81,7 @@ class AiPostAnalysisService implements PostAnalysisService {
         .post(
           uri,
           headers: {
-            'Authorization': 'Bearer $_key',
+            'Authorization': 'Bearer $_authorizationToken',
             'apikey': _key,
             'Content-Type': 'application/json',
             'X-Pinlogy-Device': await _deviceId(),
@@ -176,7 +178,7 @@ class AiPostAnalysisService implements PostAnalysisService {
             .post(
               uri,
               headers: {
-                'Authorization': 'Bearer $_key',
+                'Authorization': 'Bearer $_authorizationToken',
                 'apikey': _key,
                 'Content-Type': 'application/json',
                 'X-Pinlogy-Device': deviceId,
@@ -390,7 +392,7 @@ class AiPostAnalysisService implements PostAnalysisService {
           .post(
             uri,
             headers: {
-              'Authorization': 'Bearer $_key',
+              'Authorization': 'Bearer $_authorizationToken',
               'apikey': _key,
               'Content-Type': 'application/json',
               'X-Pinlogy-Device': deviceId,
@@ -423,7 +425,7 @@ class AiPostAnalysisService implements PostAnalysisService {
             .post(
               uri,
               headers: {
-                'Authorization': 'Bearer $_key',
+                'Authorization': 'Bearer $_authorizationToken',
                 'apikey': _key,
                 'Content-Type': 'application/json',
                 'X-Pinlogy-Device': deviceId,
@@ -575,7 +577,7 @@ class AiPostAnalysisService implements PostAnalysisService {
           .post(
             uri,
             headers: {
-              'Authorization': 'Bearer $_key',
+              'Authorization': 'Bearer $_authorizationToken',
               'apikey': _key,
               'Content-Type': 'application/json',
             },

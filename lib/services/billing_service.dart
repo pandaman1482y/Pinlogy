@@ -55,6 +55,10 @@ class BillingService extends ChangeNotifier {
   String? _accessToken;
   String? _revenueCatUserId;
 
+  String? get accessToken => _accessToken;
+  bool get hasAuthenticatedUser =>
+      _accessToken?.isNotEmpty == true && _revenueCatUserId != null;
+
   Future<void> initialize() async {
     if (configured) return;
     final key = Platform.isIOS
@@ -114,9 +118,21 @@ class BillingService extends ChangeNotifier {
         status = BillingStatus.fromJson(
           Map<String, dynamic>.from(jsonDecode(response.body) as Map),
         );
+        error = null;
+        notifyListeners();
+      } else {
+        error = response.statusCode == 401
+            ? 'ログイン情報を確認できませんでした。再ログインしてください。'
+            : '利用プランを更新できませんでした（${response.statusCode}）';
+        debugPrint(
+          'billing_status_http_failed status=${response.statusCode} body=${response.body}',
+        );
         notifyListeners();
       }
-    } catch (_) {
+    } catch (exception) {
+      error = '利用プランを更新できませんでした';
+      debugPrint('billing_status_failed $exception');
+      notifyListeners();
       // 残回数表示の更新失敗で、解析済みレシピや購入処理を失敗扱いにしない。
     }
   }
@@ -148,20 +164,48 @@ class BillingService extends ChangeNotifier {
 
   Future<void> purchase(Package package) async {
     if (!configured) throw StateError('課金設定が完了していません');
+    if (!hasAuthenticatedUser) {
+      throw StateError('購入するにはログインが必要です');
+    }
+    final previousBonus = status?.bonusCredits ?? 0;
+    final productId = package.storeProduct.identifier;
     await Purchases.purchase(PurchaseParams.package(package));
-    await _waitForWebhook();
+    await _waitForWebhook(
+      previousBonus: previousBonus,
+      expectedPlan: productId.contains('annual')
+          ? 'annual'
+          : productId.contains('monthly')
+          ? 'monthly'
+          : null,
+      expectsBonus: productId.contains('credits'),
+    );
   }
 
   Future<void> restore() async {
     if (!configured) throw StateError('課金設定が完了していません');
+    if (!hasAuthenticatedUser) {
+      throw StateError('購入を復元するにはログインが必要です');
+    }
     await Purchases.restorePurchases();
     await _waitForWebhook();
   }
 
-  Future<void> _waitForWebhook() async {
-    for (var attempt = 0; attempt < 5; attempt++) {
+  Future<void> _waitForWebhook({
+    int? previousBonus,
+    String? expectedPlan,
+    bool expectsBonus = false,
+  }) async {
+    for (var attempt = 0; attempt < 10; attempt++) {
       await Future<void>.delayed(Duration(seconds: attempt == 0 ? 1 : 2));
       await refreshStatus();
+      final reflected = expectedPlan != null
+          ? status?.plan == expectedPlan
+          : expectsBonus
+          ? (status?.bonusCredits ?? 0) > (previousBonus ?? 0)
+          : status != null;
+      if (reflected) {
+        break;
+      }
     }
   }
 

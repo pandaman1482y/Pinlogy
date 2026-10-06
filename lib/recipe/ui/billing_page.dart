@@ -30,11 +30,13 @@ class BillingPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '残り ${status?.remaining ?? '—'} 回',
+                      '残り ${status?.remaining ?? 0} 回',
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
                     const SizedBox(height: 6),
-                    Text(_planLabel(status?.plan)),
+                    Text(
+                      status == null ? 'プラン情報を確認中' : _planLabel(status.plan),
+                    ),
                     if ((status?.bonusCredits ?? 0) > 0)
                       Text(
                         '追加購入分 ${status!.bonusCredits}回を含みます',
