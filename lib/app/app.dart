@@ -396,6 +396,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
         ? 'レシピを確認できませんでした'
         : '解析に失敗しました';
     final action = await showDialog<String>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
@@ -453,6 +454,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
         ? 'この投稿は解析待ちです'
         : 'この投稿は現在解析中です';
     final action = await showDialog<String>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),

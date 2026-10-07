@@ -342,6 +342,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
 
   Future<void> _confirmDeleteAccount(BuildContext context) async {
     final confirmed = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('アカウントを削除しますか？'),
@@ -995,6 +996,7 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
     final name = TextEditingController();
     final quantity = TextEditingController();
     final accepted = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('買うものを追加'),
@@ -1166,6 +1168,7 @@ class RecipeCollectionsPage extends StatelessWidget {
   Future<void> _create(BuildContext context) async {
     final input = TextEditingController();
     final value = await showDialog<String>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('コレクションを作成'),

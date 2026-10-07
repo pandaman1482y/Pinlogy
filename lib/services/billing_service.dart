@@ -51,6 +51,11 @@ class BillingService extends ChangeNotifier {
   Offering? offering;
   bool loading = false;
   bool configured = false;
+  bool purchasing = false;
+  bool restoring = false;
+  String? purchasingProductId;
+
+  bool get transactionInProgress => purchasing || restoring;
   String? error;
   String? _accessToken;
   String? _revenueCatUserId;
@@ -170,32 +175,52 @@ class BillingService extends ChangeNotifier {
     await refreshStatus();
   }
 
-  Future<void> purchase(Package package) async {
+  Future<bool> purchase(Package package) async {
+    if (transactionInProgress) return false;
     if (!configured) throw StateError('課金設定が完了していません');
     if (!hasAuthenticatedUser) {
       throw StateError('購入するにはログインが必要です');
     }
-    final previousBonus = status?.bonusCredits ?? 0;
-    final productId = package.storeProduct.identifier;
-    await Purchases.purchase(PurchaseParams.package(package));
-    await _waitForWebhook(
-      previousBonus: previousBonus,
-      expectedPlan: productId.contains('annual')
-          ? 'annual'
-          : productId.contains('monthly')
-          ? 'monthly'
-          : null,
-      expectsBonus: productId.contains('credits'),
-    );
+    purchasing = true;
+    purchasingProductId = package.storeProduct.identifier;
+    notifyListeners();
+    try {
+      final previousBonus = status?.bonusCredits ?? 0;
+      final productId = package.storeProduct.identifier;
+      await Purchases.purchase(PurchaseParams.package(package));
+      await _waitForWebhook(
+        previousBonus: previousBonus,
+        expectedPlan: productId.contains('annual')
+            ? 'annual'
+            : productId.contains('monthly')
+            ? 'monthly'
+            : null,
+        expectsBonus: productId.contains('credits'),
+      );
+      return true;
+    } finally {
+      purchasing = false;
+      purchasingProductId = null;
+      notifyListeners();
+    }
   }
 
-  Future<void> restore() async {
+  Future<bool> restore() async {
+    if (transactionInProgress) return false;
     if (!configured) throw StateError('課金設定が完了していません');
     if (!hasAuthenticatedUser) {
       throw StateError('購入を復元するにはログインが必要です');
     }
-    await Purchases.restorePurchases();
-    await _waitForWebhook();
+    restoring = true;
+    notifyListeners();
+    try {
+      await Purchases.restorePurchases();
+      await _waitForWebhook();
+      return true;
+    } finally {
+      restoring = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _waitForWebhook({
@@ -203,8 +228,8 @@ class BillingService extends ChangeNotifier {
     String? expectedPlan,
     bool expectsBonus = false,
   }) async {
-    for (var attempt = 0; attempt < 10; attempt++) {
-      await Future<void>.delayed(Duration(seconds: attempt == 0 ? 1 : 2));
+    for (var attempt = 0; attempt < 8; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 1));
       await refreshStatus();
       final reflected = expectedPlan != null
           ? status?.plan == expectedPlan

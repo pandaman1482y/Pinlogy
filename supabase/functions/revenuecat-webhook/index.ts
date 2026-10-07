@@ -37,7 +37,8 @@ Deno.serve(async (request) => {
     ).trim();
     const billingIdentity = /^[0-9a-f-]{36}$/i.test(supabaseUserId)
       ? supabaseUserId
-      : a = await sha256(billingIdentity);
+      : appUserId;
+    const deviceHash = await sha256(billingIdentity);
     if (eventType === "NON_RENEWING_PURCHASE" && productId === creditsProduct) {
       const { error } = await db.rpc("add_billing_bonus", {
         p_device_hash: deviceHash, p_amount: 20,

@@ -57,6 +57,7 @@ class BillingPage extends StatelessWidget {
                 detail: '毎月30回まで解析',
                 package: billing.packageFor(monthlyId),
                 active: status?.plan == 'monthly',
+                busy: billing.transactionInProgress,
               ),
               _PlanCard(
                 title: '年額プラン',
@@ -64,6 +65,7 @@ class BillingPage extends StatelessWidget {
                 detail: '毎月30回まで解析',
                 package: billing.packageFor(annualId),
                 active: status?.plan == 'annual',
+                busy: billing.transactionInProgress,
               ),
               _PlanCard(
                 title: '追加20回',
@@ -71,11 +73,14 @@ class BillingPage extends StatelessWidget {
                 detail: '使い切り・有効期限なし',
                 package: billing.packageFor(creditsId),
                 active: false,
+                busy: billing.transactionInProgress,
               ),
               const SizedBox(height: 8),
               OutlinedButton(
-                onPressed: () => _restore(context),
-                child: const Text('購入を復元'),
+                onPressed: billing.transactionInProgress
+                    ? null
+                    : () => _restore(context),
+                child: Text(billing.restoring ? '復元中…' : '購入を復元'),
               ),
               const SizedBox(height: 12),
               const Text(
@@ -100,7 +105,8 @@ class BillingPage extends StatelessWidget {
 
   static Future<void> _restore(BuildContext context) async {
     try {
-      await BillingService.instance.restore();
+      final started = await BillingService.instance.restore();
+      if (!started || !context.mounted) return;
       if (context.mounted)
         ScaffoldMessenger.of(
           context,
@@ -121,12 +127,14 @@ class _PlanCard extends StatelessWidget {
     required this.detail,
     required this.package,
     required this.active,
+    required this.busy,
   });
   final String title;
   final String price;
   final String detail;
   final Package? package;
   final bool active;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -150,8 +158,17 @@ class _PlanCard extends StatelessWidget {
             ),
           ),
           FilledButton(
-            onPressed: active || package == null ? null : () => _buy(context),
-            child: Text(active ? '利用中' : '購入'),
+            onPressed: active || package == null || busy
+                ? null
+                : () => _buy(context),
+            child: Text(
+              active
+                  ? '利用中'
+                  : BillingService.instance.purchasingProductId ==
+                        package?.storeProduct.identifier
+                  ? '処理中…'
+                  : '購入',
+            ),
           ),
         ],
       ),
@@ -160,7 +177,8 @@ class _PlanCard extends StatelessWidget {
 
   Future<void> _buy(BuildContext context) async {
     try {
-      await BillingService.instance.purchase(package!);
+      final started = await BillingService.instance.purchase(package!);
+      if (!started || !context.mounted) return;
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,

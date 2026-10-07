@@ -238,6 +238,7 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
   Future<void> _importUrl(BuildContext context) async {
     final input = TextEditingController();
     final rawUrl = await showDialog<String>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('投稿URLから取り込む'),
@@ -270,6 +271,7 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
     final existing = controller.existingRecipeForUrl(rawUrl);
     if (existing != null) {
       final openExisting = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('この投稿は保存済みです'),
@@ -304,6 +306,7 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
             active.status == RecipeImportStatus.failed ||
             active.status == RecipeImportStatus.retryWaiting;
         final retry = await showDialog<bool>(
+          barrierDismissible: false,
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: Text(

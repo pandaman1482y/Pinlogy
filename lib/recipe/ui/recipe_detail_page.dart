@@ -427,6 +427,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Future<void> _reanalyzeRecipe(BuildContext context, Recipe recipe) async {
     final controller = RecipeScope.of(context);
     final confirmed = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('この投稿を再解析しますか？'),
@@ -519,6 +520,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     final note = TextEditingController();
     var rating = 4;
     final accepted = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (_, setDialogState) => AlertDialog(
@@ -573,6 +575,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
   Future<void> _deleteRecipe(BuildContext context, Recipe recipe) async {
     final accepted = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('レシピを削除しますか？'),

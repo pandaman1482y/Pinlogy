@@ -201,6 +201,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     final name = TextEditingController();
     final quantity = TextEditingController();
     final accepted = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('材料を追加'),
@@ -319,6 +320,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
   Future<String?> _askText(String title, String hint, {String? initial}) async {
     final controller = TextEditingController(text: initial);
     final result = await showDialog<String>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
