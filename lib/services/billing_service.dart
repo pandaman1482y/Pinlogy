@@ -154,6 +154,7 @@ class BillingService extends ChangeNotifier {
       if (previousRevenueCatUserId != userId) {
         await Purchases.logIn(userId);
       }
+      await Purchases.setAttributes({'supabase_user_id': userId});
     } else if (configured &&
         userId == null &&
         previousRevenueCatUserId != null) {
