@@ -60,7 +60,10 @@ Deno.serve(async (request) => {
     }
     return reply({ received: true });
   } catch (error) {
-    console.error("revenuecat_webhook_failed", String(error));
+    console.error(
+      "revenuecat_webhook_failed",
+      JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    );
     if (savedEventId) {
       await adminClient().from("revenuecat_webhook_events").delete()
         .eq("event_id", savedEventId);
