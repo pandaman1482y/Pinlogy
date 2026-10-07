@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
 import '../../core/theme.dart';
@@ -106,9 +107,9 @@ class BillingPage extends StatelessWidget {
         ).showSnackBar(const SnackBar(content: Text('購入情報を復元しました')));
     } catch (error) {
       if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('復元できませんでした: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('購入情報を復元できませんでした。時間をおいてもう一度お試しください。')),
+        );
     }
   }
 }
@@ -160,15 +161,24 @@ class _PlanCard extends StatelessWidget {
   Future<void> _buy(BuildContext context) async {
     try {
       await BillingService.instance.purchase(package!);
-      if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('購入が完了しました')));
-    } catch (error) {
-      if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('購入を完了できませんでした: $error')));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('購入が完了しました')));
+    } on PlatformException catch (error) {
+      final errorCode = PurchasesErrorHelper.getErrorCode(error);
+      if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
+        return;
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('購入を完了できませんでした。時間をおいてもう一度お試しください。')),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('購入を完了できませんでした。時間をおいてもう一度お試しください。')),
+      );
     }
   }
 }
