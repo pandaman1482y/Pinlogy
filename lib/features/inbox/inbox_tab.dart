@@ -448,6 +448,7 @@ class _InboxTabState extends State<InboxTab> {
   Future<void> _deleteSelected(BuildContext context) async {
     final count = _selectedPostIds.length;
     final approved = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('$count件を削除しますか？'),
@@ -529,6 +530,7 @@ class _InboxTabState extends State<InboxTab> {
 
   Future<bool> _confirmDelete(BuildContext context, SourcePost post) async {
     final ok = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('受信箱から削除しますか？'),
@@ -742,6 +744,7 @@ class _InboxTabState extends State<InboxTab> {
     final textController = TextEditingController(text: post.userMemo ?? '');
     try {
       final body = await showDialog<String>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('投稿文を補足'),

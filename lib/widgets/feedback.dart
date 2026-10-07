@@ -33,6 +33,7 @@ Future<void> showMessageDetails(
 }) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await showDialog<void>(
+    barrierDismissible: false,
     context: context,
     builder: (dialogContext) => AlertDialog(
       scrollable: true,

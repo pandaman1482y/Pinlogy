@@ -92,6 +92,7 @@ class PlanDetailPage extends StatelessWidget {
                   await _editPlan(context, plan!);
                 } else if (value == 'delete') {
                   final ok = await showDialog<bool>(
+                    barrierDismissible: false,
                     context: context,
                     builder: (ctx) => AlertDialog(
                       title: const Text('プランを削除しますか？'),
@@ -904,6 +905,7 @@ class _PlanMapPageState extends State<PlanMapPage> {
     if (!allowed && mounted) {
       allowed =
           await showDialog<bool>(
+            barrierDismissible: false,
             context: context,
             builder: (ctx) => AlertDialog(
               icon: const Icon(Icons.privacy_tip_outlined),

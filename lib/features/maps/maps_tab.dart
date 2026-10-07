@@ -347,6 +347,7 @@ class MapsTab extends StatelessWidget {
     var screenshotRequested = false;
     try {
       final query = await showDialog<String>(
+        barrierDismissible: false,
         context: context,
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.add_location_alt_outlined),
@@ -502,6 +503,7 @@ class MapsTab extends StatelessWidget {
     final hintController = TextEditingController();
     try {
       final hint = await showDialog<String>(
+        barrierDismissible: false,
         context: context,
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.auto_awesome_outlined),
@@ -983,6 +985,7 @@ class MapCard extends StatelessWidget {
                   if (!map.isPublic) {
                     approved =
                         await showDialog<bool>(
+                          barrierDismissible: false,
                           context: context,
                           builder: (dialogContext) => AlertDialog(
                             title: const Text('このマップを公開しますか？'),
@@ -1058,6 +1061,7 @@ class MapCard extends StatelessWidget {
               onTap: () async {
                 Navigator.pop(ctx);
                 final ok = await showDialog<bool>(
+                  barrierDismissible: false,
                   context: context,
                   builder: (dCtx) => AlertDialog(
                     title: const Text('マップを削除しますか？'),
@@ -1581,6 +1585,7 @@ class _MapScreenState extends State<MapScreen> {
     var note = '';
     try {
       final ok = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('ここにピンを追加'),

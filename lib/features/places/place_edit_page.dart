@@ -317,6 +317,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                       ? null
                       : () async {
                           final ok = await showDialog<bool>(
+                            barrierDismissible: false,
                             context: context,
                             builder: (ctx) => AlertDialog(
                               title: const Text('マップから外しますか？'),

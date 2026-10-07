@@ -13,6 +13,7 @@ Future<List<String>?> showPostCategoryEditor(
   final controller = TextEditingController();
   try {
     return await showDialog<List<String>>(
+      barrierDismissible: false,
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {

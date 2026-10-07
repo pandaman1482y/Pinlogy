@@ -173,6 +173,7 @@ class PlaceDetailsSheet extends StatelessWidget {
                 onSelected: (value) async {
                   if (value == 'delete') {
                     final ok = await showDialog<bool>(
+                      barrierDismissible: false,
                       context: context,
                       builder: (ctx) => AlertDialog(
                         title: const Text('場所を削除しますか？'),
@@ -411,6 +412,7 @@ class PlaceDetailsSheet extends StatelessWidget {
     if (!allowed && context.mounted) {
       allowed =
           await showDialog<bool>(
+            barrierDismissible: false,
             context: context,
             builder: (dialogContext) => AlertDialog(
               icon: const Icon(Icons.privacy_tip_outlined),
@@ -446,6 +448,7 @@ class PlaceDetailsSheet extends StatelessWidget {
   Future<void> _sharePlace(BuildContext context, Place place) async {
     final approved =
         await showDialog<bool>(
+          barrierDismissible: false,
           context: context,
           builder: (dialogContext) => AlertDialog(
             icon: const Icon(Icons.share_outlined),
@@ -842,6 +845,7 @@ class _AddPlaceSheet extends StatelessWidget {
     final lngController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('緯度・経度を指定'),
@@ -959,6 +963,7 @@ class _AddPlaceSheet extends StatelessWidget {
     final noteController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('自由なピンを追加'),
@@ -1046,6 +1051,7 @@ class _AddPlaceSheet extends StatelessWidget {
     final textController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('SNSのURLを貼り付け'),
@@ -1080,6 +1086,7 @@ class _AddPlaceSheet extends StatelessWidget {
     final textController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
+        barrierDismissible: false,
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('投稿文を貼り付け'),

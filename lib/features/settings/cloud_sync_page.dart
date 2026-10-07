@@ -443,6 +443,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   Future<void> _sync(BuildContext context) async {
     final approved =
         await showDialog<bool>(
+          barrierDismissible: false,
           context: context,
           builder: (ctx) => AlertDialog(
             icon: const Icon(Icons.cloud_upload_outlined),
@@ -561,6 +562,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
   Future<void> _deleteAccount(BuildContext context) async {
     final approved = await showDialog<bool>(
+      barrierDismissible: false,
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('アカウントを削除しますか？'),

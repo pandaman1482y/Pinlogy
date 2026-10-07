@@ -476,6 +476,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
       if (!resolveAddresses && context.mounted) {
         resolveAddresses =
             await showDialog<bool>(
+              barrierDismissible: false,
               context: context,
               builder: (dialogContext) => AlertDialog(
                 icon: const Icon(Icons.location_searching_outlined),
@@ -621,6 +622,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     );
     try {
       final query = await showDialog<String>(
+        barrierDismissible: false,
         context: context,
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(Icons.location_searching_rounded),
