@@ -19,6 +19,12 @@ class BillingPage extends StatelessWidget {
     builder: (context, _) {
       final billing = BillingService.instance;
       final status = billing.status;
+      final subscriptionActive = status?.subscribed == true;
+      final includedLabel = switch (status?.plan) {
+        'monthly' => '月額プラン分',
+        'annual' => '年額プラン分',
+        _ => '無料枠',
+      };
       return Scaffold(
         appBar: AppBar(title: const Text('利用プラン')),
         body: RefreshIndicator(
@@ -40,11 +46,18 @@ class BillingPage extends StatelessWidget {
                           ? '無料プラン（解析あと0回）'
                           : _planLabel(status.plan),
                     ),
-                    if ((status?.bonusCredits ?? 0) > 0)
-                      Text(
-                        '追加購入分 ${status!.bonusCredits}回を含みます',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+                    _BalanceRow(
+                      label: includedLabel,
+                      value: status?.includedRemaining ?? 0,
+                    ),
+                    const SizedBox(height: 6),
+                    _BalanceRow(
+                      label: '追加購入分',
+                      value: status?.bonusCredits ?? 0,
+                    ),
                   ],
                 ),
               ),
@@ -57,6 +70,7 @@ class BillingPage extends StatelessWidget {
                 detail: '毎月30回まで解析',
                 package: billing.packageFor(monthlyId),
                 active: status?.plan == 'monthly',
+                disabled: subscriptionActive && status?.plan != 'monthly',
                 busy: billing.transactionInProgress,
               ),
               _PlanCard(
@@ -65,6 +79,7 @@ class BillingPage extends StatelessWidget {
                 detail: '毎月30回まで解析',
                 package: billing.packageFor(annualId),
                 active: status?.plan == 'annual',
+                disabled: subscriptionActive && status?.plan != 'annual',
                 busy: billing.transactionInProgress,
               ),
               _PlanCard(
@@ -73,6 +88,7 @@ class BillingPage extends StatelessWidget {
                 detail: '使い切り・有効期限なし',
                 package: billing.packageFor(creditsId),
                 active: false,
+                disabled: false,
                 busy: billing.transactionInProgress,
               ),
               const SizedBox(height: 8),
@@ -120,6 +136,29 @@ class BillingPage extends StatelessWidget {
   }
 }
 
+class _BalanceRow extends StatelessWidget {
+  const _BalanceRow({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+      ),
+      Text(
+        '$value回',
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: mossDeep,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+}
+
 class _PlanCard extends StatelessWidget {
   const _PlanCard({
     required this.title,
@@ -127,6 +166,7 @@ class _PlanCard extends StatelessWidget {
     required this.detail,
     required this.package,
     required this.active,
+    required this.disabled,
     required this.busy,
   });
   final String title;
@@ -134,6 +174,7 @@ class _PlanCard extends StatelessWidget {
   final String detail;
   final Package? package;
   final bool active;
+  final bool disabled;
   final bool busy;
 
   @override
@@ -158,12 +199,14 @@ class _PlanCard extends StatelessWidget {
             ),
           ),
           FilledButton(
-            onPressed: active || package == null || busy
+            onPressed: active || disabled || package == null || busy
                 ? null
                 : () => _buy(context),
             child: Text(
               active
                   ? '利用中'
+                  : disabled
+                  ? '購入不可'
                   : BillingService.instance.purchasingProductId ==
                         package?.storeProduct.identifier
                   ? '処理中…'
