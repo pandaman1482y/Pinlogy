@@ -296,6 +296,8 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   StreamSubscription<AnalysisFailureEvent>? _failureSubscription;
   bool _duplicateDialogVisible = false;
   bool _failureDialogVisible = false;
+  bool _failureReplayStarted = false;
+  String? _activeFailureJobId;
   final List<DuplicateShareEvent> _pendingDuplicateEvents = [];
   final List<AnalysisFailureEvent> _pendingFailureEvents = [];
 
@@ -330,6 +332,17 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     _failureSubscription ??= analysisFailureEvents.listen(
       _enqueueAnalysisFailure,
     );
+    if (!_failureReplayStarted) {
+      _failureReplayStarted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(
+          RecipeScope.read(
+            context,
+          ).legacy.analysisRunner.replayUnacknowledgedFailures(),
+        );
+      });
+    }
   }
 
   @override
@@ -366,7 +379,10 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
   }
 
   void _enqueueAnalysisFailure(AnalysisFailureEvent event) {
-    _pendingFailureEvents.add(event);
+    final alreadyQueued =
+        _activeFailureJobId == event.jobId ||
+        _pendingFailureEvents.any((value) => value.jobId == event.jobId);
+    if (!alreadyQueued) _pendingFailureEvents.add(event);
     if (!_failureDialogVisible && !_duplicateDialogVisible) {
       unawaited(_drainAnalysisFailures());
     }
@@ -376,9 +392,13 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
     _failureDialogVisible = true;
     try {
       while (mounted && _pendingFailureEvents.isNotEmpty) {
-        await _showAnalysisFailure(_pendingFailureEvents.removeAt(0));
+        final event = _pendingFailureEvents.removeAt(0);
+        _activeFailureJobId = event.jobId;
+        await _showAnalysisFailure(event);
+        _activeFailureJobId = null;
       }
     } finally {
+      _activeFailureJobId = null;
       _failureDialogVisible = false;
       if (mounted && _pendingDuplicateEvents.isNotEmpty) {
         unawaited(_drainDuplicateShares());
@@ -419,6 +439,7 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
         ],
       ),
     );
+    await acknowledgeAnalysisFailure(event.jobId);
     if (!mounted) return;
     if (action == 'billing') {
       await Navigator.of(

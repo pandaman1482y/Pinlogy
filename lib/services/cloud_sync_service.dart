@@ -58,6 +58,11 @@ class CloudSyncService {
   bool get isConfigured => url.startsWith('https://') && anonKey.isNotEmpty;
   SupabaseClient get _client => Supabase.instance.client;
   User? get user => _initialized ? _client.auth.currentUser : null;
+  String get displayName {
+    final value = user?.userMetadata?['full_name']?.toString().trim() ?? '';
+    return value.isEmpty ? 'ユーザー' : value;
+  }
+
   String? get accessToken =>
       _initialized ? _client.auth.currentSession?.accessToken : null;
   bool get hasRecoverableAccount => user?.email?.isNotEmpty == true;
@@ -147,6 +152,24 @@ class CloudSyncService {
   Future<void> signIn(String email, String password) async {
     await _initialize();
     await _client.auth.signInWithPassword(email: email, password: password);
+  }
+
+  Future<void> updateDisplayName(String value) async {
+    await _initialize();
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      throw StateError('表示名を入力してください');
+    }
+    if (normalized.runes.length > 20) {
+      throw StateError('表示名は20文字以内で入力してください');
+    }
+    if (_client.auth.currentUser == null ||
+        _client.auth.currentUser?.isAnonymous == true) {
+      throw StateError('表示名の変更にはログインが必要です');
+    }
+    await _client.auth.updateUser(
+      UserAttributes(data: {'full_name': normalized}),
+    );
   }
 
   Future<void> signInWithApple() async {

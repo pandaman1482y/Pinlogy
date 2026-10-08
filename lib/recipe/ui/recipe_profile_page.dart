@@ -55,6 +55,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
         children: [
           _AccountPlanCard(
+            displayName: controller.legacy.cloud.displayName,
             email: user?.email,
             isAnonymous: user?.isAnonymous ?? true,
             recipeCount: controller.savedRecipes.length,
@@ -301,6 +302,14 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('表示名を変更'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _editDisplayName(context);
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.cloud_sync_rounded),
                 title: const Text('今すぐ同期'),
                 onTap: () {
@@ -339,6 +348,68 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
           ),
         ),
       );
+
+  Future<void> _editDisplayName(BuildContext context) async {
+    final cloud = RecipeScope.read(context).legacy.cloud;
+    final controller = TextEditingController(
+      text: cloud.displayName == 'ユーザー' ? '' : cloud.displayName,
+    );
+    String? validationMessage;
+    final value = await showDialog<String>(
+      barrierDismissible: false,
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('表示名を変更'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 20,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: '表示名',
+              hintText: '例：ゆうや',
+              errorText: validationMessage,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final candidate = controller.text.trim();
+                if (candidate.isEmpty) {
+                  setDialogState(() => validationMessage = '表示名を入力してください');
+                  return;
+                }
+                Navigator.pop(dialogContext, candidate);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (value == null || !context.mounted) return;
+    try {
+      await cloud.updateDisplayName(value);
+      if (!context.mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('表示名を変更しました')));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Bad state: ', '')),
+        ),
+      );
+    }
+  }
 
   Future<void> _confirmDeleteAccount(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -518,6 +589,7 @@ class _MenuRow extends StatelessWidget {
 
 class _AccountPlanCard extends StatelessWidget {
   const _AccountPlanCard({
+    required this.displayName,
     required this.email,
     required this.isAnonymous,
     required this.recipeCount,
@@ -526,6 +598,7 @@ class _AccountPlanCard extends StatelessWidget {
     required this.onAccountTap,
     required this.onPlanTap,
   });
+  final String displayName;
   final String? email;
   final bool isAnonymous;
   final int recipeCount;
@@ -571,15 +644,20 @@ class _AccountPlanCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isAnonymous
-                                ? '端末に保存中'
-                                : (email?.trim().isNotEmpty == true
-                                      ? email!
-                                      : 'ログイン済み'),
+                            isAnonymous ? '端末に保存中' : displayName,
                             style: Theme.of(context).textTheme.titleMedium,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),
+                          if (!isAnonymous &&
+                              email?.trim().isNotEmpty == true) ...[
+                            Text(
+                              email!,
+                              style: Theme.of(context).textTheme.bodySmall,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                          ],
                           Text(
                             isAnonymous
                                 ? 'ログインすると端末間で同期できます'

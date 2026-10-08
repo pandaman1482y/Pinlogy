@@ -35,7 +35,7 @@ final _analysisFailureController =
 Stream<AnalysisFailureEvent> get analysisFailureEvents =>
     _analysisFailureController.stream;
 
-const _notifiedFailureJobsKey = 'pinlogy_notified_failure_jobs_v1';
+const _notifiedFailureJobsKey = 'pinlogy_acknowledged_failure_jobs_v2';
 const _maxNotifiedFailureJobs = 100;
 final Set<String> _notifyingFailureJobs = {};
 
@@ -46,13 +46,9 @@ Future<void> _notifyAnalysisFailure(AnalysisJob job, String message) async {
   }
   try {
     final preferences = await SharedPreferences.getInstance();
-    final notified = preferences.getStringList(_notifiedFailureJobsKey) ?? [];
-    if (notified.contains(job.id)) return;
-    notified.add(job.id);
-    if (notified.length > _maxNotifiedFailureJobs) {
-      notified.removeRange(0, notified.length - _maxNotifiedFailureJobs);
-    }
-    await preferences.setStringList(_notifiedFailureJobsKey, notified);
+    final acknowledged =
+        preferences.getStringList(_notifiedFailureJobsKey) ?? [];
+    if (acknowledged.contains(job.id)) return;
   } catch (_) {
     // 保存に失敗しても、新しい解析失敗自体は通知する。
   } finally {
@@ -66,6 +62,25 @@ Future<void> _notifyAnalysisFailure(AnalysisJob job, String message) async {
       message: message,
     ),
   );
+}
+
+Future<void> acknowledgeAnalysisFailure(String jobId) async {
+  try {
+    final preferences = await SharedPreferences.getInstance();
+    final acknowledged =
+        preferences.getStringList(_notifiedFailureJobsKey) ?? [];
+    if (acknowledged.contains(jobId)) return;
+    acknowledged.add(jobId);
+    if (acknowledged.length > _maxNotifiedFailureJobs) {
+      acknowledged.removeRange(
+        0,
+        acknowledged.length - _maxNotifiedFailureJobs,
+      );
+    }
+    await preferences.setStringList(_notifiedFailureJobsKey, acknowledged);
+  } catch (_) {
+    // 確認状態を保存できなくても、解析結果や画面操作は継続する。
+  }
 }
 
 Future<void> _allowFailureNotification(String jobId) async {
@@ -594,6 +609,19 @@ class AnalysisRunner {
 
   final LocalRepositoryHub hub;
   final PostAnalysisService analysisService;
+
+  Future<void> replayUnacknowledgedFailures() async {
+    final jobs = await hub.analysis.getAll();
+    for (final job in jobs) {
+      if (job.status != AnalysisJobStatus.failed &&
+          job.status != AnalysisJobStatus.cancelled) {
+        continue;
+      }
+      final message = job.errorMessage?.trim();
+      if (message == null || message.isEmpty) continue;
+      await _notifyAnalysisFailure(job, message);
+    }
+  }
 
   Future<void> cancelJob(String jobId) async {
     final jobs = await hub.analysis.getAll();
