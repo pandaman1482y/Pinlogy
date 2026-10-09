@@ -156,7 +156,9 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
           if (notificationToken != null && notificationToken.isNotEmpty) {
             await shareIntake.bridge.configureBackgroundIntake(
               supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
-              supabaseAnonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+              supabaseAnonKey: const String.fromEnvironment(
+                'SUPABASE_ANON_KEY',
+              ),
               notificationEnabled: notification.enabled,
               notificationToken: notificationToken,
             );
