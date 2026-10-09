@@ -9,6 +9,7 @@ import '../../services/notification_service.dart';
 import 'billing_page.dart';
 import '../../services/billing_service.dart';
 import '../../services/cloud_sync_service.dart';
+import '../../services/ai_analysis_consent.dart';
 import '../../services/legal_consent_service.dart';
 import 'legal_document_page.dart';
 
@@ -123,6 +124,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
           const SizedBox(height: 8),
           _GroupedCard(
             children: [
+              const _AiAnalysisConsentTile(),
               _MenuRow(
                 icon: Icons.health_and_safety_outlined,
                 title: 'アレルギー・苦手な食材',
@@ -721,6 +723,65 @@ class _TestEmailCredentials {
 
   final String email;
   final String password;
+}
+
+class _AiAnalysisConsentTile extends StatefulWidget {
+  const _AiAnalysisConsentTile();
+
+  @override
+  State<_AiAnalysisConsentTile> createState() => _AiAnalysisConsentTileState();
+}
+
+class _AiAnalysisConsentTileState extends State<_AiAnalysisConsentTile> {
+  bool? _enabled;
+  bool _updating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final enabled = await AiAnalysisConsent().hasConsented();
+    if (mounted) setState(() => _enabled = enabled);
+  }
+
+  Future<void> _setEnabled(bool enabled) async {
+    if (_updating) return;
+    setState(() {
+      _updating = true;
+      _enabled = enabled;
+    });
+    try {
+      await AiAnalysisConsent().setConsented(enabled);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(enabled ? 'AI解析をオンにしました' : 'AI解析をオフにしました')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _enabled = !enabled);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('AI解析設定を更新できませんでした')));
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
+    secondary: const SizedBox(
+      width: 24,
+      child: Icon(Icons.auto_awesome_outlined, color: mossDeep, size: 23),
+    ),
+    title: const Text('AI解析を利用する'),
+    subtitle: const Text('投稿の文章・画像などをAI解析に送信します'),
+    value: _enabled ?? false,
+    onChanged: _enabled == null || _updating ? null : _setEnabled,
+  );
 }
 
 class _GroupedCard extends StatelessWidget {
