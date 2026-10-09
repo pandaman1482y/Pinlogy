@@ -256,6 +256,8 @@ class RecipeController extends ChangeNotifier {
       );
     } catch (error) {
       debugPrint('billing_identity_sync_failed $error');
+    } finally {
+      await legacy.configureShareBackgroundIntake();
     }
   }
 

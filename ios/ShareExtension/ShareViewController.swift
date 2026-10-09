@@ -10,6 +10,7 @@ final class ShareViewController: UIViewController {
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private let backendUrlKey = "pinlogy.share_backend_url"
   private let backendAnonKey = "pinlogy.share_backend_anon_key"
+  private let backendAccessTokenKey = "pinlogy.share_backend_access_token"
   private let notificationEnabledKey = "pinlogy.share_notification_enabled"
   private let notificationTokenKey = "pinlogy.share_notification_token"
   private let analysisDeviceIdKey = "pinlogy.analysis_device_id"
@@ -129,8 +130,10 @@ final class ShareViewController: UIViewController {
       let defaults = UserDefaults(suiteName: appGroupId),
       let base = defaults.string(forKey: backendUrlKey),
       let key = defaults.string(forKey: backendAnonKey),
+      let accessToken = defaults.string(forKey: backendAccessTokenKey),
       !base.isEmpty,
       !key.isEmpty,
+      !accessToken.isEmpty,
       let endpoint = URL(
         string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
           + "/functions/v1/enqueue-analysis"
@@ -161,7 +164,7 @@ final class ShareViewController: UIViewController {
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = 15
-    request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue(key, forHTTPHeaderField: "apikey")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue(deviceId, forHTTPHeaderField: "X-Pinlogy-Device")

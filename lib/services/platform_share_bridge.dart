@@ -24,6 +24,7 @@ class PlatformShareBridge {
   Future<void> configureBackgroundIntake({
     required String supabaseUrl,
     required String supabaseAnonKey,
+    String? supabaseAccessToken,
     bool? notificationEnabled,
     String? notificationToken,
   }) async {
@@ -33,6 +34,7 @@ class PlatformShareBridge {
       await _channel.invokeMethod<void>('configureBackgroundIntake', {
         'supabaseUrl': supabaseUrl,
         'supabaseAnonKey': supabaseAnonKey,
+        'supabaseAccessToken': supabaseAccessToken ?? '',
         if (notificationEnabled != null)
           'notificationEnabled': notificationEnabled,
         if (notificationToken != null && notificationToken.isNotEmpty)

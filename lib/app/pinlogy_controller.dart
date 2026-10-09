@@ -143,27 +143,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       });
       // ネイティブ共有の待ちで起動をブロックしない
       if (enablePlatformShare) {
-        unawaited(() async {
-          final notification = PinlogyNotificationService.instance;
-          // FCMトークンはAPNs登録後まで取得できないことがある。まずバックエンド
-          // 設定だけを即時保存し、共有直後から画像取得・解析を開始可能にする。
-          await shareIntake.bridge.configureBackgroundIntake(
-            supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
-            supabaseAnonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-            notificationEnabled: notification.enabled,
-          );
-          final notificationToken = await notification.tokenForAnalysis();
-          if (notificationToken != null && notificationToken.isNotEmpty) {
-            await shareIntake.bridge.configureBackgroundIntake(
-              supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
-              supabaseAnonKey: const String.fromEnvironment(
-                'SUPABASE_ANON_KEY',
-              ),
-              notificationEnabled: notification.enabled,
-              notificationToken: notificationToken,
-            );
-          }
-        }());
+        unawaited(configureShareBackgroundIntake());
         unawaited(shareIntake.start());
         unawaited(_repairMissingThumbnails(preferences));
       }
@@ -174,6 +154,19 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       loading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> configureShareBackgroundIntake() async {
+    if (!enablePlatformShare) return;
+    final notification = PinlogyNotificationService.instance;
+    final notificationToken = await notification.tokenForAnalysis();
+    await shareIntake.bridge.configureBackgroundIntake(
+      supabaseUrl: const String.fromEnvironment('SUPABASE_URL'),
+      supabaseAnonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+      supabaseAccessToken: cloud.accessToken,
+      notificationEnabled: notification.enabled,
+      notificationToken: notificationToken,
+    );
   }
 
   Future<void> _resumeProcessingAnalyses() async {

@@ -9,6 +9,7 @@ import UIKit
   private let pendingQueueKey = "pinlogy.pending_share_queue_v1"
   private let backendUrlKey = "pinlogy.share_backend_url"
   private let backendAnonKey = "pinlogy.share_backend_anon_key"
+  private let backendAccessTokenKey = "pinlogy.share_backend_access_token"
   private let notificationEnabledKey = "pinlogy.share_notification_enabled"
   private let notificationTokenKey = "pinlogy.share_notification_token"
   private var methodChannel: FlutterMethodChannel?
@@ -86,6 +87,11 @@ import UIKit
         }
         if let value = values["supabaseAnonKey"] as? String, !value.isEmpty {
           defaults.set(value, forKey: self.backendAnonKey)
+        }
+        if let value = values["supabaseAccessToken"] as? String, !value.isEmpty {
+          defaults.set(value, forKey: self.backendAccessTokenKey)
+        } else {
+          defaults.removeObject(forKey: self.backendAccessTokenKey)
         }
         if let value = values["notificationEnabled"] as? Bool {
           defaults.set(value, forKey: self.notificationEnabledKey)
