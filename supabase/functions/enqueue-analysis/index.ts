@@ -1436,10 +1436,20 @@ async function trialIdentityHashes(db: ReturnType<typeof createClient>, userId: 
   const values = (data.user.identities ?? []).flatMap((identity) => {
     const provider = String(identity.provider ?? "").toLowerCase();
     const id = String(identity.identity_id ?? identity.id ?? "").trim();
-    return ["apple", "google"].includes(provider) && id ? [`${provider}:${id}`] : [];
+    return ["apple", "google"].includes(provider) && id
+      ? [`${provider}:${id}`]
+      : [];
   });
+
+  const confirmedEmail = data.user.email_confirmed_at
+    ? String(data.user.email ?? "").trim().toLowerCase()
+    : "";
+  if (confirmedEmail) {
+    values.push(`email:${confirmedEmail}`);
+  }
+
   if (values.length === 0) throw new Error("verified_identity_required");
-  return Promise.all(values.map(hmacIdentity));
+  return Promise.all([...new Set(values)].map(hmacIdentity));
 }
 
 async function hmacIdentity(value: string) {
