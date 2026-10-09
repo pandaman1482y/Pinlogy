@@ -24,6 +24,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.16.0
   share_plus: ^13.3.0
   image_picker: ^1.2.3
+  image: ^4.5.4
   app_links: ^7.0.0
   supabase_flutter: ^2.16.0
   sign_in_with_apple: ^8.2.0

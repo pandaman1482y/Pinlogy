@@ -44,6 +44,7 @@ Deno.serve(async (request) => {
     if (prepared.error) throw prepared.error;
     const accountHashes = Array.isArray(prepared.data) ? prepared.data.map(String) : [];
     await removeAnalysisMedia(db, accountHashes);
+    await removeRecipeMedia(db, user.id);
     const deleted = await db.auth.admin.deleteUser(user.id);
     if (deleted.error) throw deleted.error;
     return reply({ deleted: true });
@@ -108,6 +109,25 @@ async function removeAnalysisMedia(db: ReturnType<typeof createClient>, accountH
       for (const file of files.data ?? []) paths.push(`${accountHash}/${job.name}/${file.name}`);
     }
     if (paths.length > 0) await db.storage.from("recipe-analysis-media").remove(paths);
+  }
+}
+
+async function removeRecipeMedia(db: ReturnType<typeof createClient>, userId: string) {
+  const paths: string[] = [];
+  const prefixes = await db.storage.from("recipe-user-media").list(userId, { limit: 1000 });
+  if (prefixes.error) return;
+  for (const prefix of prefixes.data ?? []) {
+    if (prefix.id) {
+      paths.push(`${userId}/${prefix.name}`);
+      continue;
+    }
+    const files = await db.storage.from("recipe-user-media").list(`${userId}/${prefix.name}`, { limit: 1000 });
+    for (const file of files.data ?? []) {
+      if (file.id) paths.push(`${userId}/${prefix.name}/${file.name}`);
+    }
+  }
+  for (let index = 0; index < paths.length; index += 100) {
+    await db.storage.from("recipe-user-media").remove(paths.slice(index, index + 100));
   }
 }
 

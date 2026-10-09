@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -69,6 +70,11 @@ class RecipeController extends ChangeNotifier {
   bool _syncing = false;
   bool _syncAgain = false;
   bool _disposed = false;
+  bool _switchingIdentity = false;
+  String? _activeOwnerId;
+  Timer? _cloudSaveTimer;
+  bool _cloudSaveRunning = false;
+  bool _cloudSaveAgain = false;
   StreamSubscription<void>? _authSubscription;
 
   List<Recipe> get savedRecipes =>
@@ -92,9 +98,10 @@ class RecipeController extends ChangeNotifier {
       legacy.analysisService is AiPostAnalysisService &&
       AiPostAnalysisService.backendConfigured;
 
-  Future<void> clearAfterAccountDeletion() async {
+  Future<void> clearAfterAccountDeletion({String? deletedUserId}) async {
+    await store.clear(ownerId: deletedUserId ?? _activeOwnerId);
+    _activeOwnerId = null;
     snapshot = RecipeSnapshot();
-    await store.save(snapshot);
     notifyListeners();
   }
 
@@ -164,14 +171,25 @@ class RecipeController extends ChangeNotifier {
     loadError = null;
     notifyListeners();
     try {
-      snapshot = await store.load();
       legacy.addListener(_onLegacyChanged);
       if (legacy.cloud.isConfigured) {
+        await legacy.cloud.prepareAuth();
+        final current = legacy.cloud.user;
+        _activeOwnerId = current != null && !current.isAnonymous
+            ? current.id
+            : null;
+        snapshot = await store.load(
+          ownerId: _activeOwnerId,
+          migrateLegacy: _activeOwnerId != null,
+        );
         _authSubscription = legacy.cloud.watchAuthChanges().listen(
           (_) => _onAuthChanged(),
           onError: (_) {},
         );
         await _syncBillingIdentity();
+        if (_activeOwnerId != null) await syncCloud();
+      } else {
+        snapshot = await store.load();
       }
       await syncFromIntake();
     } catch (error) {
@@ -183,14 +201,47 @@ class RecipeController extends ChangeNotifier {
   }
 
   void _onLegacyChanged() {
-    unawaited(syncFromIntake());
+    if (_activeOwnerId != null && !_switchingIdentity) {
+      unawaited(syncFromIntake());
+    }
   }
 
   void _onAuthChanged() {
     if (_disposed) return;
-    notifyListeners();
-    unawaited(_syncBillingIdentity());
-    if (legacy.cloud.user != null) unawaited(syncCloud());
+    unawaited(_switchAccount());
+  }
+
+  Future<void> _switchAccount() async {
+    if (_switchingIdentity || _disposed) return;
+    _switchingIdentity = true;
+    _cloudSaveTimer?.cancel();
+    try {
+      final current = legacy.cloud.user;
+      final nextOwnerId = current != null && !current.isAnonymous
+          ? current.id
+          : null;
+      if (nextOwnerId == _activeOwnerId) {
+        await _syncBillingIdentity();
+        return;
+      }
+      if (_activeOwnerId != null) {
+        await store.save(snapshot, ownerId: _activeOwnerId);
+      }
+      _activeOwnerId = nextOwnerId;
+      snapshot = await store.load(
+        ownerId: nextOwnerId,
+        migrateLegacy: nextOwnerId != null,
+      );
+      if (!_disposed) notifyListeners();
+      await _syncBillingIdentity();
+      if (nextOwnerId != null) {
+        await syncCloud();
+        await syncFromIntake();
+      }
+    } finally {
+      _switchingIdentity = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> _syncBillingIdentity() async {
@@ -209,6 +260,7 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> syncFromIntake() async {
+    if (legacy.cloud.isConfigured && _activeOwnerId == null) return;
     if (_syncing) {
       _syncAgain = true;
       return;
@@ -258,11 +310,22 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> _performSync() async {
+    final ownerId = _activeOwnerId;
+    if (legacy.cloud.isConfigured && ownerId == null) return;
+    final preferences = await SharedPreferences.getInstance();
     final recipes = List<Recipe>.of(snapshot.recipes);
     final imports = List<RecipeImport>.of(snapshot.imports);
     var changed = false;
 
     for (final post in legacy.hub.snapshot.sourcePosts) {
+      if (ownerId != null) {
+        final sourceOwnerKey = 'recipe_source_owner_v1_${post.id}';
+        final sourceOwner = preferences.getString(sourceOwnerKey);
+        if (sourceOwner != null && sourceOwner != ownerId) continue;
+        if (sourceOwner == null) {
+          await preferences.setString(sourceOwnerKey, ownerId);
+        }
+      }
       final job = legacy.jobForPost(post.id);
       final existingIndex = imports.indexWhere(
         (item) => item.sourcePostId == post.id,
@@ -1082,18 +1145,49 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> syncCloud() async {
-    final rawRemote = await legacy.cloud.loadRecipeSnapshot();
+    final ownerId = _activeOwnerId;
+    if (ownerId == null) return;
+    final rawRemote = await legacy.cloud.loadRecipeSnapshot(ownerId);
     if (rawRemote != null) {
       final remote = RecipeSnapshot.fromJson(rawRemote);
       snapshot = _mergeSnapshots(snapshot, remote);
-      await _persist();
+      await _persist(syncToCloud: false);
     }
-    await legacy.cloud.saveRecipeSnapshot(snapshot.toJson());
+    await legacy.cloud.saveRecipeSnapshot(ownerId, snapshot.toJson());
   }
 
-  Future<void> _persist() async {
-    await store.save(snapshot);
+  Future<void> _persist({bool syncToCloud = true}) async {
+    await store.save(snapshot, ownerId: _activeOwnerId);
     if (!_disposed) notifyListeners();
+    if (syncToCloud && _activeOwnerId != null) _scheduleCloudSave();
+  }
+
+  void _scheduleCloudSave() {
+    _cloudSaveTimer?.cancel();
+    _cloudSaveTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_flushCloudSave());
+    });
+  }
+
+  Future<void> _flushCloudSave() async {
+    if (_cloudSaveRunning) {
+      _cloudSaveAgain = true;
+      return;
+    }
+    final ownerId = _activeOwnerId;
+    if (ownerId == null || _disposed) return;
+    _cloudSaveRunning = true;
+    try {
+      do {
+        _cloudSaveAgain = false;
+        final payload = snapshot.toJson();
+        await legacy.cloud.saveRecipeSnapshot(ownerId, payload);
+      } while (_cloudSaveAgain && ownerId == _activeOwnerId && !_disposed);
+    } catch (error) {
+      debugPrint('recipe_cloud_save_failed $error');
+    } finally {
+      _cloudSaveRunning = false;
+    }
   }
 
   RecipeSnapshot _copySnapshot({
@@ -1119,6 +1213,7 @@ class RecipeController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cloudSaveTimer?.cancel();
     _authSubscription?.cancel();
     legacy.removeListener(_onLegacyChanged);
     super.dispose();

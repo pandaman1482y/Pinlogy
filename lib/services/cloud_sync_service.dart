@@ -9,6 +9,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../models/models.dart';
 import '../repositories/local_repositories.dart';
+import 'cloud_recipe_media_service.dart';
 
 class PublicMapSummary {
   const PublicMapSummary({
@@ -258,7 +259,7 @@ class CloudSyncService {
     await _client.auth.signOut();
   }
 
-  Future<void> deleteAccount() async {
+  Future<String> deleteAccount() async {
     await _initialize();
     final currentUser = _client.auth.currentUser;
     final session = _client.auth.currentSession;
@@ -309,24 +310,41 @@ class CloudSyncService {
       throw StateError('アカウントを削除できませんでした。時間をおいて再度お試しください。');
     }
     await _client.auth.signOut(scope: SignOutScope.local);
+    return currentUser.id;
   }
 
-  Future<Map<String, dynamic>?> loadRecipeSnapshot() async {
-    await connect();
+  Future<Map<String, dynamic>?> loadRecipeSnapshot(String ownerId) async {
+    await _initialize();
+    if (user?.id != ownerId || user?.isAnonymous == true) {
+      throw StateError('ログイン中のアカウントが切り替わりました');
+    }
     final row = await _client
         .from('recipe_snapshots')
         .select('payload')
-        .eq('owner_id', user!.id)
+        .eq('owner_id', ownerId)
         .maybeSingle();
     final payload = row?['payload'];
-    return payload is Map ? Map<String, dynamic>.from(payload) : null;
+    if (payload is! Map) return null;
+    return CloudRecipeMediaService(_client).materializeDownloadedSnapshot(
+      ownerId,
+      Map<String, dynamic>.from(payload),
+    );
   }
 
-  Future<void> saveRecipeSnapshot(Map<String, dynamic> payload) async {
-    await connect();
+  Future<void> saveRecipeSnapshot(
+    String ownerId,
+    Map<String, dynamic> payload,
+  ) async {
+    await _initialize();
+    if (user?.id != ownerId || user?.isAnonymous == true) {
+      throw StateError('ログイン中のアカウントが切り替わりました');
+    }
+    final cloudPayload = await CloudRecipeMediaService(
+      _client,
+    ).prepareSnapshotForUpload(ownerId, payload);
     await _client.from('recipe_snapshots').upsert({
-      'owner_id': user!.id,
-      'payload': payload,
+      'owner_id': ownerId,
+      'payload': cloudPayload,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     });
   }

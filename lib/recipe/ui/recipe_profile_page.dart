@@ -12,6 +12,9 @@ import '../../services/cloud_sync_service.dart';
 import '../../services/legal_consent_service.dart';
 import 'legal_document_page.dart';
 
+const _enableGoogleLogin = bool.fromEnvironment('ENABLE_GOOGLE_LOGIN');
+const _enableTestEmailLogin = bool.fromEnvironment('ENABLE_TEST_EMAIL_LOGIN');
+
 class RecipeProfilePage extends StatefulWidget {
   const RecipeProfilePage({super.key});
 
@@ -261,32 +264,66 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 52,
-                child: OutlinedButton.icon(
-                  onPressed: accepted
-                      ? () {
-                          Navigator.pop(sheetContext);
-                          _signIn(context, apple: false);
-                        }
-                      : null,
-                  icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                  label: const Text('Googleで続ける'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Theme.of(
-                      sheetContext,
-                    ).colorScheme.onSurface,
-                    side: BorderSide(
-                      color: Theme.of(sheetContext).colorScheme.outlineVariant,
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+              if (_enableGoogleLogin) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: accepted
+                        ? () {
+                            Navigator.pop(sheetContext);
+                            _signIn(context, apple: false);
+                          }
+                        : null,
+                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                    label: const Text('Googleで続ける'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        sheetContext,
+                      ).colorScheme.onSurface,
+                      side: BorderSide(
+                        color: Theme.of(
+                          sheetContext,
+                        ).colorScheme.outlineVariant,
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
+              if (_enableTestEmailLogin) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: accepted
+                        ? () {
+                            Navigator.pop(sheetContext);
+                            _showTestEmailLogin(context);
+                          }
+                        : null,
+                    icon: const Icon(Icons.science_outlined),
+                    label: const Text('テスト用メールでログイン'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        sheetContext,
+                      ).colorScheme.onSurface,
+                      side: BorderSide(
+                        color: Theme.of(
+                          sheetContext,
+                        ).colorScheme.outlineVariant,
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -320,7 +357,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
               ListTile(
                 leading: const Icon(Icons.logout_rounded),
                 title: const Text('ログアウト'),
-                subtitle: const Text('端末内のレシピは残ります'),
+                subtitle: const Text('この端末での表示を終了します。再ログインすると復元できます'),
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   await RecipeScope.read(context).legacy.cloud.signOut();
@@ -451,8 +488,8 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
       ),
     );
     try {
-      await controller.legacy.cloud.deleteAccount();
-      await controller.clearAfterAccountDeletion();
+      final deletedUserId = await controller.legacy.cloud.deleteAccount();
+      await controller.clearAfterAccountDeletion(deletedUserId: deletedUserId);
       await BillingService.instance.syncAuthenticatedUser();
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -496,6 +533,171 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
     }
   }
 
+  Future<void> _showTestEmailLogin(BuildContext context) async {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    String? validationMessage;
+    var obscurePassword = true;
+    final credentials = await showDialog<_TestEmailCredentials>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('テスト用メールログイン'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Supabaseで作成したテストユーザーを入力してください。'
+                  '公開版にはこのログイン方法は表示されません。',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const [AutofillHints.username],
+                  decoration: const InputDecoration(
+                    labelText: 'メールアドレス',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const [AutofillHints.password],
+                  onSubmitted: (_) => _submitTestEmailCredentials(
+                    dialogContext,
+                    setDialogState,
+                    emailController,
+                    passwordController,
+                    (message) => validationMessage = message,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'パスワード',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      onPressed: () => setDialogState(
+                        () => obscurePassword = !obscurePassword,
+                      ),
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                    ),
+                  ),
+                ),
+                if (validationMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      validationMessage!,
+                      style: TextStyle(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => _submitTestEmailCredentials(
+                dialogContext,
+                setDialogState,
+                emailController,
+                passwordController,
+                (message) => validationMessage = message,
+              ),
+              child: const Text('ログイン'),
+            ),
+          ],
+        ),
+      ),
+    );
+    emailController.dispose();
+    passwordController.dispose();
+    if (credentials == null || !context.mounted) return;
+
+    final cloud = RecipeScope.read(context).legacy.cloud;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 18),
+            Expanded(child: Text('ログインしています…')),
+          ],
+        ),
+      ),
+    );
+    try {
+      await cloud.signIn(credentials.email, credentials.password);
+      if (!context.mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      setState(() {});
+      await _loadLastSync();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('テストユーザーでログインしました')));
+    } catch (error) {
+      if (!context.mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_testLoginErrorMessage(error))));
+    }
+  }
+
+  void _submitTestEmailCredentials(
+    BuildContext dialogContext,
+    StateSetter setDialogState,
+    TextEditingController emailController,
+    TextEditingController passwordController,
+    ValueChanged<String?> setValidationMessage,
+  ) {
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+    if (!email.contains('@')) {
+      setDialogState(() => setValidationMessage('メールアドレスを確認してください'));
+      return;
+    }
+    if (password.length < 8) {
+      setDialogState(() => setValidationMessage('パスワードは8文字以上で入力してください'));
+      return;
+    }
+    Navigator.pop(
+      dialogContext,
+      _TestEmailCredentials(email: email, password: password),
+    );
+  }
+
+  String _testLoginErrorMessage(Object error) {
+    final value = error.toString().toLowerCase();
+    if (value.contains('invalid login credentials')) {
+      return 'メールアドレスまたはパスワードが違います';
+    }
+    if (value.contains('email not confirmed')) {
+      return 'メールアドレスが未確認です。Supabaseで確認済みにしてください';
+    }
+    return 'テストユーザーでログインできませんでした';
+  }
+
   Future<void> _syncCloud(BuildContext context) async {
     final controller = RecipeScope.read(context);
     try {
@@ -512,6 +714,13 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
       ).showSnackBar(SnackBar(content: Text('同期できませんでした: $error')));
     }
   }
+}
+
+class _TestEmailCredentials {
+  const _TestEmailCredentials({required this.email, required this.password});
+
+  final String email;
+  final String password;
 }
 
 class _GroupedCard extends StatelessWidget {
