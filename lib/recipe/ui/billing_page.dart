@@ -20,10 +20,10 @@ class BillingPage extends StatelessWidget {
       final billing = BillingService.instance;
       final status = billing.status;
       final subscriptionActive = status?.subscribed == true;
-      final includedLabel = switch (status?.plan) {
+      final planBalanceLabel = switch (status?.plan) {
         'monthly' => '月額プラン分',
         'annual' => '年額プラン分',
-        _ => '無料枠',
+        _ => 'プラン分',
       };
       return Scaffold(
         appBar: AppBar(title: const Text('利用プラン')),
@@ -50,8 +50,13 @@ class BillingPage extends StatelessWidget {
                     const Divider(height: 1),
                     const SizedBox(height: 10),
                     _BalanceRow(
-                      label: includedLabel,
-                      value: status?.includedRemaining ?? 0,
+                      label: planBalanceLabel,
+                      value: status?.planRemaining ?? 0,
+                    ),
+                    const SizedBox(height: 6),
+                    _BalanceRow(
+                      label: '無料分',
+                      value: status?.freeRemaining ?? 0,
                     ),
                     const SizedBox(height: 6),
                     _BalanceRow(

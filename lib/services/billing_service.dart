@@ -12,27 +12,38 @@ class BillingStatus {
   const BillingStatus({
     required this.plan,
     required this.remaining,
-    required this.includedRemaining,
+    required this.freeRemaining,
+    required this.planRemaining,
     required this.bonusCredits,
     this.expiresAt,
   });
 
   final String plan;
   final int remaining;
-  final int includedRemaining;
+  final int freeRemaining;
+  final int planRemaining;
   final int bonusCredits;
   final DateTime? expiresAt;
   bool get subscribed => plan == 'monthly' || plan == 'annual';
 
-  factory BillingStatus.fromJson(Map<String, dynamic> json) => BillingStatus(
-    plan: json['plan']?.toString() ?? 'free',
-    remaining: int.tryParse('${json['remaining']}') ?? 0,
-    includedRemaining: int.tryParse('${json['included_remaining']}') ?? 0,
-    bonusCredits: int.tryParse('${json['bonus_credits']}') ?? 0,
-    expiresAt: DateTime.tryParse(
-      json['entitlement_expires_at']?.toString() ?? '',
-    ),
-  );
+  factory BillingStatus.fromJson(Map<String, dynamic> json) {
+    final plan = json['plan']?.toString() ?? 'free';
+    final legacyIncluded = int.tryParse('${json['included_remaining']}') ?? 0;
+    return BillingStatus(
+      plan: plan,
+      remaining: int.tryParse('${json['remaining']}') ?? 0,
+      freeRemaining:
+          int.tryParse('${json['free_remaining']}') ??
+          (plan == 'free' ? legacyIncluded : 0),
+      planRemaining:
+          int.tryParse('${json['plan_remaining']}') ??
+          (plan == 'free' ? 0 : legacyIncluded),
+      bonusCredits: int.tryParse('${json['bonus_credits']}') ?? 0,
+      expiresAt: DateTime.tryParse(
+        json['entitlement_expires_at']?.toString() ?? '',
+      ),
+    );
+  }
 }
 
 class BillingService extends ChangeNotifier {
