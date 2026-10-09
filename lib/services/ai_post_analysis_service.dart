@@ -162,7 +162,10 @@ class AiPostAnalysisService implements PostAnalysisService {
       final encodedImages = await _readImages(request.imageUrls);
       final deviceId = await _deviceId();
       final pendingKey = _pendingJobKey(request.sourcePostId);
-      final existingJobId = preferences.getString(pendingKey);
+      final existingJobId = await _readPendingJobId(
+        preferences,
+        request.sourcePostId,
+      );
       http.Response response;
       if (existingJobId != null && existingJobId.isNotEmpty) {
         response = await _waitForRemoteJob(
@@ -357,10 +360,47 @@ class AiPostAnalysisService implements PostAnalysisService {
     }
   }
 
-  static String _pendingJobKey(String sourcePostId) =>
-      'pinlogy_async_analysis_job_v1_$sourcePostId';
-  static String _reanalysisKey(String sourcePostId) =>
-      'pinlogy_explicit_reanalysis_v1_$sourcePostId';
+  String _pendingJobKey(String sourcePostId) {
+    final ownerId = BillingService.instance.authenticatedUserId ?? 'signed-out';
+    return 'pinlogy_async_analysis_job_v2_${ownerId}_$sourcePostId';
+  }
+
+  String _reanalysisKey(String sourcePostId) {
+    final ownerId = BillingService.instance.authenticatedUserId ?? 'signed-out';
+    return 'pinlogy_explicit_reanalysis_v2_${ownerId}_$sourcePostId';
+  }
+
+  List<String> _pendingJobKeys(String sourcePostId) => <String>{
+    _pendingJobKey(sourcePostId),
+    'pinlogy_async_analysis_job_v2_signed-out_$sourcePostId',
+    'pinlogy_async_analysis_job_v1_$sourcePostId',
+  }.toList(growable: false);
+
+  Future<String?> _readPendingJobId(
+    SharedPreferences preferences,
+    String sourcePostId,
+  ) async {
+    final currentKey = _pendingJobKey(sourcePostId);
+    for (final key in _pendingJobKeys(sourcePostId)) {
+      final jobId = preferences.getString(key);
+      if (jobId == null || jobId.isEmpty) continue;
+      if (key != currentKey) {
+        await preferences.setString(currentKey, jobId);
+        await preferences.remove(key);
+      }
+      return jobId;
+    }
+    return null;
+  }
+
+  Future<void> _removePendingJobIds(
+    SharedPreferences preferences,
+    String sourcePostId,
+  ) async {
+    for (final key in _pendingJobKeys(sourcePostId)) {
+      await preferences.remove(key);
+    }
+  }
 
   Future<void> prepareExplicitReanalysis(String sourcePostId) async {
     final preferences = await SharedPreferences.getInstance();
@@ -371,16 +411,15 @@ class AiPostAnalysisService implements PostAnalysisService {
   /// 再利用せず、新しいジョブを登録できるようにする。
   Future<void> clearPendingJob(String sourcePostId) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.remove(_pendingJobKey(sourcePostId));
+    await _removePendingJobIds(preferences, sourcePostId);
   }
 
   /// 端末側の表示だけでなく、実行中のサーバージョブも停止状態へ変更する。
   Future<void> cancelPendingJob(String sourcePostId) async {
     final preferences = await SharedPreferences.getInstance();
-    final key = _pendingJobKey(sourcePostId);
-    final jobId = preferences.getString(key);
+    final jobId = await _readPendingJobId(preferences, sourcePostId);
     if (jobId == null || jobId.isEmpty || !backendConfigured) {
-      await preferences.remove(key);
+      await _removePendingJobIds(preferences, sourcePostId);
       return;
     }
     try {
@@ -403,7 +442,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     } catch (_) {
       // ローカルのキャンセル操作は通信障害時も完了させる。
     } finally {
-      await preferences.remove(key);
+      await _removePendingJobIds(preferences, sourcePostId);
     }
   }
 

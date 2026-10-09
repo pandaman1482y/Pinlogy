@@ -72,6 +72,7 @@ class BillingService extends ChangeNotifier {
   String? _revenueCatUserId;
 
   String? get accessToken => _accessToken;
+  String? get authenticatedUserId => _revenueCatUserId;
   bool get hasAuthenticatedUser =>
       _accessToken?.isNotEmpty == true && _revenueCatUserId != null;
 
