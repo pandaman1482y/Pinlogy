@@ -240,6 +240,12 @@ class RecipeController extends ChangeNotifier {
       }
     } finally {
       _switchingIdentity = false;
+      // 認証同期中に共有取り込みやリモート結果回収が完了すると、
+      // _onLegacyChangedはアカウント切替中のため同期を保留する。
+      // 切替完了後に必ず再同期し、解析結果をアカウント別一覧へ反映する。
+      if (_activeOwnerId != null && !_disposed) {
+        await syncFromIntake();
+      }
       if (!_disposed) notifyListeners();
     }
   }
@@ -258,6 +264,9 @@ class RecipeController extends ChangeNotifier {
       debugPrint('billing_identity_sync_failed $error');
     } finally {
       await legacy.configureShareBackgroundIntake();
+      // 認証トークンをShare Extensionへ渡した後に、未回収の共有と
+      // このアカウントの差分結果をバックグラウンドで同期する。
+      unawaited(legacy.refreshRemoteAnalyses());
     }
   }
 
@@ -278,13 +287,23 @@ class RecipeController extends ChangeNotifier {
     }
   }
 
+  /// 画面の手動更新用。全件ではなく前回同期以降の差分だけを取得する。
+  Future<void> refreshFromServer() async {
+    await legacy.refreshRemoteAnalyses();
+    await syncFromIntake();
+  }
+
   /// 完了通知のタップ時に、既存ジョブの最新結果を回収して同期する。
   /// pending/processing中の既存ジョブだけを確認し、新規ジョブは作らない。
   Future<void> refreshCompletedImport(String? sourcePostId) async {
     if (sourcePostId == null || sourcePostId.isEmpty) {
-      await syncFromIntake();
+      await refreshFromServer();
       return;
     }
+    // 通知対象の1件を先に回収する。Share Extensionだけで登録され、
+    // ローカル投稿がまだ存在しない場合もここで一覧へ復元する。
+    await legacy.refreshRemoteAnalyses(sourcePostId: sourcePostId);
+    await syncFromIntake();
     // 通知配信と結果DB反映にはわずかな順序差があり得るため、通知タップ時は
     // 新規ジョブを作らず、既存ジョブだけを短時間再確認する。
     for (var attempt = 0; attempt < 3; attempt++) {

@@ -55,7 +55,7 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: controller.syncFromIntake,
+        onRefresh: controller.refreshFromServer,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [

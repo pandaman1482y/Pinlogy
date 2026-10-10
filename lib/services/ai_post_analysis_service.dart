@@ -26,6 +26,32 @@ class PreviousAnalysisFailedException implements Exception {
   String toString() => message;
 }
 
+class RecoveredAnalysisJob {
+  const RecoveredAnalysisJob({
+    required this.jobId,
+    required this.sourcePostId,
+    required this.status,
+    this.url,
+    this.text,
+    this.service,
+    this.title,
+    this.result,
+    this.errorMessage,
+    this.updatedAt,
+  });
+
+  final String jobId;
+  final String sourcePostId;
+  final String status;
+  final String? url;
+  final String? text;
+  final String? service;
+  final String? title;
+  final Map<String, dynamic>? result;
+  final String? errorMessage;
+  final DateTime? updatedAt;
+}
+
 /// 明示同意時だけEdge Functionで解析し、未同意・障害時は端末解析へ戻す。
 class AiPostAnalysisService implements PostAnalysisService {
   AiPostAnalysisService({required this.fallback, http.Client? client})
@@ -44,6 +70,93 @@ class AiPostAnalysisService implements PostAnalysisService {
       _url.startsWith('https://') && _key.isNotEmpty;
 
   String get _authorizationToken => BillingService.instance.accessToken ?? _key;
+
+  Future<List<RecoveredAnalysisJob>> recoverRecentJobs({
+    String? sourcePostId,
+    DateTime? updatedAfter,
+  }) async {
+    if (!backendConfigured ||
+        BillingService.instance.authenticatedUserId == null) {
+      return const [];
+    }
+    try {
+      final response = await _client
+          .post(
+            Uri.parse(
+              '${_url.replaceAll(RegExp(r'/$'), '')}/functions/v1/enqueue-analysis',
+            ),
+            headers: {
+              'Authorization': 'Bearer $_authorizationToken',
+              'apikey': _key,
+              'Content-Type': 'application/json',
+              'X-Pinlogy-Device': await _deviceId(),
+            },
+            body: jsonEncode({
+              'action': 'recover',
+              if (sourcePostId?.isNotEmpty == true)
+                'source_post_id': sourcePostId,
+              if (sourcePostId == null && updatedAfter != null)
+                'updated_after': updatedAfter.toUtc().toIso8601String(),
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        debugPrint(
+          'analysis_recovery_http_failed status=${response.statusCode}',
+        );
+        return const [];
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['jobs'] is! List) return const [];
+      return (decoded['jobs'] as List)
+          .whereType<Map>()
+          .map((raw) => Map<String, dynamic>.from(raw))
+          .map(
+            (job) => RecoveredAnalysisJob(
+              jobId: job['job_id']?.toString() ?? '',
+              sourcePostId: job['source_post_id']?.toString() ?? '',
+              status: job['status']?.toString() ?? '',
+              url: job['url']?.toString(),
+              text: job['text']?.toString(),
+              service: job['service']?.toString(),
+              title: job['title']?.toString(),
+              result: job['result'] is Map
+                  ? Map<String, dynamic>.from(job['result'] as Map)
+                  : null,
+              errorMessage: job['error']?.toString(),
+              updatedAt: DateTime.tryParse(job['updated_at']?.toString() ?? ''),
+            ),
+          )
+          .where(
+            (job) =>
+                job.jobId.isNotEmpty &&
+                job.sourcePostId.isNotEmpty &&
+                job.status != 'cancelled',
+          )
+          .toList(growable: false);
+    } catch (error, stackTrace) {
+      debugPrint('analysis_recovery_failed: $error');
+      debugPrintStack(
+        label: 'analysis_recovery_failed',
+        stackTrace: stackTrace,
+      );
+      return const [];
+    }
+  }
+
+  /// recoverで返された署名付き画像を端末へ保存する。
+  Future<List<String>> saveRecoveredImages(
+    String sourcePostId,
+    Map<String, dynamic> result,
+  ) => _savePreviewImages(sourcePostId, result);
+
+  Future<void> rememberRecoveredJob({
+    required String sourcePostId,
+    required String jobId,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_pendingJobKey(sourcePostId), jobId);
+  }
 
   Future<String> askCookingAssistant({
     required String recipeTitle,

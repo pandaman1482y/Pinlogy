@@ -13,6 +13,7 @@ import '../repositories/local_repositories.dart';
 import '../repositories/repository_interfaces.dart';
 import '../services/device_location_service.dart';
 import '../services/ai_post_analysis_service.dart';
+import '../services/billing_service.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/directions_service.dart';
 import '../services/free_place_search_service.dart';
@@ -87,12 +88,15 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   String? loadError;
   bool busy = false;
   final Set<String> _resumingAnalysisJobIds = {};
+  Future<void> _remoteAnalysisRecoveryQueue = Future<void>.value();
   final Set<String> _seenInboxPostIds = {};
   final Set<String> _archivedInboxPostIds = {};
   static const _seenInboxPostIdsKey = 'pinlogy_seen_inbox_post_ids_v1';
   static const _archivedInboxPostIdsKey = 'pinlogy_archived_inbox_post_ids_v1';
   static const _legacyInboxSeenKey = 'pinlogy_inbox_seen_at_v1';
   static const _aiQuotaNoticeDateKey = 'pinlogy_ai_quota_notice_date_v1';
+  static const _analysisRecoveryCursorPrefix =
+      'pinlogy_analysis_recovery_cursor_v1_';
 
   /// 共有保存直後の短い案内。HomeScreen が表示したら消費する。
   String? pendingShareToast;
@@ -149,6 +153,7 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
           // リモートの完了結果を回収する。並列実行すると先に再開処理が
           // 終わり、直後に追加されたジョブが画面へ反映されないことがある。
           await shareIntake.start();
+          await _recoverRemoteAnalyses();
           await _resumeProcessingAnalyses();
           notifyListeners();
         }());
@@ -177,6 +182,16 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
+  /// App Groupの共有キューと、サーバー側で更新された解析だけを回収する。
+  Future<void> refreshRemoteAnalyses({String? sourcePostId}) async {
+    if (enablePlatformShare) {
+      await shareIntake.refreshPendingShares();
+    }
+    await _recoverRemoteAnalyses(sourcePostId: sourcePostId);
+    unawaited(_resumeProcessingAnalyses());
+    notifyListeners();
+  }
+
   Future<void> _resumeProcessingAnalyses() async {
     final processing = hub.snapshot.analysisJobs
         .where(
@@ -196,17 +211,165 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _recoverRemoteAnalyses({String? sourcePostId}) {
+    final next = _remoteAnalysisRecoveryQueue.then(
+      (_) => _performRemoteAnalysisRecovery(sourcePostId: sourcePostId),
+    );
+    _remoteAnalysisRecoveryQueue = next.then<void>((_) {}, onError: (_, _) {});
+    return next;
+  }
+
+  Future<void> _performRemoteAnalysisRecovery({String? sourcePostId}) async {
+    final service = analysisService;
+    if (service is! AiPostAnalysisService) return;
+    final preferences = await SharedPreferences.getInstance();
+    final ownerId = BillingService.instance.authenticatedUserId;
+    final cursorKey =
+        '$_analysisRecoveryCursorPrefix${ownerId ?? 'signed-out'}';
+    final updatedAfter = sourcePostId == null
+        ? DateTime.tryParse(preferences.getString(cursorKey) ?? '')
+        : null;
+    final recovered = await service.recoverRecentJobs(
+      sourcePostId: sourcePostId,
+      updatedAfter: updatedAfter,
+    );
+    var newestProcessedUpdate = updatedAfter;
+    try {
+      for (final remote in recovered.reversed) {
+        var localSourcePostId = remote.sourcePostId;
+        var post = await sourcePosts.getById(localSourcePostId);
+        if (post == null) {
+          final hasContent =
+              remote.url?.trim().isNotEmpty == true ||
+              remote.text?.trim().isNotEmpty == true ||
+              remote.title?.trim().isNotEmpty == true;
+          if (!hasContent) continue;
+          try {
+            post = await shareReceiver.receive(
+              SharedContent(
+                sourcePostId: remote.sourcePostId,
+                remoteAnalysisJobId: remote.jobId,
+                url: remote.url,
+                text: remote.text,
+                service: remote.service,
+                title: remote.title,
+              ),
+              analyze: false,
+            );
+          } on DuplicateShareException catch (duplicate) {
+            post = duplicate.post;
+            localSourcePostId = duplicate.post.id;
+          } catch (error, stackTrace) {
+            debugPrint(
+              'recovered_analysis_source_restore_failed '
+              'source_post_id=${remote.sourcePostId}: $error',
+            );
+            debugPrintStack(
+              label: 'recovered_analysis_source_restore_failed',
+              stackTrace: stackTrace,
+            );
+            continue;
+          }
+        }
+        await service.rememberRecoveredJob(
+          sourcePostId: localSourcePostId,
+          jobId: remote.jobId,
+        );
+        var localJob = await analysis.getBySourcePostId(localSourcePostId);
+        localJob ??= await analysis.enqueue(localSourcePostId);
+
+        // 完了済み結果はrecoverレスポンスから直接ローカルへ保存する。
+        // SharedPreferencesのジョブID移行やstatus再ポーリングに失敗しても、
+        // サーバーに存在する確定結果をレシピ一覧へ反映できる。
+        if (remote.status == 'completed' && remote.result != null) {
+          await analysis.update(
+            localJob.copyWith(
+              status: AnalysisJobStatus.completed,
+              resultJson: jsonEncode(remote.result),
+              errorMessage: null,
+            ),
+          );
+          // 本文を先に一覧へ反映し、画像はバックグラウンドで保存する。
+          unawaited(
+            _restoreRecoveredImages(
+              service: service,
+              sourcePostId: localSourcePostId,
+              result: remote.result!,
+            ),
+          );
+        } else if (remote.status == 'failed') {
+          await analysis.update(
+            localJob.copyWith(
+              status: AnalysisJobStatus.failed,
+              errorMessage: remote.errorMessage ?? '解析を完了できませんでした',
+            ),
+          );
+        } else if (remote.status == 'cancelled') {
+          await analysis.cancel(localJob.id);
+        } else if (localJob.status == AnalysisJobStatus.failed ||
+            localJob.status == AnalysisJobStatus.cancelled) {
+          await analysis.retry(localJob.id);
+        }
+        if (remote.updatedAt != null &&
+            (newestProcessedUpdate == null ||
+                remote.updatedAt!.isAfter(newestProcessedUpdate))) {
+          newestProcessedUpdate = remote.updatedAt;
+        }
+      }
+    } finally {
+      if (sourcePostId == null && newestProcessedUpdate != null) {
+        await preferences.setString(
+          cursorKey,
+          newestProcessedUpdate.toUtc().toIso8601String(),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreRecoveredImages({
+    required AiPostAnalysisService service,
+    required String sourcePostId,
+    required Map<String, dynamic> result,
+  }) async {
+    try {
+      var post = await sourcePosts.getById(sourcePostId);
+      if (post == null) return;
+      var recoveredImages = await service.saveRecoveredImages(
+        sourcePostId,
+        result,
+      );
+      if (recoveredImages.isEmpty &&
+          AiPostAnalysisService.supportsRemotePreviewUrl(post.url)) {
+        recoveredImages = await service.fetchSocialPostPreviews(
+          PostAnalysisRequest(sourcePostId: sourcePostId, url: post.url),
+        );
+      }
+      if (recoveredImages.isEmpty) return;
+      post = await sourcePosts.getById(sourcePostId) ?? post;
+      final mergedImages = <String>{
+        ...post.imagePaths,
+        ...recoveredImages,
+      }.take(SourceMediaStore.maxImages).toList(growable: false);
+      await sourcePosts.update(
+        post.copyWith(
+          imagePaths: mergedImages,
+          thumbnailPath: mergedImages.first,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('recovered_analysis_image_restore_failed: $error');
+      debugPrintStack(
+        label: 'recovered_analysis_image_restore_failed',
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !loading) {
-      unawaited(() async {
-        // Share Extensionは解析登録成功時に本体を開かないため、復帰時に
-        // App Groupの共有キューを明示的に回収してからジョブを再開する。
-        await shareIntake.refreshPendingShares();
-        await _resumeProcessingAnalyses();
-        // RecipeControllerへ完了済みresultJsonの再同期を明示的に通知する。
-        notifyListeners();
-      }());
+      unawaited(refreshRemoteAnalyses());
     }
   }
 

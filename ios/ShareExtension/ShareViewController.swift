@@ -96,11 +96,11 @@ final class ShareViewController: UIViewController {
         }
         return
       }
-      // サーバーへ渡せた場合は本体を起動せず共有元へ戻る。
-      // 未設定・通信失敗時だけ従来どおり本体起動を試す。
-      let opened = payload["remoteAnalysisJobId"] == nil
-        ? await openHostApp()
-        : false
+      // サーバー側のバックグラウンド解析と並行して本体にも共有内容を渡す。
+      // 本体を開かないとローカル投稿・解析中カード・完了結果・画像の保存が
+      // 復元処理まで作られず、起動中の一覧へ即時反映されない。
+      // 起動に失敗してもApp Groupキューとサーバー解析は残るため復元可能。
+      let opened = await openHostApp()
       let queued = payload["remoteAnalysisJobId"] != nil
       let duplicate = payload["duplicateShare"] as? Bool == true
       await MainActor.run {
