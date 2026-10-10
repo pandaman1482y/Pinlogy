@@ -144,10 +144,18 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       // ネイティブ共有の待ちで起動をブロックしない
       if (enablePlatformShare) {
         unawaited(configureShareBackgroundIntake());
-        unawaited(shareIntake.start());
+        unawaited(() async {
+          // App Groupの共有キューを取り込んでローカルジョブを作成してから、
+          // リモートの完了結果を回収する。並列実行すると先に再開処理が
+          // 終わり、直後に追加されたジョブが画面へ反映されないことがある。
+          await shareIntake.start();
+          await _resumeProcessingAnalyses();
+          notifyListeners();
+        }());
         unawaited(_repairMissingThumbnails(preferences));
+      } else {
+        unawaited(_resumeProcessingAnalyses());
       }
-      unawaited(_resumeProcessingAnalyses());
     } catch (error) {
       loadError = toUserMessage(error);
     } finally {
@@ -196,6 +204,8 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
         // App Groupの共有キューを明示的に回収してからジョブを再開する。
         await shareIntake.refreshPendingShares();
         await _resumeProcessingAnalyses();
+        // RecipeControllerへ完了済みresultJsonの再同期を明示的に通知する。
+        notifyListeners();
       }());
     }
   }
