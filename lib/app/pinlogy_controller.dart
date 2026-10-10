@@ -191,7 +191,12 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !loading) {
-      unawaited(_resumeProcessingAnalyses());
+      unawaited(() async {
+        // Share Extensionは解析登録成功時に本体を開かないため、復帰時に
+        // App Groupの共有キューを明示的に回収してからジョブを再開する。
+        await shareIntake.refreshPendingShares();
+        await _resumeProcessingAnalyses();
+      }());
     }
   }
 

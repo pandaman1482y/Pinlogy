@@ -56,7 +56,13 @@ class PlatformShareBridge {
     }
 
     _channel.setMethodCallHandler(_handleMethodCall);
+    await pullPendingShares();
+  }
 
+  /// Share Extensionがバックグラウンド中に保存したキューを取り込む。
+  /// 初回起動だけでなく、アプリがforegroundへ戻るたびに呼び出す。
+  Future<void> pullPendingShares() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     try {
       final initial = await _channel
           .invokeMethod<dynamic>('getInitialSharedMedia')

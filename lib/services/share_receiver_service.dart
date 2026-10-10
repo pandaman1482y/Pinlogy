@@ -837,6 +837,8 @@ class ShareIntakeCoordinator {
     await bridge.attach();
   }
 
+  Future<void> refreshPendingShares() => bridge.pullPendingShares();
+
   Future<void> dispose() async {
     await bridge.detach();
     await _savedController.close();
