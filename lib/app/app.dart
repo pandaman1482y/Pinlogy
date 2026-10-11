@@ -18,6 +18,9 @@ import '../services/legal_consent_service.dart';
 import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 
+const _enableGoogleLogin = bool.fromEnvironment('ENABLE_GOOGLE_LOGIN');
+const _enableTestEmailLogin = bool.fromEnvironment('ENABLE_TEST_EMAIL_LOGIN');
+
 class PinlogyApp extends StatelessWidget {
   const PinlogyApp({super.key});
 
@@ -226,31 +229,63 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 52,
-                      child: OutlinedButton.icon(
-                        onPressed: accepted
-                            ? () => Navigator.pop(dialogContext, 'google')
-                            : null,
-                        icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                        label: const Text('Googleで続ける'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Theme.of(
-                            dialogContext,
-                          ).colorScheme.onSurface,
-                          side: BorderSide(
-                            color: Theme.of(
-                              dialogContext,
-                            ).colorScheme.outlineVariant,
+                    if (_enableGoogleLogin) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 52,
+                        child: OutlinedButton.icon(
+                          onPressed: accepted
+                              ? () => Navigator.pop(dialogContext, 'google')
+                              : null,
+                          icon: const Icon(
+                            Icons.g_mobiledata_rounded,
+                            size: 28,
                           ),
-                          textStyle: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                          label: const Text('Googleで続ける'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Theme.of(
+                              dialogContext,
+                            ).colorScheme.onSurface,
+                            side: BorderSide(
+                              color: Theme.of(
+                                dialogContext,
+                              ).colorScheme.outlineVariant,
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
+                    if (_enableTestEmailLogin) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 52,
+                        child: OutlinedButton.icon(
+                          onPressed: accepted
+                              ? () => Navigator.pop(dialogContext, 'email')
+                              : null,
+                          icon: const Icon(Icons.science_outlined),
+                          label: const Text('テスト用メールでログイン'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Theme.of(
+                              dialogContext,
+                            ).colorScheme.onSurface,
+                            side: BorderSide(
+                              color: Theme.of(
+                                dialogContext,
+                              ).colorScheme.outlineVariant,
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -262,8 +297,12 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
       try {
         if (action == 'apple') {
           await cloud.signInWithApple();
-        } else {
+        } else if (action == 'google') {
           await cloud.signInWithGoogle();
+        } else {
+          final credentials = await _askTestEmailCredentials();
+          if (credentials == null) continue;
+          await cloud.signIn(credentials.email, credentials.password);
         }
         if (mounted && cloud.user != null && cloud.user?.isAnonymous != true) {
           ScaffoldMessenger.of(
@@ -274,12 +313,142 @@ class _RecipeBootstrapScreenState extends State<RecipeBootstrapScreen> {
         // 必須ログインのため、キャンセル時は同じ案内へ戻る。
       } catch (error) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('ログインできませんでした: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              action == 'email'
+                  ? _testEmailLoginErrorMessage(error)
+                  : 'ログインできませんでした。もう一度お試しください。',
+            ),
+          ),
+        );
       }
     }
   }
+
+  Future<_BootstrapEmailCredentials?> _askTestEmailCredentials() async {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    String? validationMessage;
+    var obscurePassword = true;
+    final credentials = await showDialog<_BootstrapEmailCredentials>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('テスト用メールログイン'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Supabaseで作成したテストユーザーを入力してください。'
+                  'この入口はテストビルドでのみ表示されます。',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const [AutofillHints.username],
+                  decoration: const InputDecoration(
+                    labelText: 'メールアドレス',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const [AutofillHints.password],
+                  decoration: InputDecoration(
+                    labelText: 'パスワード',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      onPressed: () => setDialogState(
+                        () => obscurePassword = !obscurePassword,
+                      ),
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                    ),
+                  ),
+                ),
+                if (validationMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      validationMessage!,
+                      style: TextStyle(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final email = emailController.text.trim();
+                final password = passwordController.text;
+                if (!email.contains('@')) {
+                  setDialogState(() => validationMessage = 'メールアドレスを確認してください');
+                  return;
+                }
+                if (password.length < 8) {
+                  setDialogState(
+                    () => validationMessage = 'パスワードは8文字以上で入力してください',
+                  );
+                  return;
+                }
+                Navigator.pop(
+                  dialogContext,
+                  _BootstrapEmailCredentials(email: email, password: password),
+                );
+              },
+              child: const Text('ログイン'),
+            ),
+          ],
+        ),
+      ),
+    );
+    emailController.dispose();
+    passwordController.dispose();
+    return credentials;
+  }
+
+  String _testEmailLoginErrorMessage(Object error) {
+    final value = error.toString().toLowerCase();
+    if (value.contains('invalid login credentials')) {
+      return 'メールアドレスまたはパスワードが違います';
+    }
+    if (value.contains('email not confirmed')) {
+      return 'メールアドレスが未確認です。Supabaseで確認済みにしてください';
+    }
+    return 'テストユーザーでログインできませんでした';
+  }
+}
+
+class _BootstrapEmailCredentials {
+  const _BootstrapEmailCredentials({
+    required this.email,
+    required this.password,
+  });
+
+  final String email;
+  final String password;
 }
 
 class RecipeRootShell extends StatefulWidget {
