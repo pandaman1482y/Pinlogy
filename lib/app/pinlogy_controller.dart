@@ -89,6 +89,9 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
   bool busy = false;
   final Set<String> _resumingAnalysisJobIds = {};
   Future<void> _remoteAnalysisRecoveryQueue = Future<void>.value();
+  List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
+  List<RecoveredAnalysisJob> get activeRemoteAnalyses =>
+      List.unmodifiable(_activeRemoteAnalyses);
   final Set<String> _seenInboxPostIds = {};
   final Set<String> _archivedInboxPostIds = {};
   static const _seenInboxPostIdsKey = 'pinlogy_seen_inbox_post_ids_v1';
@@ -233,6 +236,24 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       sourcePostId: sourcePostId,
       updatedAfter: updatedAfter,
     );
+    if (sourcePostId == null) {
+      _activeRemoteAnalyses = recovered
+          .where((job) => job.status == 'pending' || job.status == 'processing')
+          .toList(growable: false);
+      notifyListeners();
+    } else {
+      final recoveredJob = recovered
+          .where((job) => job.sourcePostId == sourcePostId)
+          .firstOrNull;
+      if (recoveredJob != null &&
+          recoveredJob.status != 'pending' &&
+          recoveredJob.status != 'processing') {
+        _activeRemoteAnalyses = _activeRemoteAnalyses
+            .where((job) => job.sourcePostId != sourcePostId)
+            .toList(growable: false);
+        notifyListeners();
+      }
+    }
     var newestProcessedUpdate = updatedAfter;
     try {
       for (final remote in recovered.reversed) {
@@ -297,6 +318,16 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
               result: remote.result!,
             ),
           );
+        } else if (remote.status == 'processing' ||
+            remote.status == 'pending') {
+          await analysis.update(
+            localJob.copyWith(
+              status: remote.status == 'processing'
+                  ? AnalysisJobStatus.processing
+                  : AnalysisJobStatus.pending,
+              errorMessage: null,
+            ),
+          );
         } else if (remote.status == 'failed') {
           await analysis.update(
             localJob.copyWith(
@@ -334,6 +365,25 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       var post = await sourcePosts.getById(sourcePostId);
       if (post == null) return;
+      // 20枚すべての取得を待たず、先頭画像を一覧へ先に反映する。
+      final coverImages = await service.saveRecoveredCoverImage(
+        sourcePostId,
+        result,
+      );
+      if (coverImages.isNotEmpty) {
+        post = await sourcePosts.getById(sourcePostId) ?? post;
+        final imagesWithCover = <String>{
+          ...coverImages,
+          ...post.imagePaths,
+        }.take(SourceMediaStore.maxImages).toList(growable: false);
+        post = await sourcePosts.update(
+          post.copyWith(
+            imagePaths: imagesWithCover,
+            thumbnailPath: imagesWithCover.first,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
       var recoveredImages = await service.saveRecoveredImages(
         sourcePostId,
         result,

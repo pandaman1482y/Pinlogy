@@ -71,24 +71,82 @@ class RecipeController extends ChangeNotifier {
   bool _syncAgain = false;
   bool _disposed = false;
   bool _switchingIdentity = false;
+  bool _legacySyncPending = false;
   String? _activeOwnerId;
   Timer? _cloudSaveTimer;
   bool _cloudSaveRunning = false;
   bool _cloudSaveAgain = false;
   StreamSubscription<void>? _authSubscription;
+  List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
+
+  void _syncActiveRemoteAnalyses() {
+    _activeRemoteAnalyses = legacy.activeRemoteAnalyses.toList(growable: false);
+  }
 
   List<Recipe> get savedRecipes =>
       snapshot.recipes.where((recipe) => recipe.isSaved).toList();
 
-  List<RecipeImport> get activeImports =>
-      snapshot.imports
-          .where(
-            (item) =>
-                item.status != RecipeImportStatus.completed &&
-                item.status != RecipeImportStatus.cancelled,
-          )
-          .toList()
-        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  List<RecipeImport> get activeImports {
+    final values = snapshot.imports
+        .where(
+          (item) =>
+              item.status != RecipeImportStatus.completed &&
+              item.status != RecipeImportStatus.cancelled,
+        )
+        .toList();
+    final knownSourceIds = values.map((item) => item.sourcePostId).toSet();
+
+    // Repositoryには既に存在するがRecipeSnapshotへの同期がまだ終わって
+    // いないジョブを、その場限りのカードで補完する。正式なimportが作成
+    // されると同じsourcePostIdで置き換わるため、解析処理や永続化は変えない。
+    for (final post in legacy.hub.snapshot.sourcePosts) {
+      if (knownSourceIds.contains(post.id)) continue;
+      final job = legacy.jobForPost(post.id);
+      if (job?.status != AnalysisJobStatus.pending &&
+          job?.status != AnalysisJobStatus.processing) {
+        continue;
+      }
+      values.add(
+        RecipeImport(
+          id: 'live_${post.id}',
+          sourcePostId: post.id,
+          sourceUrl: post.url,
+          sourceService: post.service,
+          coverImagePath: _coverFor(post, null),
+          status: _importStatus(job?.status),
+          message: 'アプリを閉じてもサーバーで処理を続けます',
+          createdAt: post.receivedAt,
+          updatedAt: job?.updatedAt ?? post.updatedAt,
+        ),
+      );
+      knownSourceIds.add(post.id);
+    }
+
+    for (final remote in _activeRemoteAnalyses) {
+      if (knownSourceIds.contains(remote.sourcePostId)) continue;
+      final post = legacy.hub.snapshot.sourcePosts
+          .where((value) => value.id == remote.sourcePostId)
+          .firstOrNull;
+      values.add(
+        RecipeImport(
+          id: 'remote_live_${remote.sourcePostId}',
+          sourcePostId: remote.sourcePostId,
+          sourceUrl: post?.url ?? remote.url,
+          sourceService: post?.service ?? remote.service,
+          coverImagePath: post == null ? null : _coverFor(post, null),
+          status: remote.status == 'processing'
+              ? RecipeImportStatus.analyzing
+              : RecipeImportStatus.queued,
+          message: 'アプリを閉じてもサーバーで処理を続けます',
+          createdAt: remote.updatedAt ?? DateTime.now(),
+          updatedAt: remote.updatedAt ?? DateTime.now(),
+        ),
+      );
+      knownSourceIds.add(remote.sourcePostId);
+    }
+    values.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return values;
+  }
 
   bool get notificationsEnabled => PinlogyNotificationService.instance.enabled;
   bool get notificationsReady =>
@@ -192,6 +250,13 @@ class RecipeController extends ChangeNotifier {
         snapshot = await store.load();
       }
       await syncFromIntake();
+      if (_legacySyncPending && _activeOwnerId != null) {
+        _legacySyncPending = false;
+        // Repositoryの保存通知と認証確定が同じイベントループで重なった
+        // 場合に備え、保存完了後の状態をもう一度取り込む。
+        await Future<void>.delayed(Duration.zero);
+        await syncFromIntake();
+      }
     } catch (error) {
       loadError = 'レシピデータを読み込めませんでした: $error';
     } finally {
@@ -201,6 +266,9 @@ class RecipeController extends ChangeNotifier {
   }
 
   void _onLegacyChanged() {
+    if (_disposed) return;
+    _syncActiveRemoteAnalyses();
+    notifyListeners();
     if (_activeOwnerId != null && !_switchingIdentity) {
       unawaited(syncFromIntake());
     }
@@ -245,6 +313,11 @@ class RecipeController extends ChangeNotifier {
       // 切替完了後に必ず再同期し、解析結果をアカウント別一覧へ反映する。
       if (_activeOwnerId != null && !_disposed) {
         await syncFromIntake();
+        if (_legacySyncPending) {
+          _legacySyncPending = false;
+          await Future<void>.delayed(Duration.zero);
+          await syncFromIntake();
+        }
       }
       if (!_disposed) notifyListeners();
     }
@@ -264,9 +337,11 @@ class RecipeController extends ChangeNotifier {
       debugPrint('billing_identity_sync_failed $error');
     } finally {
       await legacy.configureShareBackgroundIntake();
-      // 認証トークンをShare Extensionへ渡した後に、未回収の共有と
-      // このアカウントの差分結果をバックグラウンドで同期する。
-      unawaited(legacy.refreshRemoteAnalyses());
+      // 起動直後のリモート回収は、課金アカウント認証より先に走ると
+      // authenticatedUserIdが未確定のため空で終了する。ここは待機して
+      // pending/processingをローカルへ作成してから画面同期へ進める。
+      // 完了結果・画像の復元経路は従来のまま維持する。
+      await legacy.refreshRemoteAnalyses();
     }
   }
 
@@ -290,6 +365,8 @@ class RecipeController extends ChangeNotifier {
   /// 画面の手動更新用。全件ではなく前回同期以降の差分だけを取得する。
   Future<void> refreshFromServer() async {
     await legacy.refreshRemoteAnalyses();
+    _syncActiveRemoteAnalyses();
+    if (!_disposed) notifyListeners();
     await syncFromIntake();
   }
 

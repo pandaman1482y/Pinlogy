@@ -76,8 +76,13 @@ class PlatformShareBridge {
       }
     } on TimeoutException {
       // テストや未配線環境では応答がないことがある
-    } catch (_) {
-      // 未配線環境でもアプリ起動を止めない
+    } catch (error, stackTrace) {
+      // 未配線環境でもアプリ起動を止めないが、実機診断用に原因は残す。
+      debugPrint('share_pending_pull_failed: $error');
+      debugPrintStack(
+        label: 'share_pending_pull_failed',
+        stackTrace: stackTrace,
+      );
     }
   }
 

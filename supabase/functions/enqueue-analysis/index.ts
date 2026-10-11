@@ -33,6 +33,7 @@ Deno.serve(async (request) => {
     if (identity == null) return reply({ error: "authentication_required" }, 401);
     const deviceHash = identity.accountHash;
     const ownerHashes = [...new Set([rawDeviceHash, deviceHash])];
+    if (action === "recover") return recover(ownerHashes, input);
     if (action === "status") return status(input, ownerHashes);
     if (action === "cancel") return cancel(input, ownerHashes);
     if (action === "test_notification") {
@@ -173,6 +174,132 @@ Deno.serve(async (request) => {
     return reply({ error: "invalid_request" }, 400);
   }
 });
+
+async function recover(
+  ownerHashes: string[],
+  input: Record<string, unknown>,
+) {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const sourcePostId = String(input.source_post_id ?? "").trim();
+  const updatedAfter = String(input.updated_after ?? "").trim();
+  const incremental = sourcePostId.length === 0 &&
+    updatedAfter.length > 0 && Number.isFinite(Date.parse(updatedAfter));
+  let query = adminClient()
+    .from("async_analysis_jobs")
+    .select(
+      "id,status,source_post_id,source_key,request_json,result_json,error_message,created_at,updated_at",
+    )
+    .in("device_hash", ownerHashes);
+  if (sourcePostId.length > 0) {
+    query = query.eq("source_post_id", sourcePostId);
+  } else if (incremental) {
+    query = query.gt("updated_at", updatedAfter);
+  } else {
+    query = query.gte("created_at", since);
+  }
+  const primaryResult = await query
+    .order(incremental ? "updated_at" : "created_at", {
+      ascending: incremental,
+    })
+    .limit(sourcePostId.length > 0 ? 1 : 25);
+  // 差分カーソルより前に開始したジョブでも、まだ解析中なら必ず返す。
+  // 完了済みの全件取得は増やさず、画面の解析中カードに必要な行だけを
+  // カーソルとは独立して回収する。
+  const activeResult = sourcePostId.length > 0
+    ? { data: [], error: null }
+    : await adminClient()
+      .from("async_analysis_jobs")
+      .select(
+        "id,status,source_post_id,source_key,request_json,result_json,error_message,created_at,updated_at",
+      )
+      .in("device_hash", ownerHashes)
+      .in("status", ["pending", "processing"])
+      .order("updated_at", { ascending: false })
+      .limit(25);
+  const error = primaryResult.error ?? activeResult.error;
+  if (error) {
+    console.error("async_job_recovery_failed", error.message);
+    return reply({ error: "recovery_failed" }, 500);
+  }
+  const rowsById = new Map<string, Record<string, unknown>>();
+  for (const row of [
+    ...(primaryResult.data ?? []),
+    ...(activeResult.data ?? []),
+  ]) {
+    const typedRow = row as Record<string, unknown>;
+    rowsById.set(String(typedRow.id), typedRow);
+  }
+  const rows = [...rowsById.values()];
+  console.info(
+    "async_job_recovery_summary",
+    JSON.stringify({
+      source_post_id: sourcePostId || null,
+      incremental,
+      updated_after: updatedAfter || null,
+      owner_hash_count: ownerHashes.length,
+      primary_count: primaryResult.data?.length ?? 0,
+      active_count: activeResult.data?.length ?? 0,
+      returned_count: rows.length,
+      statuses: rows.map((row) => String(row.status)),
+    }),
+  );
+  const jobs = await Promise.all(rows.map(async (row) => {
+    const request = row.request_json != null &&
+        typeof row.request_json === "object"
+      ? row.request_json as Record<string, unknown>
+      : {};
+    const recoveredSource = sourceFromRecoveryKey(String(row.source_key ?? ""));
+    let result = null;
+    if (row.status === "completed" && row.result_json != null) {
+      try {
+        result = await hydrateResultImages(row.result_json);
+      } catch (error) {
+        console.warn("async_job_recovery_media_failed", row.id, String(error));
+        result = row.result_json;
+      }
+    }
+    return {
+      job_id: String(row.id),
+      status: String(row.status),
+      source_post_id: String(row.source_post_id),
+      url: typeof request.url === "string" && request.url.trim().length > 0
+        ? request.url
+        : recoveredSource.url,
+      text: typeof request.text === "string" ? request.text : null,
+      service: typeof request.service === "string" && request.service.trim().length > 0
+        ? request.service
+        : recoveredSource.service,
+      title: typeof request.title === "string" && request.title.trim().length > 0
+        ? request.title
+        : recoveredSource.title,
+      result,
+      error: row.error_message,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }));
+  return reply({ jobs });
+}
+
+function sourceFromRecoveryKey(sourceKey: string) {
+  if (sourceKey.startsWith("tiktok:")) {
+    const videoId = sourceKey.slice("tiktok:".length).trim();
+    return {
+      url: videoId ? `https://www.tiktok.com/@_/video/${videoId}` : null,
+      service: "TikTok",
+      title: "TikTokから取り込んだレシピ",
+    };
+  }
+  if (sourceKey.startsWith("instagram:")) {
+    const shortcode = sourceKey.slice("instagram:".length).trim();
+    return {
+      url: shortcode ? `https://www.instagram.com/p/${shortcode}/` : null,
+      service: "Instagram",
+      title: "Instagramから取り込んだレシピ",
+    };
+  }
+  return { url: null, service: null, title: "解析済みレシピ" };
+}
 
 async function dispatchJob(jobId: string) {
   try {

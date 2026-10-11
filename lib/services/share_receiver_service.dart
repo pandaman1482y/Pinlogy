@@ -385,6 +385,15 @@ class LocalShareReceiverService implements ShareReceiverService {
       final job = await analysis.enqueue(post.id);
 
       if (autoAnalyze && analyze) {
+        // 画像準備より先に解析中へ切り替える。SNSプレビュー取得に時間が
+        // かかっても、レシピ画面には共有直後から進行状況を表示する。
+        await analysis.update(
+          job.copyWith(
+            status: AnalysisJobStatus.processing,
+            errorMessage: null,
+          ),
+        );
+
         Future<void> analyzePreparedPost() async {
           if (post.imagePaths.isEmpty && post.url != null) {
             post = await _attachOfficialPreview(post);

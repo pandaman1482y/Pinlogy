@@ -150,6 +150,39 @@ class AiPostAnalysisService implements PostAnalysisService {
     Map<String, dynamic> result,
   ) => _savePreviewImages(sourcePostId, result);
 
+  /// 一覧用の先頭画像だけを優先保存する。残りの画像を待たずにカバーを
+  /// 表示でき、完全な画像保存は従来のsaveRecoveredImagesで継続する。
+  Future<List<String>> saveRecoveredCoverImage(
+    String sourcePostId,
+    Map<String, dynamic> result,
+  ) {
+    final mediaValue = result['shared_media'];
+    if (mediaValue is! Map) return Future.value(const <String>[]);
+    final media = Map<String, dynamic>.from(mediaValue);
+    final rawImages = media['image_data_urls'];
+    String? firstImage;
+    if (rawImages is List) {
+      for (final value in rawImages) {
+        if (value is String && value.isNotEmpty) {
+          firstImage = value;
+          break;
+        }
+      }
+    } else if (media['thumbnail_data_url'] is String) {
+      firstImage = media['thumbnail_data_url'] as String;
+    }
+    if (firstImage == null || firstImage.isEmpty) {
+      return Future.value(const <String>[]);
+    }
+    final coverResult = Map<String, dynamic>.from(result);
+    coverResult['shared_media'] = <String, dynamic>{
+      ...media,
+      'image_data_urls': <String>[firstImage],
+      'thumbnail_data_url': firstImage,
+    };
+    return _savePreviewImages(sourcePostId, coverResult);
+  }
+
   Future<void> rememberRecoveredJob({
     required String sourcePostId,
     required String jobId,

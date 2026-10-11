@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
+import '../recipe_controller.dart';
 import '../recipe_scope.dart';
 import 'recipe_detail_page.dart';
 import 'recipe_editor_page.dart';
@@ -15,8 +18,100 @@ class RecipeHomePage extends StatefulWidget {
   State<RecipeHomePage> createState() => _RecipeHomePageState();
 }
 
-class _RecipeHomePageState extends State<RecipeHomePage> {
+class _RecipeHomePageState extends State<RecipeHomePage>
+    with WidgetsBindingObserver {
   String _collection = 'すべて';
+  RecipeController? _controller;
+  bool _refreshing = false;
+  bool _refreshAgain = false;
+  Timer? _analysisPollTimer;
+  int _analysisDiscoveryPollsRemaining = 6;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refresh());
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = RecipeScope.read(context);
+    if (identical(next, _controller)) return;
+    _controller?.removeListener(_handleControllerChanged);
+    _controller = next;
+    next.addListener(_handleControllerChanged);
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _refresh() async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (_refreshing) {
+      _refreshAgain = true;
+      return;
+    }
+    _refreshing = true;
+    try {
+      do {
+        _refreshAgain = false;
+        await controller.refreshFromServer();
+      } while (_refreshAgain && mounted);
+    } finally {
+      _refreshing = false;
+      if (mounted) {
+        setState(() {});
+        _updateAnalysisPolling();
+      }
+    }
+  }
+
+  void _updateAnalysisPolling() {
+    final hasActiveImports = _controller?.activeImports.isNotEmpty == true;
+    if (!hasActiveImports && _analysisDiscoveryPollsRemaining <= 0) {
+      _analysisPollTimer?.cancel();
+      _analysisPollTimer = null;
+      return;
+    }
+    if (_analysisPollTimer?.isActive == true) return;
+    _analysisPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      if (_controller?.activeImports.isNotEmpty != true &&
+          _analysisDiscoveryPollsRemaining > 0) {
+        _analysisDiscoveryPollsRemaining--;
+      }
+      unawaited(_refresh());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _analysisDiscoveryPollsRemaining = 6;
+      unawaited(_refresh());
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted) unawaited(_refresh());
+      });
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _analysisPollTimer?.cancel();
+      _analysisPollTimer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _analysisPollTimer?.cancel();
+    _controller?.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +150,7 @@ class _RecipeHomePageState extends State<RecipeHomePage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: controller.refreshFromServer,
+        onRefresh: _refresh,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
