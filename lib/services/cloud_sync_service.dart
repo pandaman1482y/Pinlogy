@@ -331,7 +331,24 @@ class CloudSyncService {
     );
   }
 
-  Future<void> saveRecipeSnapshot(
+  /// payload本体を取得せず、クラウド側が更新されたかを判定するための時刻だけ返す。
+  Future<DateTime?> recipeSnapshotUpdatedAt(String ownerId) async {
+    await _initialize();
+    if (user?.id != ownerId || user?.isAnonymous == true) {
+      throw StateError('ログイン中のアカウントが切り替わりました');
+    }
+    final row = await _client
+        .from('recipe_snapshots')
+        .select('updated_at')
+        .eq('owner_id', ownerId)
+        .maybeSingle();
+    return DateTime.tryParse(row?['updated_at']?.toString() ?? '');
+  }
+
+  Future<void> clearLocalRecipeMedia(String ownerId) =>
+      CloudRecipeMediaService.clearLocalCache(ownerId);
+
+  Future<DateTime?> saveRecipeSnapshot(
     String ownerId,
     Map<String, dynamic> payload,
   ) async {
@@ -342,11 +359,16 @@ class CloudSyncService {
     final cloudPayload = await CloudRecipeMediaService(
       _client,
     ).prepareSnapshotForUpload(ownerId, payload);
-    await _client.from('recipe_snapshots').upsert({
-      'owner_id': ownerId,
-      'payload': cloudPayload,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    });
+    final row = await _client
+        .from('recipe_snapshots')
+        .upsert({
+          'owner_id': ownerId,
+          'payload': cloudPayload,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('updated_at')
+        .single();
+    return DateTime.tryParse(row['updated_at']?.toString() ?? '');
   }
 
   Future<void> sync(LocalRepositoryHub hub) async {

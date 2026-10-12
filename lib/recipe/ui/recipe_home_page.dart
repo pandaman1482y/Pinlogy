@@ -473,6 +473,7 @@ class _ImportCard extends StatelessWidget {
             child: RecipeImage(
               path: item.coverImagePath,
               borderRadius: BorderRadius.circular(12),
+              cacheWidth: 160,
             ),
           ),
           const SizedBox(width: 12),

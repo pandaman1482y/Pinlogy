@@ -12,7 +12,7 @@ void main() {
     );
 
     expect(grams.quantityFor(1.5), '450g');
-    expect(spoon.quantityFor(1.5), '1½大さじ');
+    expect(spoon.quantityFor(1.5), '大さじ1と1/2');
     expect(vague.quantityFor(3), '少々');
   });
 

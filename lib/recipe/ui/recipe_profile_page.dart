@@ -788,12 +788,13 @@ class _GroupedCard extends StatelessWidget {
   const _GroupedCard({required this.children});
   final List<Widget> children;
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: mintSoft,
+  Widget build(BuildContext context) => Material(
+    color: mintSoft,
+    shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: borderSubtle),
+      side: const BorderSide(color: borderSubtle),
     ),
+    clipBehavior: Clip.antiAlias,
     child: Column(
       children: [
         for (var index = 0; index < children.length; index++) ...[

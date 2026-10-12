@@ -11,11 +11,13 @@ class RecipeImage extends StatelessWidget {
     this.path,
     this.fit = BoxFit.cover,
     this.borderRadius,
+    this.cacheWidth,
   });
 
   final String? path;
   final BoxFit fit;
   final BorderRadius? borderRadius;
+  final int? cacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +31,7 @@ class RecipeImage extends StatelessWidget {
         child = Image.network(
           raw,
           fit: fit,
+          cacheWidth: cacheWidth,
           errorBuilder: (_, __, ___) => const _ImageFallback(),
         );
       } else {
@@ -36,6 +39,7 @@ class RecipeImage extends StatelessWidget {
         child = Image.file(
           File(filePath),
           fit: fit,
+          cacheWidth: cacheWidth,
           errorBuilder: (_, __, ___) => const _ImageFallback(),
         );
       }
@@ -83,7 +87,7 @@ class RecipeGridCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                RecipeImage(path: recipe.coverImagePath),
+                RecipeImage(path: recipe.coverImagePath, cacheWidth: 480),
                 const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -136,10 +140,8 @@ class RecipeGridCard extends StatelessWidget {
                         recipe.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
-                          height: 1.25,
-                        ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(color: Colors.white, height: 1.25),
                       ),
                       const SizedBox(height: 5),
                       Text(
@@ -253,8 +255,7 @@ class SoftPanel extends StatelessWidget {
   );
 }
 
-String compactDuration(int? minutes) =>
-    minutes == null ? '時間未確認' : '$minutes分';
+String compactDuration(int? minutes) => minutes == null ? '時間未確認' : '$minutes分';
 
 String timestampLabel(int seconds) {
   final minutes = seconds ~/ 60;

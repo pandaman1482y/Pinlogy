@@ -304,7 +304,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: recipe.evidence.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
                         itemBuilder: (_, index) {
                           final item = recipe.evidence[index];
                           return _EvidenceCard(
@@ -378,7 +378,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: related.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
                         itemBuilder: (_, index) {
                           final item = related[index];
                           return SizedBox(

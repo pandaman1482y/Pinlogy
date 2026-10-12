@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pinlogy/services/platform_share_bridge.dart';
@@ -7,7 +8,12 @@ void main() {
 
   const channel = MethodChannel('com.pinlogy/share-test');
 
+  setUp(() {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+  });
+
   tearDown(() async {
+    debugDefaultTargetPlatformOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });

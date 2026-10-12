@@ -282,6 +282,14 @@ async function recover(
 }
 
 function sourceFromRecoveryKey(sourceKey: string) {
+  if (sourceKey.startsWith("tiktok-photo:")) {
+    const postId = sourceKey.slice("tiktok-photo:".length).trim();
+    return {
+      url: postId ? `https://www.tiktok.com/@_/photo/${postId}` : null,
+      service: "TikTok",
+      title: "TikTokから取り込んだレシピ",
+    };
+  }
   if (sourceKey.startsWith("tiktok:")) {
     const videoId = sourceKey.slice("tiktok:".length).trim();
     return {
@@ -545,10 +553,13 @@ type TikTokApifyState = {
 };
 
 type TikTokExternalPost = {
+  mediaType: "video" | "slideshow";
   videoUrl: string;
+  imageUrls: string[];
   description: string;
   title: string;
   ownerUsername: string;
+  authorComments: string[];
 };
 
 // ApifyのActor開始・進捗確認を別々のEdge Function実行へ分割する。
@@ -565,7 +576,10 @@ async function prepareTikTokPayload(
   // URL展開はActor開始時の1回だけ行う。進捗確認のたびに短縮URLを
   // 再解決すると不要な通信とログが増える。
   const tiktokUrl = state == null ? await resolveTikTokVideoUrl(rawUrl) : null;
-  if (state == null && tiktokUrl == null) return request;
+  if (state == null && tiktokUrl == null) {
+    if (isTikTokUrl(rawUrl)) throw new Error("tiktok_url_unresolved");
+    return request;
+  }
 
   const token = requiredEnv("APIFY_API_TOKEN");
   if (state == null) {
@@ -633,8 +647,17 @@ async function prepareTikTokPayload(
   if (!dataset.ok) {
     throw new Error(`apify_tiktok_dataset_http_${dataset.status}`);
   }
-  const videoUrl = await resolveApifyVideoUrl(state.store_id, rawUrl, token);
-  const external = parseApifyTikTokPost(await dataset.json(), rawUrl, videoUrl);
+  const datasetJson = await dataset.json();
+  const isSlideshow = apifyTikTokIsSlideshow(datasetJson, rawUrl);
+  const videoUrl = isSlideshow
+    ? ""
+    : await resolveApifyVideoUrl(state.store_id, rawUrl, token);
+  const external = await parseApifyTikTokPost(
+    datasetJson,
+    rawUrl,
+    videoUrl,
+    token,
+  );
   if (external == null) throw new Error("apify_tiktok_result_invalid");
 
   delete request.__apify_tiktok;
@@ -643,7 +666,9 @@ async function prepareTikTokPayload(
     "async_tiktok_apify_ready",
     jobId,
     `caption=${external.description.length}`,
-    "video=true",
+    `author_comments=${external.authorComments.length}`,
+    `media=${external.mediaType}`,
+    `images=${external.imageUrls.length}`,
   );
   return request;
 }
@@ -1006,8 +1031,14 @@ async function triggerApifyTikTokRun(
         resultsPerPage: 1,
         scrapeRelatedVideos: false,
         shouldDownloadVideos: true,
+        shouldDownloadSlideshowImages: true,
         videoKvStoreIdOrName: storeId,
         downloadSubtitlesOptions: "NEVER_DOWNLOAD_SUBTITLES",
+        // レシピ手順を投稿者が固定コメントへ書くケースがある。
+        // 全件取得は費用とノイズが大きいため、上位8件だけ取得する。
+        commentsPerPost: 8,
+        topLevelCommentsPerPost: 6,
+        maxRepliesPerComment: 2,
       }),
       signal: AbortSignal.timeout(20_000),
     },
@@ -1024,7 +1055,8 @@ async function resolveApifyVideoUrl(
   rawUrl: string,
   token: string,
 ) {
-  const videoId = /\/video\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
+  const videoId = /\/(?:video|photo)\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ??
+    "";
   const response = await apifyFetch(
     `https://api.apify.com/v2/key-value-stores/${encodeURIComponent(storeId)}/keys?limit=100`,
     token,
@@ -1083,11 +1115,12 @@ function readTikTokApifyState(value: unknown): TikTokApifyState | null {
   return { run_id: runId, store_id: storeId, attempt, started_at: startedAt };
 }
 
-function parseApifyTikTokPost(
+async function parseApifyTikTokPost(
   decoded: unknown,
   rawUrl: string,
   videoUrl: string,
-): TikTokExternalPost | null {
+  token: string,
+): Promise<TikTokExternalPost | null> {
   const rows = Array.isArray(decoded) ? decoded : [decoded];
   const videoId = /\/video\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
   const row = rows.find((value) => {
@@ -1098,19 +1131,161 @@ function parseApifyTikTokPost(
   });
   if (row == null || typeof row !== "object") return null;
   const record = row as Record<string, unknown>;
+  const isSlideshow = record.isSlideshow === true ||
+    /\/photo\//i.test(String(record.webVideoUrl ?? rawUrl));
+  const imageUrls = isSlideshow ? apifySlideshowImageUrls(record) : [];
   const description = String(
     record.description ?? record.caption ?? record.post_text ?? record.text ?? "",
   ).trim().slice(0, 12_000);
+  const authorMeta = asRecord(record.authorMeta);
   const creator = String(
-    record["authorMeta.name"] ?? record.profile_username ??
-      record.author_name ?? record.nickname ?? "",
+    authorMeta?.uniqueId ?? authorMeta?.name ?? record["authorMeta.name"] ??
+      record.profile_username ?? record.author_name ?? record.nickname ?? "",
   ).trim();
+  const authorComments = await fetchTikTokAuthorComments(
+    record,
+    creator,
+    token,
+  );
   return {
+    mediaType: isSlideshow ? "slideshow" : "video",
     videoUrl,
+    imageUrls,
     description,
     title: creator ? `TikTok @${creator}` : "TikTok投稿",
     ownerUsername: creator,
+    authorComments,
   };
+}
+
+function apifyTikTokIsSlideshow(decoded: unknown, rawUrl: string) {
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  const postId = /\/(?:video|photo)\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ??
+    "";
+  return rows.some((value) => {
+    const record = asRecord(value);
+    if (record == null) return false;
+    const webUrl = String(record.webVideoUrl ?? record.web_video_url ?? "");
+    if (postId && !webUrl.includes(postId)) return false;
+    return record.isSlideshow === true || /\/photo\//i.test(webUrl);
+  });
+}
+
+function apifySlideshowImageUrls(record: Record<string, unknown>) {
+  const links = Array.isArray(record.slideshowImageLinks)
+    ? record.slideshowImageLinks
+    : [];
+  const output: string[] = [];
+  for (const value of links) {
+    const link = asRecord(value);
+    const candidate = String(
+      link?.downloadLink ?? link?.tiktokLink ?? link?.url ?? "",
+    ).trim();
+    if (isAllowedTikTokImageUrl(candidate) && !output.includes(candidate)) {
+      output.push(candidate);
+    }
+    if (output.length >= 20) break;
+  }
+  return output;
+}
+
+function isAllowedTikTokImageUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase();
+    if (["tiktokcdn.com", "tiktokcdn-us.com", "muscdn.com", "byteimg.com"]
+      .some((domain) => host === domain || host.endsWith(`.${domain}`))) {
+      return true;
+    }
+    return host === "api.apify.com" &&
+      /^\/v2\/key-value-stores\/[A-Za-z0-9_-]{8,128}\/records\/[^/]+$/
+        .test(url.pathname) && url.searchParams.has("signature");
+  } catch {
+    return false;
+  }
+}
+
+async function fetchTikTokAuthorComments(
+  post: Record<string, unknown>,
+  ownerUsername: string,
+  token: string,
+) {
+  if (!ownerUsername) return [];
+  const datasetUrl = String(
+    post.commentsDatasetURL ?? post.commentsDatasetUrl ??
+      post.comments_dataset_url ?? "",
+  ).trim();
+  const endpoint = safeApifyDatasetItemsUrl(datasetUrl);
+  if (endpoint == null) return [];
+  try {
+    endpoint.searchParams.set("clean", "true");
+    endpoint.searchParams.set("format", "json");
+    endpoint.searchParams.set("limit", "30");
+    const response = await apifyFetch(endpoint.toString(), token, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      console.warn("async_tiktok_comments_http", response.status);
+      return [];
+    }
+    return authorCommentsFromRows(await response.json(), ownerUsername);
+  } catch (error) {
+    // コメント取得失敗だけで、投稿文・動画による解析全体は失敗させない。
+    console.warn("async_tiktok_comments_failed", String(error));
+    return [];
+  }
+}
+
+function authorCommentsFromRows(decoded: unknown, ownerUsername: string) {
+  const owner = normalizeTikTokUsername(ownerUsername);
+  if (!owner) return [];
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  const comments: string[] = [];
+  for (const value of rows) {
+    const row = asRecord(value);
+    if (row == null) continue;
+    const user = asRecord(row.user) ?? asRecord(row.author) ??
+      asRecord(row.authorMeta);
+    const username = normalizeTikTokUsername(String(
+      user?.uniqueId ?? user?.unique_id ?? user?.username ?? user?.name ??
+        row.uniqueId ?? row.username ?? row.author_name ?? "",
+    ));
+    if (username !== owner) continue;
+    const text = String(
+      row.text ?? row.comment ?? row.description ?? row.content ?? "",
+    ).trim().replace(/\s+/g, " ").slice(0, 2000);
+    if (text && !comments.includes(text)) comments.push(text);
+    if (comments.length >= 5) break;
+  }
+  return comments;
+}
+
+function safeApifyDatasetItemsUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || url.hostname !== "api.apify.com") {
+      return null;
+    }
+    const match = /^\/v2\/datasets\/([A-Za-z0-9_-]{8,128})(?:\/items)?\/?$/
+      .exec(url.pathname);
+    if (match == null) return null;
+    url.pathname = `/v2/datasets/${match[1]}/items`;
+    url.search = "";
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTikTokUsername(value: string) {
+  return value.trim().replace(/^@/, "").normalize("NFKC").toLowerCase();
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function isApifyId(value: string) {
@@ -1147,37 +1322,91 @@ async function resolveTikTokVideoUrl(
     ) {
       return null;
     }
-    if (/\/@[^/]+\/video\/\d+\/?$/i.test(initial.pathname)) {
+    if (/\/@[^/]+\/(?:video|photo)\/\d+\/?$/i.test(initial.pathname)) {
       return initial.toString();
     }
 
-    const response = await fetch(initial, {
-      method: "GET",
-      redirect: "follow",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    const resolved = new URL(response.url);
-    await response.body?.cancel();
-
-    const host = resolved.hostname.toLowerCase();
-    if (
-      resolved.protocol === "https:" &&
-      (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
-      /\/@[^/]+\/video\/\d+\/?$/i.test(resolved.pathname)
-    ) {
-      console.info("async_tiktok_url_resolved", resolved.pathname);
-      return resolved.toString();
-    }
-    console.warn("async_tiktok_url_unresolved", resolved.hostname);
-    return null;
+    return await resolveTikTokRedirectChain(initial);
   } catch (error) {
     console.warn("async_tiktok_url_resolve_failed", String(error));
     return null;
   }
+}
+
+function isTikTokUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" &&
+      (host === "tiktok.com" || host.endsWith(".tiktok.com"));
+  } catch {
+    return false;
+  }
+}
+
+async function resolveTikTokRedirectChain(initial: URL) {
+  let current = initial;
+  for (let redirect = 0; redirect <= 6; redirect++) {
+    const canonical = canonicalTikTokVideoUrl(current);
+    if (canonical != null) {
+      console.info("async_tiktok_url_resolved", canonical.pathname);
+      return canonical.toString();
+    }
+    if (!isTikTokUrl(current.toString())) return null;
+    const response = await fetch(current, {
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
+        "Accept-Language": "ja-JP,ja;q=0.9,en;q=0.7",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const location = response.headers.get("location");
+    if (location != null && response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      current = new URL(location, current);
+      continue;
+    }
+    const html = (await response.text()).slice(0, 500_000);
+    const candidate = canonicalTikTokUrlFromHtml(html, current);
+    if (candidate != null) {
+      console.info("async_tiktok_url_resolved", candidate.pathname);
+      return candidate.toString();
+    }
+    break;
+  }
+  console.warn("async_tiktok_url_unresolved", initial.hostname);
+  return null;
+}
+
+function canonicalTikTokVideoUrl(url: URL) {
+  if (!isTikTokUrl(url.toString())) return null;
+  const match = /\/(video|photo)\/(\d{8,30})/i.exec(url.pathname + url.search);
+  if (match == null) return null;
+  return new URL(`https://www.tiktok.com/@_/${match[1].toLowerCase()}/${match[2]}`);
+}
+
+function canonicalTikTokUrlFromHtml(html: string, base: URL) {
+  const decoded = html.replaceAll("\\u002F", "/").replaceAll("\\/", "/");
+  const patterns = [
+    /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
+    /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i,
+    /https:\/\/www\.tiktok\.com\/@[^/"']+\/(?:video|photo)\/\d{8,30}/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(decoded);
+    if (match == null) continue;
+    try {
+      const candidate = new URL(match[1] ?? match[0], base);
+      const canonical = canonicalTikTokVideoUrl(candidate);
+      if (canonical != null) return canonical;
+    } catch {
+      // 次の候補を確認する。
+    }
+  }
+  return null;
 }
 
 const sourceResolutionCache = new Map<string, { value: string; expires: number }>();
@@ -1192,8 +1421,8 @@ async function sourceIdentityKey(rawUrl: string, fallbackId: string) {
     const initial = new URL(candidate);
     const host = initial.hostname.toLowerCase();
     const isTikTok = host === "tiktok.com" || host.endsWith(".tiktok.com");
-    if (isTikTok && !/\/video\/\d{8,30}/i.test(initial.pathname)) {
-      candidate = await resolveShortSocialUrl(candidate) ?? candidate;
+    if (isTikTok && !/\/(?:video|photo)\/\d{8,30}/i.test(initial.pathname)) {
+      candidate = await resolveTikTokVideoUrl(candidate) ?? candidate;
     }
     const url = new URL(candidate);
     const normalizedHost = url.hostname.toLowerCase().replace(/^www\./, "");
@@ -1205,8 +1434,12 @@ async function sourceIdentityKey(rawUrl: string, fallbackId: string) {
     }
     if (normalizedHost === "tiktok.com" ||
       normalizedHost.endsWith(".tiktok.com")) {
-      const match = /\/video\/(\d{8,30})/i.exec(url.pathname);
-      if (match != null) return `tiktok:${match[1]}`;
+      const match = /\/(video|photo)\/(\d{8,30})/i.exec(url.pathname);
+      if (match != null) {
+        return match[1].toLowerCase() === "photo"
+          ? `tiktok-photo:${match[2]}`
+          : `tiktok:${match[2]}`;
+      }
     }
     for (const key of [...url.searchParams.keys()]) {
       if (trackingQueryKeys.has(key.toLowerCase()) || key.toLowerCase().startsWith("utm_")) {
@@ -1224,11 +1457,11 @@ async function sourceIdentityKey(rawUrl: string, fallbackId: string) {
 type AdminDb = ReturnType<typeof adminClient>;
 
 async function findBlockedPost(db: AdminDb, sourceKey: string) {
-  const match = /^(instagram|tiktok):(.+)$/.exec(sourceKey);
+  const match = /^(instagram|tiktok|tiktok-photo):(.+)$/.exec(sourceKey);
   if (match == null) return false;
   const { data, error } = await db.from("blocked_social_sources")
     .select("id")
-    .eq("service", match[1])
+    .eq("service", match[1] === "tiktok-photo" ? "tiktok" : match[1])
     .eq("scope", "post")
     .eq("source_post_id", match[2])
     .eq("active", true)
@@ -1605,6 +1838,9 @@ function validFcmToken(value: unknown) {
 
 function userSafeError(error: unknown) {
   const text = String(error);
+  if (text.includes("tiktok_url_unresolved")) {
+    return "TikTok投稿を取得できませんでした。時間をおいて再共有してください。";
+  }
   if (text.includes("recipe_not_found")) {
     return "レシピを検出できませんでした。元投稿の材料・分量・作り方を確認してください。";
   }

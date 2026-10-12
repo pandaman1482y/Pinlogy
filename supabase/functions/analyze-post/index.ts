@@ -18,6 +18,9 @@ Deno.serve(async (request) => {
     const suppliedInstagram = suppliedInstagramPostFromInput(
       input.instagram_external_post,
     );
+    const suppliedTikTok = externalTikTokPostFromInput(
+      input.tiktok_external_post,
+    );
     if (suppliedInstagram != null) {
       console.info(
         "instagram_input_resolved",
@@ -55,6 +58,7 @@ Deno.serve(async (request) => {
       input.ocr_text,
       sharedPage?.title,
       sharedPage?.description,
+      suppliedTikTok?.description,
       suppliedInstagram?.description,
     ].map((value) => String(value ?? "").trim())
       .filter((value) => {
@@ -106,7 +110,7 @@ Deno.serve(async (request) => {
 
     const videoEvidence = await fetchVideoEvidence(
       sharedPage?.canonical_url ?? String(input.url ?? ""),
-      externalTikTokPostFromInput(input.tiktok_external_post),
+      suppliedTikTok,
       suppliedInstagram,
     );
 
@@ -116,11 +120,15 @@ Deno.serve(async (request) => {
         `最優先の投稿文・コメント・キャプション:\n${[
           cleanSharedText(input.text, sharedPage),
           sharedPage?.description,
+          suppliedTikTok?.description,
           suppliedInstagram?.description,
           videoEvidence?.source_description,
         ].filter(Boolean).filter((value, index, values) =>
           values.indexOf(value) === index
         ).join("\n")}`,
+        `投稿者本人のコメント（固定コメント相当の補助根拠）:\n${
+          suppliedTikTok?.authorComments.join("\n") ?? ""
+        }`,
         `補助根拠の端末OCR（投稿文・コメントと矛盾する場合は採用禁止）:\n${String(input.ocr_text ?? "")}`,
         `動画の音声文字起こし:\n${videoEvidence?.transcript ?? ""}`,
         `動画取得元のタイトル・説明:\n${[
@@ -147,11 +155,15 @@ Deno.serve(async (request) => {
     }
     // SNSの複数画像投稿は共有拡張へ画像本体を渡さないことがある。
     // 公開ページ内の投稿画像だけを同じ1回の解析へ追加する。
+    const fetchedCandidateUrls = [
+      ...(sharedPage?.image_urls ?? []),
+      ...(suppliedTikTok?.imageUrls ?? []),
+    ].filter((value, index, values) => values.indexOf(value) === index);
     const fetchedCandidates = selectedImagesOnly
       ? []
       : await fetchSocialImages(
-        (sharedPage?.image_urls ?? []).slice(0, maxSocialImages),
-        sharedPage?.service ?? null,
+        fetchedCandidateUrls.slice(0, maxSocialImages),
+        sharedPage?.service ?? (suppliedTikTok == null ? null : "tiktok"),
       );
     const suppliedFingerprints = new Set(suppliedImages.map(imageFingerprint));
     const orderedFetchedCandidates = sharedPage?.service === "instagram" &&
@@ -630,9 +642,12 @@ type VideoEvidence = {
 };
 
 type ExternalTikTokPost = {
+  mediaType: "video" | "slideshow";
   videoUrl: string;
+  imageUrls: string[];
   description: string;
   title: string;
+  authorComments: string[];
 };
 
 function externalTikTokPostFromInput(value: unknown): ExternalTikTokPost | null {
@@ -647,7 +662,22 @@ function externalTikTokPostFromInput(value: unknown): ExternalTikTokPost | null 
   const description = String(record.description ?? "").trim().slice(0, 12_000);
   const title = String(record.title ?? "TikTok投稿").trim().slice(0, 1000) ||
     "TikTok投稿";
-  return { videoUrl, description, title };
+  const mediaType = record.mediaType === "slideshow" ? "slideshow" : "video";
+  const imageUrls = Array.isArray(record.imageUrls)
+    ? record.imageUrls
+      .filter((item): item is string =>
+        typeof item === "string" && isAllowedTikTokImage(item)
+      )
+      .slice(0, maxSocialImages)
+    : [];
+  const authorComments = Array.isArray(record.authorComments)
+    ? record.authorComments
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim().slice(0, 2000))
+      .filter(Boolean)
+      .slice(0, 5)
+    : [];
+  return { mediaType, videoUrl, imageUrls, description, title, authorComments };
 }
 
 type SuppliedInstagramPost = {
@@ -1590,8 +1620,13 @@ function isAllowedTikTokImage(rawUrl: string) {
     const url = new URL(rawUrl);
     if (url.protocol !== "https:") return false;
     const host = url.hostname.toLowerCase();
-    return ["tiktokcdn.com", "tiktokcdn-us.com", "muscdn.com", "byteimg.com"]
-      .some((domain) => host === domain || host.endsWith(`.${domain}`));
+    if (["tiktokcdn.com", "tiktokcdn-us.com", "muscdn.com", "byteimg.com"]
+      .some((domain) => host === domain || host.endsWith(`.${domain}`))) {
+      return true;
+    }
+    return host === "api.apify.com" &&
+      /^\/v2\/key-value-stores\/[A-Za-z0-9_-]{8,128}\/records\/[^/]+$/
+        .test(url.pathname) && url.searchParams.has("signature");
   } catch {
     return false;
   }

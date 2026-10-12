@@ -7,6 +7,7 @@ import 'package:pinlogy/recipe/data/recipe_store.dart';
 import 'package:pinlogy/recipe/models/recipe_models.dart';
 import 'package:pinlogy/recipe/recipe_controller.dart';
 import 'package:pinlogy/recipe/recipe_scope.dart';
+import 'package:pinlogy/recipe/ui/recipe_widgets.dart';
 import 'package:pinlogy/repositories/local_data_store.dart';
 import 'package:pinlogy/services/device_location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,14 +32,14 @@ Future<({PinlogyController legacy, RecipeController recipes})> pumpRecipeApp(
     Recipe(
       sourcePostId: 'manual-test',
       title: '鶏むね肉の照り焼き',
+      servings: 2,
+      servingUnit: '人分',
       totalMinutes: 20,
       category: '主菜',
       parts: [
         RecipePart(
           name: '本体',
-          ingredients: [
-            RecipeIngredient(name: '鶏むね肉', amount: 300, unit: 'g'),
-          ],
+          ingredients: [RecipeIngredient(name: '鶏むね肉', amount: 300, unit: 'g')],
           steps: [RecipeStep(order: 1, instruction: '鶏肉を焼く')],
         ),
       ],
@@ -66,12 +67,18 @@ void main() {
     expect(find.text('AI'), findsOneWidget);
     expect(find.text('マイページ'), findsOneWidget);
     expect(find.text('鶏むね肉の照り焼き'), findsOneWidget);
-    expect(Theme.of(tester.element(find.byType(Scaffold).first)).brightness, Brightness.light);
+    expect(
+      Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+      Brightness.light,
+    );
   });
 
   testWidgets('カードからレシピ詳細と人数変更を開ける', (tester) async {
     await pumpRecipeApp(tester);
-    await tester.tap(find.text('鶏むね肉の照り焼き'));
+    final card = find.byType(RecipeGridCard);
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
+    await tester.tap(card);
     await tester.pumpAndSettle();
     expect(find.text('材料'), findsOneWidget);
     expect(find.text('作り方'), findsOneWidget);

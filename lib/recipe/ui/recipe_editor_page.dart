@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../core/ids.dart';
@@ -351,19 +353,46 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     final controller = RecipeScope.read(context);
     final original = _original;
     final sourcePostId = original?.sourcePostId ?? 'manual-${newId()}';
+    final title = _title.text.trim();
+    final description = _description.text.trim().isEmpty
+        ? null
+        : _description.text.trim();
+    final servings = double.tryParse(_servings.text) ?? 2;
+    final servingUnit = _servingUnit.text.trim().isEmpty
+        ? '人分'
+        : _servingUnit.text.trim();
+    final totalMinutes = int.tryParse(_minutes.text);
+    final category = _category.text.trim().isEmpty
+        ? null
+        : _category.text.trim();
+    final editedFields = <String>{...?original?.userEditedFields};
+    void track(String field, bool changed) {
+      // 今回変更しなかった項目も、過去の編集済みフラグを保持する。
+      if (changed) editedFields.add(field);
+    }
+
+    if (original != null) {
+      track('title', title != original.title);
+      track('description', description != original.description);
+      track('servings', servings != original.servings);
+      track('servingUnit', servingUnit != original.servingUnit);
+      track('totalMinutes', totalMinutes != original.totalMinutes);
+      track('category', category != original.category);
+      track(
+        'parts',
+        jsonEncode(_parts.map((value) => value.toJson()).toList()) !=
+            jsonEncode(original.parts.map((value) => value.toJson()).toList()),
+      );
+    }
     final recipe = Recipe(
       id: original?.id,
       sourcePostId: sourcePostId,
-      title: _title.text.trim(),
-      description: _description.text.trim().isEmpty
-          ? null
-          : _description.text.trim(),
-      servings: double.tryParse(_servings.text) ?? 2,
-      servingUnit: _servingUnit.text.trim().isEmpty
-          ? '人分'
-          : _servingUnit.text.trim(),
-      totalMinutes: int.tryParse(_minutes.text),
-      category: _category.text.trim().isEmpty ? null : _category.text.trim(),
+      title: title,
+      description: description,
+      servings: servings,
+      servingUnit: servingUnit,
+      totalMinutes: totalMinutes,
+      category: category,
       parts: _parts,
       evidence: original?.evidence,
       coverImagePath: original?.coverImagePath,
@@ -377,16 +406,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       allergens: original?.allergens,
       warnings: original?.warnings,
       needsReviewFields: const [],
-      userEditedFields: {
-        ...?original?.userEditedFields,
-        'title',
-        'description',
-        'servings',
-        'servingUnit',
-        'totalMinutes',
-        'category',
-        'parts',
-      },
+      userEditedFields: editedFields,
       userNote: original?.userNote,
       nutrition: original?.nutrition,
       lastMadeAt: original?.lastMadeAt,

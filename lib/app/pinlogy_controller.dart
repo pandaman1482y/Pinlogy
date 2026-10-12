@@ -236,6 +236,13 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       sourcePostId: sourcePostId,
       updatedAfter: updatedAfter,
     );
+    debugPrint(
+      'analysis_recovery_diagnostic '
+      'authenticated=${ownerId != null} '
+      'targeted=${sourcePostId != null} '
+      'returned=${recovered.length} '
+      'statuses=${recovered.map((job) => job.status).join(',')}',
+    );
     if (sourcePostId == null) {
       _activeRemoteAnalyses = recovered
           .where((job) => job.status == 'pending' || job.status == 'processing')

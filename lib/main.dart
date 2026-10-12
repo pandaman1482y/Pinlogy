@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
@@ -10,13 +12,8 @@ import 'services/billing_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await PinlogyNotificationService.instance.initialize();
   final controller = PinlogyController(seedIfEmpty: false);
-  await controller.initialize();
   final recipeController = RecipeController(legacy: controller);
-  await recipeController.initialize();
-  // 復元済みのSupabaseユーザーをRevenueCatの初期App User IDに使用する。
-  await BillingService.instance.initialize();
   runApp(
     AppScope(
       controller: controller,
@@ -26,4 +23,28 @@ Future<void> main() async {
       ),
     ),
   );
+  // ネットワークサービスの初期化を最初のFlutterフレームより先に待たない。
+  // 端末内スナップショットを先に表示し、通知・課金・クラウド同期は
+  // 起動後に合流させる。
+  unawaited(_bootstrap(controller, recipeController));
+}
+
+Future<void> _bootstrap(
+  PinlogyController controller,
+  RecipeController recipeController,
+) async {
+  try {
+    unawaited(PinlogyNotificationService.instance.initialize());
+    await controller.initialize();
+    await recipeController.initialize();
+    // 復元済みのSupabaseユーザーをRevenueCatの初期App User IDに使用する。
+    await BillingService.instance.initialize();
+  } catch (error, stackTrace) {
+    // 起動後サービスの失敗でFlutterツリーを終了させない。
+    debugPrint('app_background_bootstrap_failed $error');
+    debugPrintStack(
+      label: 'app_background_bootstrap_failed',
+      stackTrace: stackTrace,
+    );
+  }
 }

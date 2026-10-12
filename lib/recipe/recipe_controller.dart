@@ -13,6 +13,7 @@ import '../services/notification_service.dart';
 import '../services/share_receiver_service.dart';
 import '../services/social_post_identity.dart';
 import 'data/recipe_store.dart';
+import 'data/recipe_sync_policy.dart';
 import 'models/recipe_models.dart';
 
 class RecipeFilters {
@@ -72,12 +73,20 @@ class RecipeController extends ChangeNotifier {
   bool _disposed = false;
   bool _switchingIdentity = false;
   bool _legacySyncPending = false;
+  bool _startupSyncRunning = false;
+  int _startupSyncRetryCount = 0;
+  Timer? _startupSyncRetryTimer;
   String? _activeOwnerId;
   Timer? _cloudSaveTimer;
   bool _cloudSaveRunning = false;
   bool _cloudSaveAgain = false;
+  bool _cloudPullReady = false;
+  bool _cloudSavePending = false;
   StreamSubscription<void>? _authSubscription;
+  static const _deletedRecipeIdsPrefix = 'recipe_deleted_ids_v1_';
   List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
+
+  String? _lastIntakeDiagnostic;
 
   void _syncActiveRemoteAnalyses() {
     _activeRemoteAnalyses = legacy.activeRemoteAnalyses.toList(growable: false);
@@ -145,6 +154,23 @@ class RecipeController extends ChangeNotifier {
       knownSourceIds.add(remote.sourcePostId);
     }
     values.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final signature =
+        '${snapshot.imports.length}:'
+        '${legacy.hub.snapshot.sourcePosts.length}:'
+        '${legacy.hub.snapshot.analysisJobs.length}:'
+        '${_activeRemoteAnalyses.length}:'
+        '${values.map((item) => '${item.sourcePostId}/${item.status.name}').join(',')}';
+    if (_lastIntakeDiagnostic != signature) {
+      _lastIntakeDiagnostic = signature;
+      debugPrint(
+        'recipe_intake_diagnostic imports=${snapshot.imports.length} '
+        'posts=${legacy.hub.snapshot.sourcePosts.length} '
+        'jobs=${legacy.hub.snapshot.analysisJobs.length} '
+        'remote_active=${_activeRemoteAnalyses.length} '
+        'visible=${values.length} '
+        'statuses=${legacy.hub.snapshot.analysisJobs.map((job) => job.status.name).join(',')}',
+      );
+    }
     return values;
   }
 
@@ -157,7 +183,14 @@ class RecipeController extends ChangeNotifier {
       AiPostAnalysisService.backendConfigured;
 
   Future<void> clearAfterAccountDeletion({String? deletedUserId}) async {
-    await store.clear(ownerId: deletedUserId ?? _activeOwnerId);
+    final ownerId = deletedUserId ?? _activeOwnerId;
+    await store.clear(ownerId: ownerId);
+    if (ownerId != null) {
+      await legacy.cloud.clearLocalRecipeMedia(ownerId);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove('recipe_cloud_snapshot_version_v1_$ownerId');
+      await preferences.remove('recipe_cloud_snapshot_dirty_v1_$ownerId');
+    }
     _activeOwnerId = null;
     snapshot = RecipeSnapshot();
     notifyListeners();
@@ -244,8 +277,6 @@ class RecipeController extends ChangeNotifier {
           (_) => _onAuthChanged(),
           onError: (_) {},
         );
-        await _syncBillingIdentity();
-        if (_activeOwnerId != null) await syncCloud();
       } else {
         snapshot = await store.load();
       }
@@ -261,6 +292,36 @@ class RecipeController extends ChangeNotifier {
       loadError = 'レシピデータを読み込めませんでした: $error';
     } finally {
       loading = false;
+      if (!_disposed) notifyListeners();
+    }
+    // ここから先はネットワーク処理。保存済み一覧と画像を表示した後に行う。
+    unawaited(_finishStartupSync());
+  }
+
+  Future<void> _finishStartupSync() async {
+    if (_startupSyncRunning || _disposed) return;
+    _startupSyncRunning = true;
+    try {
+      await _syncBillingIdentity();
+      if (_activeOwnerId != null) await syncCloud();
+      await syncFromIntake();
+      _startupSyncRetryCount = 0;
+    } catch (error) {
+      debugPrint('recipe_startup_sync_failed $error');
+      if (!_disposed && _startupSyncRetryCount < 3) {
+        _startupSyncRetryCount++;
+        final delay = switch (_startupSyncRetryCount) {
+          1 => const Duration(seconds: 15),
+          2 => const Duration(minutes: 1),
+          _ => const Duration(minutes: 5),
+        };
+        _startupSyncRetryTimer?.cancel();
+        _startupSyncRetryTimer = Timer(delay, () {
+          unawaited(_finishStartupSync());
+        });
+      }
+    } finally {
+      _startupSyncRunning = false;
       if (!_disposed) notifyListeners();
     }
   }
@@ -296,6 +357,8 @@ class RecipeController extends ChangeNotifier {
         await store.save(snapshot, ownerId: _activeOwnerId);
       }
       _activeOwnerId = nextOwnerId;
+      _cloudPullReady = false;
+      _cloudSavePending = false;
       snapshot = await store.load(
         ownerId: nextOwnerId,
         migrateLegacy: nextOwnerId != null,
@@ -357,6 +420,13 @@ class RecipeController extends ChangeNotifier {
         _syncAgain = false;
         await _performSync();
       } while (_syncAgain);
+    } catch (error, stackTrace) {
+      debugPrint('recipe_intake_sync_failed $error');
+      debugPrintStack(
+        label: 'recipe_intake_sync_failed',
+        stackTrace: stackTrace,
+      );
+      rethrow;
     } finally {
       _syncing = false;
     }
@@ -411,6 +481,9 @@ class RecipeController extends ChangeNotifier {
     final ownerId = _activeOwnerId;
     if (legacy.cloud.isConfigured && ownerId == null) return;
     final preferences = await SharedPreferences.getInstance();
+    final deletedRecipeIds =
+        preferences.getStringList(_deletedRecipeIdsKey(ownerId))?.toSet() ??
+        <String>{};
     final recipes = List<Recipe>.of(snapshot.recipes);
     final imports = List<RecipeImport>.of(snapshot.imports);
     var changed = false;
@@ -457,6 +530,7 @@ class RecipeController extends ChangeNotifier {
               : null;
           for (var index = 0; index < parsed.length; index++) {
             final incoming = parsed[index];
+            if (deletedRecipeIds.contains(incoming.id)) continue;
             final recipeIndex = recipes.indexWhere(
               (item) => item.id == incoming.id,
             );
@@ -466,23 +540,11 @@ class RecipeController extends ChangeNotifier {
               continue;
             }
             final existing = recipes[recipeIndex];
-            if (existing.userEditedFields.isNotEmpty) {
-              recipes[recipeIndex] = existing.copyWith(
-                coverImagePath:
-                    existing.coverImagePath ?? incoming.coverImagePath,
-                sourceUrl: existing.sourceUrl ?? incoming.sourceUrl,
-                status: incoming.status,
-              );
-            } else {
-              recipes[recipeIndex] = incoming.copyWith(
-                isFavorite: existing.isFavorite,
-                isSaved: existing.isSaved || parsed.length == 1,
-                userNote: existing.userNote,
-                lastMadeAt: existing.lastMadeAt,
-                madeCount: existing.madeCount,
-                createdAt: existing.createdAt,
-              );
-            }
+            recipes[recipeIndex] = mergeAnalyzedRecipe(
+              existing: existing,
+              incoming: incoming,
+              saveAutomatically: parsed.length == 1,
+            );
             changed = true;
           }
         } else {
@@ -517,6 +579,9 @@ class RecipeController extends ChangeNotifier {
     snapshot = _copySnapshot(recipes: recipes, imports: imports);
     await _persist();
   }
+
+  String _deletedRecipeIdsKey(String? ownerId) =>
+      '$_deletedRecipeIdsPrefix${ownerId ?? 'signed-out'}';
 
   RecipeImportStatus _importStatus(AnalysisJobStatus? status) =>
       switch (status) {
@@ -862,6 +927,13 @@ class RecipeController extends ChangeNotifier {
         legacy.jobForPost(recipe.sourcePostId) == null) {
       return false;
     }
+    final preferences = await SharedPreferences.getInstance();
+    final deletedKey = _deletedRecipeIdsKey(_activeOwnerId);
+    final deletedIds =
+        preferences.getStringList(deletedKey)?.toSet() ?? <String>{};
+    if (deletedIds.remove(recipe.id)) {
+      await preferences.setStringList(deletedKey, deletedIds.toList()..sort());
+    }
     // Existing saved recipes and user edits stay in the snapshot until a new
     // result is persisted successfully by the normal merge path.
     await retryImport(recipeImport);
@@ -934,8 +1006,9 @@ class RecipeController extends ChangeNotifier {
                   item.mainIngredient == recipe.mainIngredient) {
                 score += 3;
               }
-              if (item.method != null && item.method == recipe.method)
+              if (item.method != null && item.method == recipe.method) {
                 score += 1;
+              }
               return (recipe: item, score: score);
             })
             .where((item) => item.score > 0)
@@ -1049,6 +1122,13 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> saveRecipe(Recipe recipe) async {
+    final preferences = await SharedPreferences.getInstance();
+    final deletedKey = _deletedRecipeIdsKey(_activeOwnerId);
+    final deletedIds =
+        preferences.getStringList(deletedKey)?.toSet() ?? <String>{};
+    if (deletedIds.remove(recipe.id)) {
+      await preferences.setStringList(deletedKey, deletedIds.toList()..sort());
+    }
     final values = List<Recipe>.of(snapshot.recipes);
     final index = values.indexWhere((item) => item.id == recipe.id);
     if (index < 0) {
@@ -1067,6 +1147,12 @@ class RecipeController extends ChangeNotifier {
       saveRecipe(recipe.copyWith(isFavorite: !recipe.isFavorite));
 
   Future<void> deleteRecipe(Recipe recipe) async {
+    final preferences = await SharedPreferences.getInstance();
+    final deletedKey = _deletedRecipeIdsKey(_activeOwnerId);
+    final deletedIds =
+        preferences.getStringList(deletedKey)?.toSet() ?? <String>{};
+    deletedIds.add(recipe.id);
+    await preferences.setStringList(deletedKey, deletedIds.toList()..sort());
     final recipes = snapshot.recipes
         .where((item) => item.id != recipe.id)
         .toList();
@@ -1245,19 +1331,84 @@ class RecipeController extends ChangeNotifier {
   Future<void> syncCloud() async {
     final ownerId = _activeOwnerId;
     if (ownerId == null) return;
-    final rawRemote = await legacy.cloud.loadRecipeSnapshot(ownerId);
-    if (rawRemote != null) {
-      final remote = RecipeSnapshot.fromJson(rawRemote);
-      snapshot = _mergeSnapshots(snapshot, remote);
-      await _persist(syncToCloud: false);
+    final preferences = await SharedPreferences.getInstance();
+    final versionKey = 'recipe_cloud_snapshot_version_v1_$ownerId';
+    final dirtyKey = 'recipe_cloud_snapshot_dirty_v1_$ownerId';
+    final hasUnsavedLocalChanges = preferences.getBool(dirtyKey) ?? false;
+    if (hasUnsavedLocalChanges) {
+      // 他端末の更新を先に統合してから、端末側の未保存変更を送る。
+      _cloudSavePending = true;
     }
-    await legacy.cloud.saveRecipeSnapshot(ownerId, snapshot.toJson());
+    final knownVersion = DateTime.tryParse(
+      preferences.getString(versionKey) ?? '',
+    );
+    final remoteVersion = await legacy.cloud.recipeSnapshotUpdatedAt(ownerId);
+    final remoteChanged =
+        shouldDownloadRecipeSnapshot(
+          remoteUpdatedAt: remoteVersion,
+          knownUpdatedAt: knownVersion,
+        ) ||
+        (remoteVersion != null && !_snapshotHasContent(snapshot));
+
+    var pullCompleted = false;
+    try {
+      if (remoteChanged) {
+        final rawRemote = await legacy.cloud.loadRecipeSnapshot(ownerId);
+        if (rawRemote != null) {
+          final remote = RecipeSnapshot.fromJson(rawRemote);
+          snapshot = _mergeSnapshots(snapshot, remote);
+          await _persist(syncToCloud: false);
+        }
+        await preferences.setString(
+          versionKey,
+          remoteVersion!.toUtc().toIso8601String(),
+        );
+        // v1導入直後だけ、端末にしかない旧データを統合後に1回保存する。
+        if (knownVersion == null && _snapshotHasContent(snapshot)) {
+          await preferences.setBool(dirtyKey, true);
+          _cloudSavePending = true;
+        }
+      } else if (remoteVersion == null && snapshot.recipes.isNotEmpty) {
+        // クラウドにまだスナップショットがない初回だけ端末データを作成する。
+        final savedAt = await legacy.cloud.saveRecipeSnapshot(
+          ownerId,
+          snapshot.toJson(),
+        );
+        if (savedAt != null) {
+          await preferences.setString(
+            versionKey,
+            savedAt.toUtc().toIso8601String(),
+          );
+          await preferences.setBool(dirtyKey, false);
+        }
+      }
+      pullCompleted = true;
+    } finally {
+      if (pullCompleted && ownerId == _activeOwnerId) {
+        _cloudPullReady = true;
+        if (_cloudSavePending) {
+          _cloudSavePending = false;
+          _scheduleCloudSave();
+        }
+      }
+    }
   }
 
   Future<void> _persist({bool syncToCloud = true}) async {
     await store.save(snapshot, ownerId: _activeOwnerId);
     if (!_disposed) notifyListeners();
-    if (syncToCloud && _activeOwnerId != null) _scheduleCloudSave();
+    if (syncToCloud && _activeOwnerId != null) {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool(
+        'recipe_cloud_snapshot_dirty_v1_$_activeOwnerId',
+        true,
+      );
+      if (_cloudPullReady) {
+        _scheduleCloudSave();
+      } else {
+        _cloudSavePending = true;
+      }
+    }
   }
 
   void _scheduleCloudSave() {
@@ -1279,10 +1430,27 @@ class RecipeController extends ChangeNotifier {
       do {
         _cloudSaveAgain = false;
         final payload = snapshot.toJson();
-        await legacy.cloud.saveRecipeSnapshot(ownerId, payload);
+        final savedAt = await legacy.cloud.saveRecipeSnapshot(ownerId, payload);
+        if (savedAt != null) {
+          final preferences = await SharedPreferences.getInstance();
+          await preferences.setString(
+            'recipe_cloud_snapshot_version_v1_$ownerId',
+            savedAt.toUtc().toIso8601String(),
+          );
+          await preferences.setBool(
+            'recipe_cloud_snapshot_dirty_v1_$ownerId',
+            false,
+          );
+        }
       } while (_cloudSaveAgain && ownerId == _activeOwnerId && !_disposed);
     } catch (error) {
       debugPrint('recipe_cloud_save_failed $error');
+      if (!_disposed && ownerId == _activeOwnerId) {
+        _cloudSaveTimer?.cancel();
+        _cloudSaveTimer = Timer(const Duration(seconds: 30), () {
+          unawaited(_flushCloudSave());
+        });
+      }
     } finally {
       _cloudSaveRunning = false;
     }
@@ -1312,6 +1480,7 @@ class RecipeController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _cloudSaveTimer?.cancel();
+    _startupSyncRetryTimer?.cancel();
     _authSubscription?.cancel();
     legacy.removeListener(_onLegacyChanged);
     super.dispose();
@@ -1373,6 +1542,14 @@ RecipeSnapshot _mergeSnapshots(RecipeSnapshot local, RecipeSnapshot remote) {
     sort: local.sort,
   );
 }
+
+bool _snapshotHasContent(RecipeSnapshot value) =>
+    value.recipes.isNotEmpty ||
+    value.imports.isNotEmpty ||
+    value.collections.isNotEmpty ||
+    value.shoppingItems.isNotEmpty ||
+    value.cookingRecords.isNotEmpty ||
+    value.feedback.isNotEmpty;
 
 String? _text(Map<String, dynamic> json, String first, [String? second]) {
   final value = json[first] ?? (second == null ? null : json[second]);
