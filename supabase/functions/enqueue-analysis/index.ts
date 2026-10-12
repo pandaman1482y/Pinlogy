@@ -1122,17 +1122,19 @@ async function parseApifyTikTokPost(
   token: string,
 ): Promise<TikTokExternalPost | null> {
   const rows = Array.isArray(decoded) ? decoded : [decoded];
-  const videoId = /\/video\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
+  const videoId = /\/(?:video|photo)\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
   const row = rows.find((value) => {
     if (value == null || typeof value !== "object") return false;
     const record = value as Record<string, unknown>;
     const webVideoUrl = String(record.webVideoUrl ?? record.web_video_url ?? "");
-    return !videoId || webVideoUrl.includes(videoId);
+    const recordId = String(record.id ?? record.aweme_id ?? "");
+    return !videoId || recordId === videoId || webVideoUrl.includes(videoId);
   });
   if (row == null || typeof row !== "object") return null;
   const record = row as Record<string, unknown>;
-  const isSlideshow = record.isSlideshow === true ||
-    /\/photo\//i.test(String(record.webVideoUrl ?? rawUrl));
+  const isSlideshow = /\/photo\//i.test(new URL(rawUrl).pathname) ||
+    record.isSlideshow === true ||
+    /\/photo\//i.test(String(record.webVideoUrl ?? record.web_video_url ?? ""));
   const imageUrls = isSlideshow ? apifySlideshowImageUrls(record) : [];
   const description = String(
     record.description ?? record.caption ?? record.post_text ?? record.text ?? "",
@@ -1159,6 +1161,8 @@ async function parseApifyTikTokPost(
 }
 
 function apifyTikTokIsSlideshow(decoded: unknown, rawUrl: string) {
+  // 写真URLはActor側の任意フィールドに依存せず写真として扱う。
+  if (/\/photo\//i.test(new URL(rawUrl).pathname)) return true;
   const rows = Array.isArray(decoded) ? decoded : [decoded];
   const postId = /\/(?:video|photo)\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ??
     "";

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -34,6 +35,8 @@ class _CookingModePageState extends State<CookingModePage> {
   int? _timerInitialSeconds;
   DateTime? _timerEndsAt;
   final SpeechToText _speech = SpeechToText();
+  static const _voicePreferenceKey = 'cooking_voice_enabled_v1';
+  bool _voiceChanging = false;
   bool _speechReady = false;
   bool _voiceEnabled = false;
   bool _voiceRestartScheduled = false;
@@ -46,6 +49,9 @@ class _CookingModePageState extends State<CookingModePage> {
   void initState() {
     super.initState();
     unawaited(_setAwake(true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_restoreVoicePreference());
+    });
   }
 
   @override
@@ -372,43 +378,84 @@ class _CookingModePageState extends State<CookingModePage> {
     }
   }
 
-  Future<void> _toggleVoice() async {
-    if (_voiceEnabled) {
-      _voiceEnabled = false;
-      await _speech.stop();
-      if (mounted) setState(() {});
-      return;
+  Future<void> _restoreVoicePreference() async {
+    // 読み込み中のタップと自動復元が競合しないようにする。
+    _voiceChanging = true;
+    var enabled = false;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      enabled = preferences.getBool(_voicePreferenceKey) ?? false;
+    } catch (error) {
+      debugPrint('cooking_voice_preference_load_failed $error');
+    } finally {
+      _voiceChanging = false;
     }
+    if (mounted && enabled) await _changeVoice(true, persist: false);
+  }
 
-    if (!_speechReady) {
-      _speechReady = await _speech.initialize(
-        onStatus: _handleSpeechStatus,
-        onError: _handleSpeechError,
-      );
-    }
-    if (!_speechReady) {
+  Future<void> _toggleVoice() => _changeVoice(!_voiceEnabled);
+
+  Future<void> _changeVoice(bool enabled, {bool persist = true}) async {
+    if (_voiceChanging || !mounted) return;
+    _voiceChanging = true;
+    try {
+      if (enabled) {
+        if (!_speechReady) {
+          _speechReady = await _speech.initialize(
+            onStatus: _handleSpeechStatus,
+            onError: _handleSpeechError,
+          );
+        }
+        if (!mounted) return;
+        if (!_speechReady) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('設定でマイクと音声認識を許可してください')));
+          return;
+        }
+      }
+      if (!mounted) return;
+      setState(() => _voiceEnabled = enabled);
+      // 画面を閉じた際のstopや認識エラーでは保存済みの選択を消さない。
+      if (persist) {
+        try {
+          final preferences = await SharedPreferences.getInstance();
+          await preferences.setBool(_voicePreferenceKey, enabled);
+        } catch (error) {
+          debugPrint('cooking_voice_preference_save_failed $error');
+        }
+      }
+      if (!mounted) return;
+      if (!enabled) {
+        await _speech.stop();
+        return;
+      }
+      await _startVoiceListening();
+      if (mounted && persist && _voiceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('音声操作ON：「次・Next」「前・Back」「タイマー開始」が使えます'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (error) {
+      _voiceEnabled = false;
+      debugPrint('cooking_voice_start_failed $error');
       if (mounted) {
+        setState(() {});
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('設定でマイクと音声認識を許可してください')));
+        ).showSnackBar(const SnackBar(content: Text('音声操作を開始できませんでした')));
       }
-      return;
-    }
-    _voiceEnabled = true;
-    if (mounted) setState(() {});
-    await _startVoiceListening();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('音声操作ON：「次・Next」「前・Back」「タイマー開始」が使えます'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+    } finally {
+      _voiceChanging = false;
     }
   }
 
   Future<void> _startVoiceListening() async {
-    if (!_voiceEnabled || !_speechReady || _speech.isListening) return;
+    if (!mounted || !_voiceEnabled || !_speechReady || _speech.isListening)
+      return;
     await _speech.listen(
       onResult: _handleSpeechResult,
       listenOptions: SpeechListenOptions(

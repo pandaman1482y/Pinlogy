@@ -37,7 +37,7 @@ class SocialPostIdentity {
 
     if (host == 'tiktok.com' || host.endsWith('.tiktok.com')) {
       for (var index = 0; index + 1 < segments.length; index++) {
-        if (segments[index] == 'video') {
+        if (segments[index] == 'video' || segments[index] == 'photo') {
           final id = RegExp(
             r'^\d{8,30}$',
           ).firstMatch(segments[index + 1])?.group(0);
