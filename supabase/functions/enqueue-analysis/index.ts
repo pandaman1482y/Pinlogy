@@ -1,3 +1,4 @@
+import { identityValues } from "../_shared/billing-identity.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { importPKCS8, SignJWT } from "npm:jose@5.9.6";
@@ -1776,7 +1777,12 @@ async function billingIdentity(
     }
   }
   if (userId == null) return null;
-  const userHash = await sha256(userId);
+  const identities = await trialIdentityHashes(db, userId);
+  const bound = await db.rpc("bind_billing_identity", {
+    p_user_id: userId, p_user_hash: await sha256(userId), p_identity_hashes: identities,
+  });
+  if (bound.error) throw bound.error;
+  const userHash = String(bound.data);
   const linked = await db.rpc("link_billing_account", {
     p_device_hash: deviceHash,
     p_user_id: userId,
@@ -1784,7 +1790,6 @@ async function billingIdentity(
   });
   if (linked.error) throw linked.error;
   const accountHash = String(linked.data ?? userHash);
-  const identities = await trialIdentityHashes(db, userId);
   const trial = await db.rpc("enforce_billing_trial_claim", {
     p_account_hash: accountHash,
     p_user_id: userId,
@@ -1797,20 +1802,7 @@ async function billingIdentity(
 async function trialIdentityHashes(db: ReturnType<typeof createClient>, userId: string) {
   const { data, error } = await db.auth.admin.getUserById(userId);
   if (error || data.user == null) throw error ?? new Error("user_not_found");
-  const values = (data.user.identities ?? []).flatMap((identity) => {
-    const provider = String(identity.provider ?? "").toLowerCase();
-    const id = String(identity.identity_id ?? identity.id ?? "").trim();
-    return ["apple", "google"].includes(provider) && id
-      ? [`${provider}:${id}`]
-      : [];
-  });
-
-  const confirmedEmail = data.user.email_confirmed_at
-    ? String(data.user.email ?? "").trim().toLowerCase()
-    : "";
-  if (confirmedEmail) {
-    values.push(`email:${confirmedEmail}`);
-  }
+  const values = identityValues(data.user);
 
   if (values.length === 0) throw new Error("verified_identity_required");
   return Promise.all([...new Set(values)].map(hmacIdentity));

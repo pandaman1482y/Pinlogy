@@ -26,7 +26,7 @@ class LegalDocumentPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(document.title)),
     body: FutureBuilder<String>(
-      future: rootBundle.loadString(document.assetPath),
+      future: _loadDocument(),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
@@ -43,6 +43,14 @@ class LegalDocumentPage extends StatelessWidget {
       },
     ),
   );
+
+  Future<String> _loadDocument() async {
+    final original = await rootBundle.loadString(document.assetPath);
+    final supplement = document == LegalDocument.terms
+        ? _accountBillingTerms
+        : _accountBillingPrivacy;
+    return '$original\n\n$supplement';
+  }
 
   static List<Widget> _buildBlocks(BuildContext context, String source) {
     final widgets = <Widget>[];
@@ -171,3 +179,24 @@ class _LegalConsentCheckboxState extends State<LegalConsentCheckbox> {
     ],
   );
 }
+
+const _accountBillingTerms = r"""
+## アカウント削除・無料枠・購入復元に関する補足（2026年10月12日）
+本補足は、アカウント削除、初回無料枠、購入復元に関する従来の記載を更新します。同じ事項について記載が異なる場合は、本補足を適用します。
+- 初回無料の解析3回は初回利用者向けの特典です。同一利用者として確認できる場合、アカウントの削除・再登録、ログインし直しによって再付与されません。使い切っていない無料枠もアカウント削除時に失効します。
+- アカウントを削除するとレシピ・解析履歴などのアカウントデータは削除され、元に戻せません。未使用の追加購入回数は失効し、再登録後の購入復元では戻りません。返金の可否は適用法令および購入先ストアの手続に従います。
+- アカウント削除はApp Store・Google Playの定期購入の解約ではありません。継続課金を止めるには、購入したストアのサブスクリプション管理画面から別途解約してください。解約していなくてもアカウントの即時削除を選択できます。
+- 有効な定期購入は、再登録後に購入に使ったストアアカウントで「購入を復元」してください。レシピなどの削除済みデータは復元されません。同じ回数付与期間で使用した解析回数はリセットされず、未使用分だけを利用できます。
+- 購入復元はストア・課金管理サービスによる確認を必要とします。反映が遅れる場合や復元できない場合は、購入を繰り返さず、時間をおいて再試行するかアプリ内の問い合わせ先へご連絡ください。
+- 無料枠の重複付与防止、購入復元、二重付与防止のため、アカウント削除後も必要な識別記録・課金利用記録を保持します。詳細はプライバシーポリシーをご確認ください。
+""";
+
+const _accountBillingPrivacy = r"""
+## アカウント削除後に保持する課金関連記録（2026年10月12日）
+本補足は、アカウント削除後の情報保持に関する従来の記載を更新します。同じ事項について記載が異なる場合は、本補足を適用します。
+- アカウント削除時に、レシピ、解析履歴、保存画像などを削除します。ただし、以下の目的に必要な記録は削除対象から除きます。
+- 初回無料枠の重複付与を防ぐため、Apple・Google等のログイン識別値および確認済みメールアドレスから生成する鍵付きハッシュ値と、無料枠の付与履歴を保持します。これらは元のメールアドレス等をそのまま保存したものではありませんが、同一利用者の判定に使用する識別記録です。
+- 有効な定期購入の復元および解析回数の二重付与防止のため、ハッシュ化した課金アカウント・購入識別記録、プラン、有効期限、回数付与期間、使用回数、処理済み課金イベントの記録を保持します。
+- これらの記録は無料枠の重複付与防止、購入・利用権の管理、不正利用防止および必要な問い合わせ対応に使用します。無料枠の履歴は当該特典を提供し重複付与防止が必要な期間、購入・課金記録は購入管理や適用法令への対応に必要な期間保持します。目的がなくなった記録は削除または個人との関連付けを解消します。
+- App Store・Google PlayおよびRevenueCat側の購入・契約記録は、それぞれのサービスの規約・プライバシーポリシーに従って管理されます。ツクレピのアカウント削除だけでは、これらのサービス側の契約は解約されません。
+""";

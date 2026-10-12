@@ -34,4 +34,3 @@ revoke all on table public.blocked_social_sources from anon, authenticated;
 
 comment on table public.blocked_social_sources is
   'Global takedown list for SNS posts and creator usernames. Usernames may change.';
-

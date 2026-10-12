@@ -377,7 +377,7 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
                   'アカウントを削除',
                   style: TextStyle(color: Colors.red),
                 ),
-                subtitle: const Text('クラウドデータと残り回数を削除します'),
+                subtitle: const Text('レシピとアカウントを削除します。定期購入は別途解約が必要です'),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _confirmDeleteAccount(context);
@@ -457,11 +457,33 @@ class _RecipeProfilePageState extends State<RecipeProfilePage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('アカウントを削除しますか？'),
         content: const Text(
-          'クラウド上のレシピ、解析履歴、残り回数は完全に削除され、元に戻せません。'
-          '無料3回は再登録しても復活しません。\n\n'
+          'レシピ・解析履歴は削除され、元に戻せません。未使用の追加購入回数は失効します。'
+          '初回無料3回は削除・再登録しても再付与されません。\n\n'
+          '有効な定期購入は再登録後に購入を復元してください。使用済み回数はリセットされません。'
+          '無料枠の重複付与防止と購入復元のため、必要な識別記録・課金利用記録を保持します。\n\n'
           'App StoreまたはGoogle Playの定期購入は自動解約されません。削除前にストアで解約してください。',
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              final opened = await launchUrl(
+                Uri.parse(
+                  Theme.of(dialogContext).platform == TargetPlatform.android
+                      ? 'https://play.google.com/store/account/subscriptions'
+                      : 'https://apps.apple.com/account/subscriptions',
+                ),
+                mode: LaunchMode.externalApplication,
+              );
+              if (!opened && dialogContext.mounted) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('購入したストアのサブスクリプション管理画面から解約してください'),
+                  ),
+                );
+              }
+            },
+            child: const Text('定期購入を管理'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('キャンセル'),

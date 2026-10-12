@@ -226,9 +226,24 @@ class BillingService extends ChangeNotifier {
     restoring = true;
     notifyListeners();
     try {
-      await Purchases.restorePurchases();
-      await _waitForWebhook();
-      return true;
+      final info = await Purchases.restorePurchases();
+      if (info.activeSubscriptions.isEmpty) {
+        throw StateError('復元できる有効なサブスクリプションが見つかりませんでした');
+      }
+      final restoredUserId = _revenueCatUserId;
+      for (var attempt = 0; attempt < 8; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (_revenueCatUserId != restoredUserId || !hasAuthenticatedUser) {
+          throw StateError('アカウントが切り替わりました。もう一度購入を復元してください');
+        }
+        await refreshStatus();
+        if (_revenueCatUserId == restoredUserId &&
+            error == null &&
+            (status?.plan == 'monthly' || status?.plan == 'annual')) {
+          return true;
+        }
+      }
+      throw StateError('購入情報を確認しましたが、利用プランへの反映を確認できませんでした。時間をおいて再度お試しください');
     } finally {
       restoring = false;
       notifyListeners();

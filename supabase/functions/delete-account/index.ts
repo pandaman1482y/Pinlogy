@@ -1,3 +1,4 @@
+import { identityValues, appleSubject } from "../_shared/billing-identity.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { importPKCS8, SignJWT, decodeJwt } from "npm:jose@5.9.6";
@@ -20,23 +21,19 @@ Deno.serve(async (request) => {
     const adminUser = await db.auth.admin.getUserById(user.id);
     if (adminUser.error || adminUser.data.user == null) throw adminUser.error;
     const identities = adminUser.data.user.identities ?? [];
-    const identityValues = identities.flatMap((identity) => {
-      const provider = String(identity.provider ?? "").toLowerCase();
-      const id = String(identity.identity_id ?? identity.id ?? "").trim();
-      return ["apple", "google"].includes(provider) && id ? [`${provider}:${id}`] : [];
-    });
-    if (identityValues.length === 0) return reply({ error: "verified_identity_required" }, 409);
+    const markers = identityValues(adminUser.data.user);
+    if (markers.length === 0) return reply({ error: "verified_identity_required" }, 409);
 
     const appleIdentity = identities.find((identity) => identity.provider === "apple");
     if (appleIdentity != null) {
       const input = await request.json().catch(() => ({}));
       const authorizationCode = String(input.apple_authorization_code ?? "").trim();
       if (!authorizationCode) return reply({ error: "apple_reauthentication_required" }, 409);
-      const appleSubject = String(appleIdentity.identity_id ?? appleIdentity.id ?? "");
-      await revokeAppleAuthorization(authorizationCode, appleSubject);
+      const subject = appleSubject(appleIdentity);
+      await revokeAppleAuthorization(authorizationCode, subject);
     }
 
-    const identityHashes = await Promise.all(identityValues.map(hmacIdentity));
+    const identityHashes = await Promise.all(markers.map(hmacIdentity));
     const prepared = await db.rpc("prepare_account_deletion", {
       p_user_id: user.id,
       p_identity_hashes: identityHashes,
