@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 利用規約・プライバシーポリシーへの同意状態を端末に保持する。
 /// 文書を重要変更した場合は [currentVersion] を更新し、再同意を求める。
 class LegalConsentService {
-  static const currentVersion = '2026-10-12-account-billing-v81';
+  static const currentVersion = '2026-10-13-store-billing-v84';
   static const _acceptedVersionKey = 'legal_consent_accepted_version';
   static const _acceptedAtKey = 'legal_consent_accepted_at';
 

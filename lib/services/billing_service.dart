@@ -16,6 +16,8 @@ class BillingStatus {
     required this.planRemaining,
     required this.bonusCredits,
     this.expiresAt,
+    this.nextCreditResetAt,
+    this.creditResetRequiresRenewal = false,
   });
 
   final String plan;
@@ -24,6 +26,8 @@ class BillingStatus {
   final int planRemaining;
   final int bonusCredits;
   final DateTime? expiresAt;
+  final DateTime? nextCreditResetAt;
+  final bool creditResetRequiresRenewal;
   bool get subscribed => plan == 'monthly' || plan == 'annual';
 
   factory BillingStatus.fromJson(Map<String, dynamic> json) {
@@ -42,6 +46,10 @@ class BillingStatus {
       expiresAt: DateTime.tryParse(
         json['entitlement_expires_at']?.toString() ?? '',
       ),
+      nextCreditResetAt: DateTime.tryParse(
+        json['next_credit_reset_at']?.toString() ?? '',
+      ),
+      creditResetRequiresRenewal: json['credit_reset_requires_renewal'] == true,
     );
   }
 }

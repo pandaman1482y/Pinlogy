@@ -66,13 +66,17 @@ class BillingPage extends StatelessWidget {
                   ],
                 ),
               ),
+              if (status?.nextCreditResetAt != null) ...[
+                const SizedBox(height: 8),
+                Text(_nextResetLabel(status!)),
+              ],
               const SizedBox(height: 20),
               Text('プラン', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               _PlanCard(
                 title: '月額プラン',
                 price: '月額 ¥490',
-                detail: '毎月30回まで解析',
+                detail: '契約更新ごとに30回・繰越なし',
                 package: billing.packageFor(monthlyId),
                 active: status?.plan == 'monthly',
                 disabled: subscriptionActive && status?.plan != 'monthly',
@@ -81,7 +85,7 @@ class BillingPage extends StatelessWidget {
               _PlanCard(
                 title: '年額プラン',
                 price: '年額 ¥4,980',
-                detail: '毎月30回まで解析',
+                detail: '契約開始日時を基準に毎月30回・繰越なし',
                 package: billing.packageFor(annualId),
                 active: status?.plan == 'annual',
                 disabled: subscriptionActive && status?.plan != 'annual',
@@ -117,6 +121,17 @@ class BillingPage extends StatelessWidget {
       );
     },
   );
+
+  static String _nextResetLabel(BillingStatus status) {
+    final date = status.nextCreditResetAt!.toLocal();
+    final day = '${date.year}/${date.month}/${date.day}';
+    final time =
+        '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
+    return status.creditResetRequiresRenewal
+        ? '次回の回数更新予定：$day $time（契約更新の確認後）'
+        : '次回の回数更新：$day $time';
+  }
 
   static String _planLabel(String? plan) => switch (plan) {
     'monthly' => '月額プラン利用中',

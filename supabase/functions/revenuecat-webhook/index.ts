@@ -39,7 +39,11 @@ Deno.serve(async (request) => {
       ? await sha256(`${event?.store ?? "unknown"}:${event?.environment ?? "unknown"}:${bonus ? "credits" : "subscription"}:${contract}`)
       : null;
     // Do not retain raw provider IDs, subscriber attributes or the full event payload.
-    const minimalPayload = { id, type, environment: event?.environment ?? null };
+    const minimalPayload = {
+      id, type, environment: event?.environment ?? null,
+      grace_expires_at: type === "BILLING_ISSUE"
+        ? millisToIso(event?.grace_period_expiration_at_ms) : null,
+    };
     const { error } = await db.rpc("apply_billing_webhook", {
       p_event_id: id, p_type: type,
       p_customer_hash: uuid(customer) ? await sha256(customer) : null,
