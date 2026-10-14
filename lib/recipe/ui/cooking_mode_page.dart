@@ -97,7 +97,10 @@ class _CookingModePageState extends State<CookingModePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('料理モード'),
+        title: const Text(
+          '料理モード',
+          style: TextStyle(fontWeight: FontWeight.normal),
+        ),
         actions: [
           IconButton(
             onPressed: _toggleVoice,
@@ -125,113 +128,118 @@ class _CookingModePageState extends State<CookingModePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    LinearProgressIndicator(
-                      value: (_index + 1) / entries.length,
-                      minHeight: 6,
-                      borderRadius: BorderRadius.circular(99),
-                      backgroundColor: mint,
-                    ),
-                    SizedBox(height: compact ? 8 : 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'STEP ${_index + 1}',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineSmall,
-                              ),
-                              Text(
-                                entry.part.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.labelLarge
-                                    ?.copyWith(color: mossDeep),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (entry.step.durationSeconds != null)
-                          _InfoChip(
-                            label: _durationLabel(entry.step.durationSeconds!),
-                          ),
-                      ],
-                    ),
-                    SizedBox(height: compact ? 7 : 10),
-                    if (imagePath != null) ...[
-                      SizedBox(
-                        height: imageHeight,
-                        width: double.infinity,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: _CookingImage(path: imagePath),
-                        ),
-                      ),
-                      SizedBox(height: compact ? 7 : 10),
-                    ],
-                    if (ingredients.isNotEmpty ||
-                        entry.step.preparedItems.isNotEmpty ||
-                        entry.step.tools.isNotEmpty) ...[
-                      _StepInputs(
-                        ingredients: ingredients,
-                        preparedItems: entry.step.preparedItems,
-                        tools: entry.step.tools,
-                        multiplier: widget.multiplier,
-                        compact: compact,
-                      ),
-                      SizedBox(height: compact ? 7 : 10),
-                    ],
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: compact ? 92 : 108,
-                          maxHeight: _instructionHeight(
-                            entry.step,
-                            compact: compact,
-                          ),
-                        ),
-                        child: Container(
-                          padding: EdgeInsets.all(compact ? 12 : 16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7F8F5),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: mint),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                entry.step.instruction,
-                                softWrap: true,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
-                                      height: 1.35,
-                                      fontSize: compact ? 14 : 16,
-                                    ),
-                              ),
-                              if (entry.step.tips.isNotEmpty) ...[
-                                const SizedBox(height: 7),
-                                for (final tip in entry.step.tips)
-                                  Text(
-                                    '• $tip',
-                                    style: TextStyle(
-                                      height: 1.3,
-                                      fontSize: compact ? 11.5 : 12.5,
-                                      color: Colors.black54,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        key: ValueKey(_index),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            LinearProgressIndicator(
+                              value: (_index + 1) / entries.length,
+                              minHeight: 6,
+                              borderRadius: BorderRadius.circular(99),
+                              backgroundColor: mint,
+                            ),
+                            SizedBox(height: compact ? 8 : 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'STEP ${_index + 1}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineSmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.normal,
+                                            ),
+                                      ),
+                                      Text(
+                                        entry.part.name,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge
+                                            ?.copyWith(
+                                              color: mossDeep,
+                                              fontSize: 16,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (entry.step.durationSeconds != null)
+                                  _InfoChip(
+                                    label: _durationLabel(
+                                      entry.step.durationSeconds!,
                                     ),
                                   ),
                               ],
+                            ),
+                            SizedBox(height: compact ? 7 : 10),
+                            if (imagePath != null) ...[
+                              SizedBox(
+                                height: imageHeight,
+                                width: double.infinity,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: _CookingImage(path: imagePath),
+                                ),
+                              ),
+                              SizedBox(height: compact ? 7 : 10),
                             ],
-                          ),
+                            if (ingredients.isNotEmpty ||
+                                entry.step.preparedItems.isNotEmpty ||
+                                entry.step.tools.isNotEmpty) ...[
+                              _StepInputs(
+                                ingredients: ingredients,
+                                preparedItems: entry.step.preparedItems,
+                                tools: entry.step.tools,
+                                multiplier: widget.multiplier,
+                                compact: compact,
+                              ),
+                              SizedBox(height: compact ? 7 : 10),
+                            ],
+                            Container(
+                              padding: EdgeInsets.all(compact ? 12 : 16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7F8F5),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: mint),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    entry.step.instruction,
+                                    softWrap: true,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(height: 1.35, fontSize: 18),
+                                  ),
+                                  if (entry.step.tips.isNotEmpty) ...[
+                                    const SizedBox(height: 7),
+                                    for (final tip in entry.step.tips)
+                                      Text(
+                                        '• $tip',
+                                        style: TextStyle(
+                                          height: 1.3,
+                                          fontSize: 15,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const Spacer(),
                     if (_timerStepNumber != null ||
                         entry.step.durationSeconds != null) ...[
                       SizedBox(height: compact ? 7 : 9),
@@ -357,15 +365,6 @@ class _CookingModePageState extends State<CookingModePage> {
             return leftIndex.compareTo(rightIndex);
           });
     return matches;
-  }
-
-  double _instructionHeight(RecipeStep step, {required bool compact}) {
-    final characters =
-        step.instruction.runes.length +
-        step.tips.fold<int>(0, (total, tip) => total + tip.runes.length + 2);
-    if (characters <= 45) return compact ? 105 : 120;
-    if (characters <= 85) return compact ? 132 : 150;
-    return compact ? 158 : 180;
   }
 
   void _handleSwipe(DragEndDetails details, int stepCount) {
@@ -567,9 +566,9 @@ class _CookingModePageState extends State<CookingModePage> {
   }
 
   ButtonStyle _footerButtonStyle(bool compact) => OutlinedButton.styleFrom(
-    minimumSize: Size(0, compact ? 38 : 42),
+    minimumSize: const Size(0, 48),
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
     visualDensity: VisualDensity.compact,
   );
 
@@ -696,14 +695,12 @@ class _CookingModePageState extends State<CookingModePage> {
                 children: [
                   Text(
                     'この工程をAIに相談',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.normal,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    step.instruction,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(step.instruction),
                   if (imagePath != null) ...[
                     const SizedBox(height: 10),
                     SizedBox(
@@ -895,32 +892,20 @@ class _StepInputs extends StatelessWidget {
           'この工程で使う材料',
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
             color: mossDeep,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.normal,
+            fontSize: 16,
           ),
         ),
         SizedBox(height: compact ? 3 : 5),
-        LayoutBuilder(
-          builder: (context, box) {
-            final itemWidth = ingredients.length <= 2
-                ? box.maxWidth
-                : (box.maxWidth - 8) / 2;
-            return Wrap(
-              spacing: 8,
-              runSpacing: 3,
-              children: [
-                for (final ingredient in ingredients)
-                  SizedBox(
-                    width: itemWidth,
-                    child: _IngredientLine(
-                      ingredient: ingredient,
-                      multiplier: multiplier,
-                      compact: compact,
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
+        for (final ingredient in ingredients)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _IngredientLine(
+              ingredient: ingredient,
+              multiplier: multiplier,
+              compact: compact,
+            ),
+          ),
         if (preparedItems.isNotEmpty)
           _InputSummary(
             icon: Icons.inventory_2_outlined,
@@ -946,32 +931,37 @@ class _IngredientLine extends StatelessWidget {
     required this.multiplier,
     required this.compact,
   });
-
   final RecipeIngredient ingredient;
   final double multiplier;
   final bool compact;
-
   @override
   Widget build(BuildContext context) {
     final quantity = ingredient.quantityFor(multiplier).trim();
     final missing = quantity.isEmpty;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
+          flex: 6,
           child: Text(
             ingredient.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: compact ? 11.5 : 13),
+            softWrap: true,
+            style: const TextStyle(fontSize: 16, height: 1.4),
           ),
         ),
-        const SizedBox(width: 5),
-        Text(
-          missing ? '分量記載なし' : quantity,
-          style: TextStyle(
-            fontSize: compact ? 11.5 : 13,
-            fontWeight: FontWeight.w700,
-            color: missing ? warningColor : ink,
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 4,
+          child: Text(
+            missing ? '分量記載なし' : quantity,
+            textAlign: TextAlign.right,
+            softWrap: true,
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.4,
+              fontWeight: FontWeight.normal,
+              color: missing ? warningColor : ink,
+            ),
           ),
         ),
       ],
@@ -1003,15 +993,15 @@ class _InputSummary extends StatelessWidget {
         Text(
           '$label：',
           style: TextStyle(
-            fontSize: compact ? 11.5 : 12.5,
-            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            fontWeight: FontWeight.normal,
             color: mossDeep,
           ),
         ),
         Expanded(
           child: Text(
             values.join('、'),
-            style: TextStyle(fontSize: compact ? 11.5 : 12.5, height: 1.25),
+            style: TextStyle(fontSize: 16, height: 1.25),
           ),
         ),
       ],
@@ -1062,7 +1052,7 @@ class _InfoChip extends StatelessWidget {
       children: [
         const Icon(Icons.timer_outlined, size: 17, color: mossDeep),
         const SizedBox(width: 5),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.normal)),
       ],
     ),
   );
@@ -1107,7 +1097,9 @@ class _TimerPanel extends StatelessWidget {
                 Text(label, style: Theme.of(context).textTheme.labelSmall),
                 Text(
                   '$minutes:${rest.toString().padLeft(2, '0')}',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.normal,
+                  ),
                 ),
               ],
             ),

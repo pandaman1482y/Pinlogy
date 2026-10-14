@@ -1,3 +1,5 @@
+import { prepareKeywordComments } from "../_shared/tiktok-keyword-comments.ts";
+import { filterRecipeAuthorComments } from "../_shared/recipe-author-comments.ts";
 import { identityValues } from "../_shared/billing-identity.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -56,6 +58,9 @@ Deno.serve(async (request) => {
     delete payload.notification_token;
     delete payload.notification_enabled;
     delete payload.__apify_tiktok;
+    delete payload.__tiktok_canonical_url;
+    delete payload.__tiktok_keyword_comments;
+    delete payload.__tiktok_keyword_comments_done;
     delete payload.tiktok_external_post;
     delete payload.__apify_instagram;
     delete payload.instagram_external_post;
@@ -547,6 +552,7 @@ async function processJob(jobId: string) {
 }
 
 type TikTokApifyState = {
+  parent_comments_only?: boolean;
   run_id: string;
   store_id: string;
   attempt: number;
@@ -560,6 +566,7 @@ type TikTokExternalPost = {
   description: string;
   title: string;
   ownerUsername: string;
+  ownerId?: string;
   authorComments: string[];
 };
 
@@ -572,6 +579,11 @@ async function prepareTikTokPayload(
   const request = requestValue != null && typeof requestValue === "object"
     ? { ...(requestValue as Record<string, unknown>) }
     : {};
+  // Only server-written external data survives into this resumed worker.
+  if (request.tiktok_external_post != null &&
+      (request.__tiktok_keyword_comments != null || request.__tiktok_keyword_comments_done === true)) {
+    return prepareTikTokKeywordPayload(jobId, request);
+  }
   const rawUrl = String(request.url ?? "").trim();
   const state = readTikTokApifyState(request.__apify_tiktok);
   // URL展開はActor開始時の1回だけ行う。進捗確認のたびに短縮URLを
@@ -584,9 +596,11 @@ async function prepareTikTokPayload(
 
   const token = requiredEnv("APIFY_API_TOKEN");
   if (state == null) {
+    request.__tiktok_canonical_url = tiktokUrl;
     const storeId = await createApifyVideoStore(token);
     const runId = await triggerApifyTikTokRun(tiktokUrl!, storeId, token);
     const nextState: TikTokApifyState = {
+      parent_comments_only: true,
       run_id: runId,
       store_id: storeId,
       attempt: 0,
@@ -658,6 +672,7 @@ async function prepareTikTokPayload(
     rawUrl,
     videoUrl,
     token,
+    state.parent_comments_only === true,
   );
   if (external == null) throw new Error("apify_tiktok_result_invalid");
 
@@ -671,7 +686,18 @@ async function prepareTikTokPayload(
     `media=${external.mediaType}`,
     `images=${external.imageUrls.length}`,
   );
-  return request;
+  return prepareTikTokKeywordPayload(jobId, request);
+}
+
+async function prepareTikTokKeywordPayload(jobId: string, request: Record<string, unknown>) {
+  const token = requiredEnv("APIFY_API_TOKEN");
+  const post = request.tiktok_external_post as TikTokExternalPost;
+  return prepareKeywordComments(request, post, {
+    enabled: Deno.env.get("TIKTOK_KEYWORD_COMMENTS_ENABLED") !== "false",
+    fetch: (url, init) => apifyFetch(url, token, init),
+    requeue: payload => requeueTikTokApify(jobId, payload, 5_000),
+    log: (event, fields) => console.info(event, jobId, JSON.stringify(fields)),
+  });
 }
 
 type InstagramApifyState = {
@@ -1039,7 +1065,7 @@ async function triggerApifyTikTokRun(
         // 全件取得は費用とノイズが大きいため、上位8件だけ取得する。
         commentsPerPost: 8,
         topLevelCommentsPerPost: 6,
-        maxRepliesPerComment: 2,
+        maxRepliesPerComment: 0,
       }),
       signal: AbortSignal.timeout(20_000),
     },
@@ -1113,7 +1139,8 @@ function readTikTokApifyState(value: unknown): TikTokApifyState | null {
   if (!isApifyId(runId) || !isApifyId(storeId)) return null;
   if (!Number.isInteger(attempt) || attempt < 0 || attempt > 60) return null;
   if (!Number.isFinite(Date.parse(startedAt))) return null;
-  return { run_id: runId, store_id: storeId, attempt, started_at: startedAt };
+  return { run_id: runId, store_id: storeId, attempt, started_at: startedAt,
+    parent_comments_only: record.parent_comments_only === true };
 }
 
 async function parseApifyTikTokPost(
@@ -1121,6 +1148,7 @@ async function parseApifyTikTokPost(
   rawUrl: string,
   videoUrl: string,
   token: string,
+  parentOnlyRequested = false,
 ): Promise<TikTokExternalPost | null> {
   const rows = Array.isArray(decoded) ? decoded : [decoded];
   const videoId = /\/(?:video|photo)\/(\d+)/i.exec(new URL(rawUrl).pathname)?.[1] ?? "";
@@ -1143,12 +1171,14 @@ async function parseApifyTikTokPost(
   const authorMeta = asRecord(record.authorMeta);
   const creator = String(
     authorMeta?.uniqueId ?? authorMeta?.name ?? record["authorMeta.name"] ??
-      record.profile_username ?? record.author_name ?? record.nickname ?? "",
+      record.profile_username ?? record.author_name ?? "",
   ).trim();
   const authorComments = await fetchTikTokAuthorComments(
     record,
     creator,
     token,
+    String(authorMeta?.id ?? authorMeta?.uid ?? ""),
+    parentOnlyRequested,
   );
   return {
     mediaType: isSlideshow ? "slideshow" : "video",
@@ -1157,6 +1187,7 @@ async function parseApifyTikTokPost(
     description,
     title: creator ? `TikTok @${creator}` : "TikTok投稿",
     ownerUsername: creator,
+    ownerId: String(authorMeta?.id ?? authorMeta?.uid ?? "").trim(),
     authorComments,
   };
 }
@@ -1215,8 +1246,10 @@ async function fetchTikTokAuthorComments(
   post: Record<string, unknown>,
   ownerUsername: string,
   token: string,
+  ownerId = "",
+  parentOnlyRequested = false,
 ) {
-  if (!ownerUsername) return [];
+  if (!ownerUsername && !ownerId) return [];
   const datasetUrl = String(
     post.commentsDatasetURL ?? post.commentsDatasetUrl ??
       post.comments_dataset_url ?? "",
@@ -1234,36 +1267,17 @@ async function fetchTikTokAuthorComments(
       console.warn("async_tiktok_comments_http", response.status);
       return [];
     }
-    return authorCommentsFromRows(await response.json(), ownerUsername);
+    const rows = await response.json();
+    const comments = filterRecipeAuthorComments(rows, { ownerUsername, ownerId, parentOnlyRequested });
+    console.info("async_tiktok_author_comments_filtered",
+      `rows=${Array.isArray(rows) ? rows.length : 0}`, `accepted=${comments.length}`,
+      `parent_only=${parentOnlyRequested}`);
+    return comments;
   } catch (error) {
     // コメント取得失敗だけで、投稿文・動画による解析全体は失敗させない。
     console.warn("async_tiktok_comments_failed", String(error));
     return [];
   }
-}
-
-function authorCommentsFromRows(decoded: unknown, ownerUsername: string) {
-  const owner = normalizeTikTokUsername(ownerUsername);
-  if (!owner) return [];
-  const rows = Array.isArray(decoded) ? decoded : [decoded];
-  const comments: string[] = [];
-  for (const value of rows) {
-    const row = asRecord(value);
-    if (row == null) continue;
-    const user = asRecord(row.user) ?? asRecord(row.author) ??
-      asRecord(row.authorMeta);
-    const username = normalizeTikTokUsername(String(
-      user?.uniqueId ?? user?.unique_id ?? user?.username ?? user?.name ??
-        row.uniqueId ?? row.username ?? row.author_name ?? "",
-    ));
-    if (username !== owner) continue;
-    const text = String(
-      row.text ?? row.comment ?? row.description ?? row.content ?? "",
-    ).trim().replace(/\s+/g, " ").slice(0, 2000);
-    if (text && !comments.includes(text)) comments.push(text);
-    if (comments.length >= 5) break;
-  }
-  return comments;
 }
 
 function safeApifyDatasetItemsUrl(rawUrl: string) {
@@ -1281,10 +1295,6 @@ function safeApifyDatasetItemsUrl(rawUrl: string) {
   } catch {
     return null;
   }
-}
-
-function normalizeTikTokUsername(value: string) {
-  return value.trim().replace(/^@/, "").normalize("NFKC").toLowerCase();
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

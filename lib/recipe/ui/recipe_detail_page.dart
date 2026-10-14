@@ -757,25 +757,38 @@ class _IngredientRow extends StatelessWidget {
   final RecipeIngredient ingredient;
   final String quantity;
   final VoidCallback onEvidence;
-
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 9),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: Text(ingredient.name)),
-        if (ingredient.evidenceId != null)
-          IconButton(
-            tooltip: '根拠を見る',
-            onPressed: onEvidence,
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(
-              Icons.image_outlined,
-              size: 18,
-              color: secondaryInk,
-            ),
+        Expanded(flex: 6, child: Text(ingredient.name, softWrap: true)),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 4,
+          child: Text(
+            quantity.trim().isEmpty ? '分量記載なし' : quantity,
+            textAlign: TextAlign.right,
+            softWrap: true,
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
-        Text(quantity, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        SizedBox(
+          width: 40,
+          child: ingredient.evidenceId == null
+              ? null
+              : IconButton(
+                  tooltip: '根拠を見る',
+                  onPressed: onEvidence,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(
+                    Icons.image_outlined,
+                    size: 18,
+                    color: secondaryInk,
+                  ),
+                ),
+        ),
       ],
     ),
   );
@@ -813,7 +826,10 @@ class _StepRow extends StatelessWidget {
             children: [
               Text(
                 step.instruction,
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.normal,
+                ),
               ),
               if (step.tips.isNotEmpty) ...[
                 const SizedBox(height: 5),

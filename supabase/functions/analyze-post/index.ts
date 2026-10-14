@@ -205,6 +205,7 @@ Deno.serve(async (request) => {
           "根拠の優先順位は、ユーザー修正、投稿文・キャプション、明瞭な画像字幕、投稿者の固定コメント、音声文字起こし、AI推測の順です。上位根拠と矛盾する下位根拠で上書きしないでください。" +
           "1投稿に完成料理が複数ある場合はrecipesを料理ごとに分けます。一方、本体、出汁、タレ、漬けだれ、衣、トッピングなど同じ完成料理を構成する別作業は、別recipeにせず同じrecipeのpartsへ分けてください。" +
           "材料は画面に出た『小さじ1』『1/2個』等をoriginal_textへ残し、数値化できる場合だけamountとunitを設定します。適量、少々、いつもの量など曖昧な表現は推測せずoriginal_textへそのまま残しscalable=falseにしてください。" +
+          "材料名と分量の間の...・・・・・…などの区切り記号はnameとoriginal_textへ含めず、nameは材料名、original_textは分量のみとします。0.5などの小数点、1/2などの分数、1〜2個などの範囲は保持します。" +
           "amountとunitは必ず同じ根拠から組にして抽出します。別の材料の数字、画面番号、再生時間、人数を分量へ転用しません。大さじ・小さじ・カップとg・mlは、投稿自身が換算している場合を除いて相互換算しません。分数は3/4を0.75のようにamountへ入れ、original_textには元の『大さじ3/4』を保存します。" +
           "材料の分量は、その材料を実際に投入する瞬間だけでなく、直前の材料紹介、調味料を合わせる場面、画面字幕、投稿文、音声説明まで時系列で探してください。確認できた分量を対応するingredientのamount・unit・original_textへ保存し、『画像』『文字』『字幕』『音声』など根拠の種類を分量やunitへ入れないでください。" +
           "画像内の材料表は行単位で読み、同じ行または明確に対応する左右の列にある材料名と分量だけを組にしてください。材料名だけ確認できて分量が読めない場合はamountとunitをnullにし、別行の数字を流用しないでください。" +
@@ -1208,6 +1209,7 @@ function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
             `${String(ingredient.name ?? "材料")}の分量を確認してください`,
           );
         }
+        normalizeIngredientSeparator(ingredient);
         recoverExplicitIngredientQuantity(ingredient);
         const original = String(ingredient.original_text ?? "").trim();
         if (ingredient.amount == null && /^(?:適量|少々|お好み|ひとつまみ|適宜)$/u.test(original)) {
@@ -1241,6 +1243,19 @@ function sanitizeRecipes(output: Record<string, unknown>, imageCount: number) {
     recipe.needs_review_fields = [...new Set(review)].slice(0, 50);
     recipe.warnings = [...new Set(warnings)].slice(0, 30);
   }
+}
+
+function normalizeIngredientSeparator(ingredient: Record<string, unknown>) {
+  const name = String(ingredient.name ?? "").trim()
+    .replace(/[\s：:・…⋯.．。-]+$/u, "");
+  ingredient.name = name;
+  let text = String(ingredient.original_text ?? "").trim();
+  if (name && text.startsWith(name)) {
+    text = text.slice(name.length).trim();
+  }
+  // Remove only a leading divider; decimals, fractions and ranges stay intact.
+  text = text.replace(/^[\s：:・…⋯.．。-]+/u, "");
+  ingredient.original_text = text;
 }
 
 function recoverExplicitIngredientQuantity(

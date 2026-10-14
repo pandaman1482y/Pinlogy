@@ -202,10 +202,11 @@ String _quantityOnlyFromOriginal(String ingredientName, String? originalText) {
   final normalizedName = ingredientName.trim();
   if (normalizedName.isNotEmpty) {
     value = value.replaceFirst(
-      RegExp('^${RegExp.escape(normalizedName)}(?:\\s*[：:・…-])?\\s*'),
+      RegExp('^${RegExp.escape(normalizedName)}(?:\\s*[：:・…⋯.．。-]+)?\\s*'),
       '',
     );
   }
+  value = value.replaceFirst(RegExp(r'^[\s：:・…⋯.．。-]+'), '');
   value = value
       .replaceFirst(RegExp(r'^[（(]'), '')
       .replaceFirst(RegExp(r'[）)]$'), '');
