@@ -258,6 +258,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       _StepRow(
                         number: index + 1,
                         step: part.steps[index],
+                        onEdit: () =>
+                            _editRecipeStep(recipe, part.steps[index]),
                         onEvidence: () => _showEvidence(
                           context,
                           recipe,
@@ -465,6 +467,43 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Future<void> _openSource(String raw) async {
     final uri = Uri.tryParse(raw);
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _editRecipeStep(Recipe recipe, RecipeStep step) async {
+    final controller = RecipeScope.read(context);
+    final edited = await showRecipeStepEditor(
+      context,
+      order: step.order,
+      original: step,
+    );
+    if (!mounted || edited == null) return;
+    final latest = controller.recipeById(recipe.id);
+    if (latest == null) return;
+    final parts = latest.parts
+        .map(
+          (part) => RecipePart(
+            id: part.id,
+            name: part.name,
+            ingredients: part.ingredients,
+            steps: part.steps
+                .map((item) => item.id == step.id ? edited : item)
+                .toList(),
+          ),
+        )
+        .toList();
+    try {
+      await controller.saveRecipe(
+        latest.copyWith(
+          parts: parts,
+          userEditedFields: {...latest.userEditedFields, 'parts'},
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('工程を保存できませんでした：$error')));
+    }
   }
 
   Future<void> _showEvidence(
@@ -799,72 +838,85 @@ class _StepRow extends StatelessWidget {
     required this.number,
     required this.step,
     required this.onEvidence,
+    required this.onEdit,
   });
   final int number;
   final RecipeStep step;
   final VoidCallback onEvidence;
+  final VoidCallback onEdit;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 18),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 15,
-          backgroundColor: mossDeep,
-          foregroundColor: Colors.white,
-          child: Text(
-            '$number',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                step.instruction,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.normal,
-                ),
-              ),
-              if (step.tips.isNotEmpty) ...[
-                const SizedBox(height: 5),
-                for (final tip in step.tips)
-                  Text(
-                    '• $tip',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: secondaryInk),
-                  ),
-              ],
-              if (step.durationSeconds != null) ...[
-                const SizedBox(height: 5),
-                Text(
-                  '目安 ${_durationLabel(step.durationSeconds!)}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: mossDeep),
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (step.evidenceId != null)
-          IconButton(
-            tooltip: '根拠を見る',
-            visualDensity: VisualDensity.compact,
-            onPressed: onEvidence,
-            icon: const Icon(
-              Icons.image_outlined,
-              size: 19,
-              color: secondaryInk,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onEdit,
+    borderRadius: BorderRadius.circular(12),
+    child: Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 15,
+            backgroundColor: mossDeep,
+            foregroundColor: Colors.white,
+            child: Text(
+              '$number',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
-      ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (step.title?.trim().isNotEmpty == true) ...[
+                  Text(
+                    step.title!,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Text(
+                  step.instruction,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                if (step.tips.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  for (final tip in step.tips)
+                    Text(
+                      '• $tip',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: secondaryInk),
+                    ),
+                ],
+                if (step.durationSeconds != null) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    '目安 ${_durationLabel(step.durationSeconds!)}',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: mossDeep),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (step.evidenceId != null)
+            IconButton(
+              tooltip: '根拠を見る',
+              visualDensity: VisualDensity.compact,
+              onPressed: onEvidence,
+              icon: const Icon(
+                Icons.image_outlined,
+                size: 19,
+                color: secondaryInk,
+              ),
+            ),
+        ],
+      ),
     ),
   );
 }

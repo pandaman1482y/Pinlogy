@@ -49,5 +49,30 @@ Recipe mergeAnalyzedRecipe({
     lastMadeAt: existing.lastMadeAt,
     madeCount: existing.madeCount,
     createdAt: existing.createdAt,
+    updatedAt: existing.updatedAt.isAfter(incoming.updatedAt)
+        ? existing.updatedAt
+        : incoming.updatedAt,
   );
+}
+
+/// Historical failures and unconfirmed old progress cards do not interrupt login.
+/// Data and jobs are retained; new failures can still be retried in this session.
+bool shouldShowImportInSession({
+  required RecipeImportStatus status,
+  required DateTime updatedAt,
+  required DateTime sessionStartedAt,
+  required bool remoteActive,
+  required bool localTerminal,
+}) {
+  if (status == RecipeImportStatus.completed ||
+      status == RecipeImportStatus.cancelled)
+    return false;
+  if (status == RecipeImportStatus.awaitingSelection) return true;
+  if (remoteActive) return true;
+  if (status == RecipeImportStatus.queued ||
+      status == RecipeImportStatus.fetching ||
+      status == RecipeImportStatus.analyzing) {
+    return !localTerminal && !updatedAt.isBefore(sessionStartedAt);
+  }
+  return !updatedAt.isBefore(sessionStartedAt);
 }

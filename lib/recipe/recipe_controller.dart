@@ -69,6 +69,7 @@ class RecipeController extends ChangeNotifier {
   bool loading = true;
   String? loadError;
   bool _syncing = false;
+  Completer<void>? _intakeSyncCompletion;
   bool _syncAgain = false;
   bool _disposed = false;
   bool _switchingIdentity = false;
@@ -87,9 +88,32 @@ class RecipeController extends ChangeNotifier {
   List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
 
   String? _lastIntakeDiagnostic;
+  DateTime _importSessionStartedAt = DateTime.now();
+  final Map<String, String> _appliedAnalysisResults = {};
+  bool _accountPresentationPending = false;
+  bool get switchingAccount => _accountPresentationPending;
 
-  void _syncActiveRemoteAnalyses() {
-    _activeRemoteAnalyses = legacy.activeRemoteAnalyses.toList(growable: false);
+  void _notifyRecipeListeners() {
+    if (!_disposed && !_switchingIdentity) notifyListeners();
+  }
+
+  bool _syncActiveRemoteAnalyses() {
+    final next = legacy.activeRemoteAnalyses.toList(growable: false);
+    String signature(List<RecoveredAnalysisJob> jobs) => jsonEncode(
+      jobs
+          .map(
+            (job) => [
+              job.jobId,
+              job.sourcePostId,
+              job.status,
+              job.updatedAt?.toIso8601String(),
+            ],
+          )
+          .toList(),
+    );
+    final changed = signature(next) != signature(_activeRemoteAnalyses);
+    _activeRemoteAnalyses = next;
+    return changed;
   }
 
   List<Recipe> get savedRecipes =>
@@ -98,9 +122,19 @@ class RecipeController extends ChangeNotifier {
   List<RecipeImport> get activeImports {
     final values = snapshot.imports
         .where(
-          (item) =>
-              item.status != RecipeImportStatus.completed &&
-              item.status != RecipeImportStatus.cancelled,
+          (item) => shouldShowImportInSession(
+            status: item.status,
+            updatedAt: item.updatedAt,
+            sessionStartedAt: _importSessionStartedAt,
+            remoteActive: _activeRemoteAnalyses.any(
+              (job) => job.sourcePostId == item.sourcePostId,
+            ),
+            localTerminal:
+                legacy.jobForPost(item.sourcePostId)?.status ==
+                    AnalysisJobStatus.completed ||
+                legacy.jobForPost(item.sourcePostId)?.status ==
+                    AnalysisJobStatus.cancelled,
+          ),
         )
         .toList();
     final knownSourceIds = values.map((item) => item.sourcePostId).toSet();
@@ -110,9 +144,19 @@ class RecipeController extends ChangeNotifier {
     // されると同じsourcePostIdで置き換わるため、解析処理や永続化は変えない。
     for (final post in legacy.hub.snapshot.sourcePosts) {
       if (knownSourceIds.contains(post.id)) continue;
+      if (snapshot.imports.any((item) => item.sourcePostId == post.id))
+        continue;
       final job = legacy.jobForPost(post.id);
       if (job?.status != AnalysisJobStatus.pending &&
           job?.status != AnalysisJobStatus.processing) {
+        continue;
+      }
+      if ((job?.updatedAt ?? post.updatedAt).isBefore(
+            _importSessionStartedAt,
+          ) &&
+          !_activeRemoteAnalyses.any(
+            (remote) => remote.sourcePostId == post.id,
+          )) {
         continue;
       }
       values.add(
@@ -193,7 +237,7 @@ class RecipeController extends ChangeNotifier {
     }
     _activeOwnerId = null;
     snapshot = RecipeSnapshot();
-    notifyListeners();
+    _notifyRecipeListeners();
   }
 
   Future<String> askCookingAssistant({
@@ -260,7 +304,7 @@ class RecipeController extends ChangeNotifier {
   Future<void> initialize() async {
     loading = true;
     loadError = null;
-    notifyListeners();
+    _notifyRecipeListeners();
     try {
       legacy.addListener(_onLegacyChanged);
       if (legacy.cloud.isConfigured) {
@@ -292,7 +336,7 @@ class RecipeController extends ChangeNotifier {
       loadError = 'レシピデータを読み込めませんでした: $error';
     } finally {
       loading = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed) _notifyRecipeListeners();
     }
     // ここから先はネットワーク処理。保存済み一覧と画像を表示した後に行う。
     unawaited(_finishStartupSync());
@@ -322,14 +366,14 @@ class RecipeController extends ChangeNotifier {
       }
     } finally {
       _startupSyncRunning = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed) _notifyRecipeListeners();
     }
   }
 
   void _onLegacyChanged() {
     if (_disposed) return;
-    _syncActiveRemoteAnalyses();
-    notifyListeners();
+    final changed = _syncActiveRemoteAnalyses();
+    if (changed) _notifyRecipeListeners();
     if (_activeOwnerId != null && !_switchingIdentity) {
       unawaited(syncFromIntake());
     }
@@ -356,6 +400,12 @@ class RecipeController extends ChangeNotifier {
       if (_activeOwnerId != null) {
         await store.save(snapshot, ownerId: _activeOwnerId);
       }
+      // Show one loading state, then publish the assembled account once.
+      _accountPresentationPending = true;
+      if (!_disposed) notifyListeners();
+      _importSessionStartedAt = DateTime.now();
+      _appliedAnalysisResults.clear();
+      _activeRemoteAnalyses = const [];
       _activeOwnerId = nextOwnerId;
       _cloudPullReady = false;
       _cloudSavePending = false;
@@ -363,26 +413,28 @@ class RecipeController extends ChangeNotifier {
         ownerId: nextOwnerId,
         migrateLegacy: nextOwnerId != null,
       );
-      if (!_disposed) notifyListeners();
+      if (!_disposed) _notifyRecipeListeners();
       await _syncBillingIdentity();
       if (nextOwnerId != null) {
         await syncCloud();
         await syncFromIntake();
       }
     } finally {
-      _switchingIdentity = false;
-      // 認証同期中に共有取り込みやリモート結果回収が完了すると、
-      // _onLegacyChangedはアカウント切替中のため同期を保留する。
-      // 切替完了後に必ず再同期し、解析結果をアカウント別一覧へ反映する。
-      if (_activeOwnerId != null && !_disposed) {
-        await syncFromIntake();
-        if (_legacySyncPending) {
-          _legacySyncPending = false;
-          await Future<void>.delayed(Duration.zero);
+      try {
+        // Publish once after recovery and any concurrent intake sync finish.
+        if (_activeOwnerId != null && !_disposed) {
           await syncFromIntake();
+          if (_legacySyncPending) {
+            _legacySyncPending = false;
+            await Future<void>.delayed(Duration.zero);
+            await syncFromIntake();
+          }
         }
+      } finally {
+        _switchingIdentity = false;
+        _accountPresentationPending = false;
+        _notifyRecipeListeners();
       }
-      if (!_disposed) notifyListeners();
     }
   }
 
@@ -412,9 +464,12 @@ class RecipeController extends ChangeNotifier {
     if (legacy.cloud.isConfigured && _activeOwnerId == null) return;
     if (_syncing) {
       _syncAgain = true;
+      await _intakeSyncCompletion?.future;
       return;
     }
     _syncing = true;
+    final completion = Completer<void>();
+    _intakeSyncCompletion = completion;
     try {
       do {
         _syncAgain = false;
@@ -429,14 +484,16 @@ class RecipeController extends ChangeNotifier {
       rethrow;
     } finally {
       _syncing = false;
+      _intakeSyncCompletion = null;
+      completion.complete();
     }
   }
 
   /// 画面の手動更新用。全件ではなく前回同期以降の差分だけを取得する。
   Future<void> refreshFromServer() async {
     await legacy.refreshRemoteAnalyses();
-    _syncActiveRemoteAnalyses();
-    if (!_disposed) notifyListeners();
+    final changed = _syncActiveRemoteAnalyses();
+    if (changed) _notifyRecipeListeners();
     await syncFromIntake();
   }
 
@@ -502,6 +559,28 @@ class RecipeController extends ChangeNotifier {
         (item) => item.sourcePostId == post.id,
       );
       final current = existingIndex < 0 ? null : imports[existingIndex];
+      final result = job?.resultJson;
+      final sameCompletedResult =
+          job?.status == AnalysisJobStatus.completed &&
+          current != null &&
+          (current.status == RecipeImportStatus.completed ||
+              current.status == RecipeImportStatus.awaitingSelection) &&
+          current.recipeIds.isNotEmpty &&
+          current.recipeIds.every(
+            (id) =>
+                recipes.any((recipe) => recipe.id == id) ||
+                deletedRecipeIds.contains(id),
+          ) &&
+          (current.updatedAt == job?.updatedAt ||
+              _appliedAnalysisResults[post.id] == result);
+      if (sameCompletedResult) continue;
+      // Missing repository jobs must not resurrect completed/cancelled history.
+      if (job == null &&
+          current != null &&
+          (current.status == RecipeImportStatus.completed ||
+              current.status == RecipeImportStatus.cancelled ||
+              current.status == RecipeImportStatus.awaitingSelection))
+        continue;
       var status = _importStatus(job?.status);
       var message = job?.errorMessage;
       var recipeIds = current?.recipeIds ?? const <String>[];
@@ -535,17 +614,25 @@ class RecipeController extends ChangeNotifier {
               (item) => item.id == incoming.id,
             );
             if (recipeIndex < 0) {
-              recipes.add(incoming.copyWith(isSaved: parsed.length == 1));
+              recipes.add(
+                incoming.copyWith(
+                  isSaved: parsed.length == 1,
+                  updatedAt: incoming.updatedAt,
+                ),
+              );
               changed = true;
               continue;
             }
             final existing = recipes[recipeIndex];
-            recipes[recipeIndex] = mergeAnalyzedRecipe(
+            final merged = mergeAnalyzedRecipe(
               existing: existing,
               incoming: incoming,
               saveAutomatically: parsed.length == 1,
             );
-            changed = true;
+            if (jsonEncode(existing.toJson()) != jsonEncode(merged.toJson())) {
+              recipes[recipeIndex] = merged;
+              changed = true;
+            }
           }
         } else {
           status = RecipeImportStatus.failed;
@@ -553,6 +640,9 @@ class RecipeController extends ChangeNotifier {
         }
       }
 
+      if (job?.status == AnalysisJobStatus.completed && result != null) {
+        _appliedAnalysisResults[post.id] = result;
+      }
       final next = RecipeImport(
         id: current?.id,
         sourcePostId: post.id,
@@ -575,7 +665,7 @@ class RecipeController extends ChangeNotifier {
       }
     }
 
-    if (!changed) return;
+    if (!changed || ownerId != _activeOwnerId || _disposed) return;
     snapshot = _copySnapshot(recipes: recipes, imports: imports);
     await _persist();
   }
@@ -856,7 +946,7 @@ class RecipeController extends ChangeNotifier {
       needsReviewFields: needsReview,
       nutrition: nutrition,
       createdAt: post.receivedAt,
-      updatedAt: DateTime.now(),
+      updatedAt: legacy.jobForPost(post.id)?.updatedAt ?? post.updatedAt,
     );
   }
 
@@ -1324,7 +1414,7 @@ class RecipeController extends ChangeNotifier {
 
   Future<bool> setNotificationsEnabled(bool value) async {
     final changed = await PinlogyNotificationService.instance.setEnabled(value);
-    notifyListeners();
+    _notifyRecipeListeners();
     return changed;
   }
 
@@ -1396,7 +1486,7 @@ class RecipeController extends ChangeNotifier {
 
   Future<void> _persist({bool syncToCloud = true}) async {
     await store.save(snapshot, ownerId: _activeOwnerId);
-    if (!_disposed) notifyListeners();
+    if (!_disposed) _notifyRecipeListeners();
     if (syncToCloud && _activeOwnerId != null) {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setBool(

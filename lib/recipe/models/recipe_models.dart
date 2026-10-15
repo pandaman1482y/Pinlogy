@@ -219,6 +219,7 @@ class RecipeStep {
     String? id,
     required this.order,
     required this.instruction,
+    this.title,
     this.durationSeconds,
     this.imageIndex,
     List<int>? ingredientIndexes,
@@ -237,6 +238,7 @@ class RecipeStep {
   final String id;
   final int order;
   final String instruction;
+  final String? title;
   final int? durationSeconds;
   final int? imageIndex;
   final List<int> ingredientIndexes;
@@ -247,10 +249,33 @@ class RecipeStep {
   final int? confidencePercent;
   final bool userEdited;
 
+  RecipeStep copyWith({
+    int? order,
+    String? title,
+    String? instruction,
+    List<int>? ingredientIndexes,
+    bool? userEdited,
+  }) => RecipeStep(
+    id: id,
+    order: order ?? this.order,
+    title: title ?? this.title,
+    instruction: instruction ?? this.instruction,
+    durationSeconds: durationSeconds,
+    imageIndex: imageIndex,
+    ingredientIndexes: ingredientIndexes ?? this.ingredientIndexes,
+    preparedItems: preparedItems,
+    tools: tools,
+    tips: tips,
+    evidenceId: evidenceId,
+    confidencePercent: confidencePercent,
+    userEdited: userEdited ?? this.userEdited,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'order': order,
     'instruction': instruction,
+    'title': title,
     'durationSeconds': durationSeconds,
     'imageIndex': imageIndex,
     'ingredientIndexes': ingredientIndexes,
@@ -266,6 +291,7 @@ class RecipeStep {
     id: json['id']?.toString(),
     order: (json['order'] as num?)?.toInt() ?? 1,
     instruction: json['instruction']?.toString() ?? '',
+    title: json['title']?.toString(),
     durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
     imageIndex: (json['imageIndex'] as num?)?.toInt(),
     ingredientIndexes: (json['ingredientIndexes'] as List? ?? const [])

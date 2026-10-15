@@ -72,8 +72,17 @@ class _RecipeHomePageState extends State<RecipeHomePage>
     }
   }
 
+  bool get _hasRunningImports =>
+      _controller?.activeImports.any(
+        (item) =>
+            item.status == RecipeImportStatus.queued ||
+            item.status == RecipeImportStatus.fetching ||
+            item.status == RecipeImportStatus.analyzing,
+      ) ??
+      false;
+
   void _updateAnalysisPolling() {
-    final hasActiveImports = _controller?.activeImports.isNotEmpty == true;
+    final hasActiveImports = _hasRunningImports;
     if (!hasActiveImports && _analysisDiscoveryPollsRemaining <= 0) {
       _analysisPollTimer?.cancel();
       _analysisPollTimer = null;
@@ -82,8 +91,7 @@ class _RecipeHomePageState extends State<RecipeHomePage>
     if (_analysisPollTimer?.isActive == true) return;
     _analysisPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted) return;
-      if (_controller?.activeImports.isNotEmpty != true &&
-          _analysisDiscoveryPollsRemaining > 0) {
+      if (!_hasRunningImports && _analysisDiscoveryPollsRemaining > 0) {
         _analysisDiscoveryPollsRemaining--;
       }
       unawaited(_refresh());
@@ -116,6 +124,12 @@ class _RecipeHomePageState extends State<RecipeHomePage>
   @override
   Widget build(BuildContext context) {
     final controller = RecipeScope.of(context);
+    if (controller.switchingAccount) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('レシピ')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
     var recipes = controller.filteredRecipes();
     if (_collection == 'お気に入り') {
       recipes = recipes.where((recipe) => recipe.isFavorite).toList();
@@ -152,6 +166,7 @@ class _RecipeHomePageState extends State<RecipeHomePage>
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: CustomScrollView(
+          key: const PageStorageKey<String>('recipe_home_scroll'),
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             if (controller.activeImports.isNotEmpty)
@@ -162,6 +177,7 @@ class _RecipeHomePageState extends State<RecipeHomePage>
                     children: controller.activeImports
                         .map(
                           (item) => Padding(
+                            key: ValueKey(item.sourcePostId),
                             padding: const EdgeInsets.only(bottom: 8),
                             child: _ImportCard(item: item),
                           ),
@@ -217,9 +233,17 @@ class _RecipeHomePageState extends State<RecipeHomePage>
                     childAspectRatio: 4 / 5,
                   ),
                   itemCount: recipes.length,
+                  findChildIndexCallback: (key) {
+                    if (key is! ValueKey<String>) return null;
+                    final index = recipes.indexWhere(
+                      (recipe) => recipe.id == key.value,
+                    );
+                    return index < 0 ? null : index;
+                  },
                   itemBuilder: (context, index) {
                     final recipe = recipes[index];
                     return RecipeGridCard(
+                      key: ValueKey(recipe.id),
                       recipe: recipe,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(

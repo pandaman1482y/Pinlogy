@@ -157,6 +157,17 @@ class _CookingModePageState extends State<CookingModePage> {
                                               fontWeight: FontWeight.normal,
                                             ),
                                       ),
+                                      if (entry.step.title?.trim().isNotEmpty ==
+                                          true) ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          entry.step.title!,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
                                       Text(
                                         entry.part.name,
                                         style: Theme.of(context)
