@@ -262,3 +262,48 @@ String timestampLabel(int seconds) {
   final rest = seconds % 60;
   return '$minutes:${rest.toString().padLeft(2, '0')}';
 }
+
+/// Align the icon with the first text line and let both labels and values wrap.
+class RecipeIconText extends StatelessWidget {
+  const RecipeIconText({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.text,
+    this.fontSize = 14,
+  });
+  final IconData icon;
+  final String label, text;
+  final double fontSize;
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SizedBox(
+        width: 24,
+        height: fontSize * 1.45,
+        child: Center(child: Icon(icon, size: 18, color: mossDeep)),
+      ),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '$label：',
+                style: const TextStyle(color: mossDeep),
+              ),
+              TextSpan(text: text),
+            ],
+          ),
+          style: TextStyle(
+            fontSize: fontSize,
+            height: 1.45,
+            fontWeight: FontWeight.normal,
+            color: ink,
+          ),
+        ),
+      ),
+    ],
+  );
+}

@@ -495,7 +495,7 @@ class _ImportCard extends StatelessWidget {
             width: 72,
             height: 72,
             child: RecipeImage(
-              path: item.coverImagePath,
+              path: controller.importThumbnailFor(item),
               borderRadius: BorderRadius.circular(12),
               cacheWidth: 160,
             ),

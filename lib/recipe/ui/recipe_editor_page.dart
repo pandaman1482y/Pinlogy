@@ -1,9 +1,14 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../../core/ids.dart';
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
+import '../services/manual_recipe_photo_store.dart';
+import 'recipe_widgets.dart';
 
 class RecipeEditorPage extends StatefulWidget {
   const RecipeEditorPage({super.key, this.recipeId});
@@ -12,7 +17,13 @@ class RecipeEditorPage extends StatefulWidget {
   State<RecipeEditorPage> createState() => _RecipeEditorPageState();
 }
 
-class _RecipeEditorPageState extends State<RecipeEditorPage> {
+class _RecipeEditorPageState extends State<RecipeEditorPage>
+    with WidgetsBindingObserver {
+  final _titleKey = GlobalKey();
+  final _descriptionKey = GlobalKey();
+  final _titleFocus = FocusNode();
+  final _descriptionFocus = FocusNode();
+  Timer? _keyboardRevealTimer;
   final _title = TextEditingController();
   final _description = TextEditingController();
   final _sourceUrl = TextEditingController();
@@ -24,6 +35,55 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
   List<RecipePart> _parts = [RecipePart(name: '本体')];
   Recipe? _original;
   bool _initialized = false;
+  final _photos = ManualRecipePhotoStore();
+  String? _photoPath;
+  String? _draftPhotoPath;
+  bool _choosingPhoto = false;
+  bool _saving = false;
+  bool _photoCommitted = false;
+
+  Future<void> _deleteDraft(String? path) async {
+    try {
+      await _photos.deleteOwned(path);
+    } catch (_) {
+      /* best effort cleanup */
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _titleFocus.addListener(_revealFocusedInput);
+    _descriptionFocus.addListener(_revealFocusedInput);
+  }
+
+  @override
+  void didChangeMetrics() => _revealFocusedInput();
+
+  void _revealFocusedInput() {
+    _keyboardRevealTimer?.cancel();
+    if (!_titleFocus.hasFocus && !_descriptionFocus.hasFocus) return;
+    _keyboardRevealTimer = Timer(const Duration(milliseconds: 120), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final target = _titleFocus.hasFocus
+            ? _titleKey.currentContext
+            : _descriptionFocus.hasFocus
+            ? _descriptionKey.currentContext
+            : null;
+        if (target != null) {
+          Scrollable.ensureVisible(
+            target,
+            alignment: 0.15,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+      WidgetsBinding.instance.scheduleFrame();
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -35,6 +95,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     _original = RecipeScope.read(context).recipeById(id);
     final recipe = _original;
     if (recipe == null) return;
+    _photoPath = recipe.coverImagePath;
     _title.text = recipe.title;
     _description.text = recipe.description ?? '';
     _sourceUrl.text = recipe.sourceUrl ?? '';
@@ -59,6 +120,12 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _keyboardRevealTimer?.cancel();
+    _titleFocus.removeListener(_revealFocusedInput);
+    _descriptionFocus.removeListener(_revealFocusedInput);
+    _titleFocus.dispose();
+    _descriptionFocus.dispose();
     for (final field in [
       _title,
       _description,
@@ -70,29 +137,42 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     ]) {
       field.dispose();
     }
+    if (!_saving && !_photoCommitted) {
+      unawaited(_deleteDraft(_draftPhotoPath));
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    resizeToAvoidBottomInset: true,
     appBar: AppBar(
       title: Text(_original == null ? 'レシピを作成' : 'レシピを編集'),
       actions: [
-        TextButton(onPressed: _save, child: const Text('保存')),
+        TextButton(
+          onPressed: _saving || _choosingPhoto ? null : _save,
+          child: Text(_saving ? '保存中…' : '保存'),
+        ),
         const SizedBox(width: 6),
       ],
     ),
     body: Form(
       key: _formKey,
       child: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 48),
         children: [
+          _buildPhotoSection(),
+          const SizedBox(height: 18),
           _EditorSection(
             title: 'レシピの基本情報',
             icon: Icons.restaurant_menu_rounded,
             children: [
               TextFormField(
+                key: _titleKey,
                 controller: _title,
+                focusNode: _titleFocus,
+                scrollPadding: const EdgeInsets.only(bottom: 100, top: 24),
                 decoration: const InputDecoration(
                   labelText: '料理名',
                   hintText: '例：鶏じゃが丼',
@@ -102,14 +182,17 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
               ),
               const SizedBox(height: 16),
               TextField(
+                key: _descriptionKey,
                 controller: _description,
+                focusNode: _descriptionFocus,
+                scrollPadding: const EdgeInsets.only(bottom: 100, top: 24),
                 minLines: 3,
                 maxLines: 6,
                 textAlignVertical: TextAlignVertical.top,
                 decoration: const InputDecoration(
                   labelText: '説明・メモ',
                   alignLabelWithHint: true,
-                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  floatingLabelBehavior: FloatingLabelBehavior.auto,
                   hintText: '料理の紹介や、覚えておきたいことを書いてください',
                 ),
               ),
@@ -204,6 +287,147 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       ),
     ),
   );
+
+  Widget _buildPhotoSection() => _EditorSection(
+    title: '料理の写真',
+    icon: Icons.photo_outlined,
+    children: [
+      Semantics(
+        button: true,
+        enabled: !_choosingPhoto && !_saving,
+        label: _photoPath == null ? '料理の写真を追加' : '料理の写真を変更',
+        child: Material(
+          color: mintSoft,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const ValueKey('manual_photo_area'),
+            onTap: _choosingPhoto || _saving ? null : _choosePhoto,
+            child: AspectRatio(
+              aspectRatio: 16 / 10,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_photoPath == null)
+                    const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_outlined,
+                          color: mossDeep,
+                          size: 36,
+                        ),
+                        SizedBox(height: 10),
+                        Text('完成した料理の写真を追加'),
+                      ],
+                    )
+                  else
+                    RecipeImage(path: _photoPath, cacheWidth: 800),
+                  if (_choosingPhoto)
+                    const ColoredBox(
+                      color: Color(0x55000000),
+                      child: Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      const Text(
+        '写真は1枚。容量を抑えて保存します。',
+        style: TextStyle(fontSize: 12, color: secondaryInk),
+      ),
+      if (_photoPath != null)
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: _choosingPhoto || _saving
+                ? null
+                : () {
+                    final oldDraft = _draftPhotoPath;
+                    setState(() {
+                      _photoPath = null;
+                      _draftPhotoPath = null;
+                    });
+                    unawaited(_deleteDraft(oldDraft));
+                  },
+            child: const Text('写真を外す'),
+          ),
+        ),
+    ],
+  );
+
+  Future<void> _choosePhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('写真から選ぶ'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('カメラで撮る'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || source == null) return;
+    setState(() => _choosingPhoto = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+        requestFullMetadata: false,
+      );
+      if (picked == null || !mounted) return;
+      if (await picked.length() > 20 * 1024 * 1024) {
+        throw const FormatException('画像の容量が大きすぎます。別の画像を選んでください。');
+      }
+      final path = await _photos.save(await picked.readAsBytes());
+      if (!mounted) {
+        await _deleteDraft(path);
+        return;
+      }
+      final oldDraft = _draftPhotoPath;
+      setState(() {
+        _photoPath = path;
+        _draftPhotoPath = path;
+      });
+      await _deleteDraft(oldDraft);
+    } on PlatformException {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('写真・カメラへのアクセスを確認し、もう一度お試しください。')),
+        );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is FormatException
+                  ? error.message.toString()
+                  : '写真を追加できませんでした。もう一度お試しください。',
+            ),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _choosingPhoto = false);
+    }
+  }
 
   Future<void> _addPart() async {
     final name = await _askText('パートを追加', '例：タレ、出汁、トッピング');
@@ -325,7 +549,8 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
   }
 
   Future<void> _save() async {
-    if (_formKey.currentState?.validate() != true) return;
+    if (_saving || _choosingPhoto || _formKey.currentState?.validate() != true)
+      return;
     final controller = RecipeScope.read(context);
     final original = _original;
     final sourcePostId = original?.sourcePostId ?? 'manual-${newId()}';
@@ -348,6 +573,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
     }
 
     if (original != null) {
+      track('coverImagePath', _photoPath != original.coverImagePath);
       track('title', title != original.title);
       track('description', description != original.description);
       track('servings', servings != original.servings);
@@ -371,7 +597,7 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       category: category,
       parts: _parts,
       evidence: original?.evidence,
-      coverImagePath: original?.coverImagePath,
+      coverImagePath: _photoPath,
       sourceUrl: _sourceUrl.text.trim().isEmpty ? null : _sourceUrl.text.trim(),
       sourceService:
           original?.sourceService ??
@@ -389,8 +615,33 @@ class _RecipeEditorPageState extends State<RecipeEditorPage> {
       madeCount: original?.madeCount ?? 0,
       createdAt: original?.createdAt,
     );
-    await controller.addManualRecipe(recipe);
-    if (mounted) Navigator.pop(context);
+    setState(() => _saving = true);
+    try {
+      await controller.addManualRecipe(recipe);
+      _photoCommitted = true;
+      final previous = original?.coverImagePath;
+      if (previous != null &&
+          previous != _photoPath &&
+          !controller.snapshot.recipes.any(
+            (item) =>
+                item.coverImagePath == previous ||
+                item.evidence.any((evidence) => evidence.imagePath == previous),
+          )) {
+        await _deleteDraft(previous);
+      }
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('レシピを保存できませんでした。もう一度お試しください。')),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      } else if (!_photoCommitted) {
+        await _deleteDraft(_draftPhotoPath);
+      }
+    }
   }
 }
 

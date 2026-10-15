@@ -12,6 +12,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
+import 'recipe_widgets.dart';
 
 class CookingModePage extends StatefulWidget {
   const CookingModePage({
@@ -176,6 +177,7 @@ class _CookingModePageState extends State<CookingModePage> {
                                             ?.copyWith(
                                               color: mossDeep,
                                               fontSize: 16,
+                                              fontWeight: FontWeight.normal,
                                             ),
                                       ),
                                     ],
@@ -230,7 +232,11 @@ class _CookingModePageState extends State<CookingModePage> {
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleLarge
-                                        ?.copyWith(height: 1.35, fontSize: 18),
+                                        ?.copyWith(
+                                          height: 1.45,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.normal,
+                                        ),
                                   ),
                                   if (entry.step.tips.isNotEmpty) ...[
                                     const SizedBox(height: 7),
@@ -239,7 +245,8 @@ class _CookingModePageState extends State<CookingModePage> {
                                         '• $tip',
                                         style: TextStyle(
                                           height: 1.3,
-                                          fontSize: 15,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.normal,
                                           color: Colors.black54,
                                         ),
                                       ),
@@ -995,28 +1002,8 @@ class _InputSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 5),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 15, color: mossDeep),
-        const SizedBox(width: 5),
-        Text(
-          '$label：',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.normal,
-            color: mossDeep,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            values.join('、'),
-            style: TextStyle(fontSize: 16, height: 1.25),
-          ),
-        ),
-      ],
-    ),
+    padding: const EdgeInsets.only(top: 8),
+    child: RecipeIconText(icon: icon, label: label, text: values.join('、')),
   );
 }
 

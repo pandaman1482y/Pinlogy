@@ -14,6 +14,8 @@ import '../services/share_receiver_service.dart';
 import '../services/social_post_identity.dart';
 import 'data/recipe_store.dart';
 import 'data/recipe_sync_policy.dart';
+import 'data/shopping_list_groups.dart';
+import 'data/import_thumbnail.dart';
 import 'models/recipe_models.dart';
 
 class RecipeFilters {
@@ -88,6 +90,7 @@ class RecipeController extends ChangeNotifier {
   List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
 
   String? _lastIntakeDiagnostic;
+  String _intakeThumbnailSignature = '';
   DateTime _importSessionStartedAt = DateTime.now();
   final Map<String, String> _appliedAnalysisResults = {};
   bool _accountPresentationPending = false;
@@ -118,6 +121,24 @@ class RecipeController extends ChangeNotifier {
 
   List<Recipe> get savedRecipes =>
       snapshot.recipes.where((recipe) => recipe.isSaved).toList();
+
+  String? importThumbnailFor(RecipeImport item) {
+    final post = legacy.hub.snapshot.sourcePosts
+        .where((post) => post.id == item.sourcePostId)
+        .firstOrNull;
+    final saved = snapshot.recipes
+        .where(
+          (recipe) =>
+              recipe.sourcePostId == item.sourcePostId &&
+              recipe.coverImagePath?.trim().isNotEmpty == true,
+        )
+        .firstOrNull;
+    return resolveImportThumbnail(
+      postThumbnail: post?.displayThumbnailPath,
+      importThumbnail: item.coverImagePath,
+      savedThumbnail: saved?.coverImagePath,
+    );
+  }
 
   List<RecipeImport> get activeImports {
     final values = snapshot.imports
@@ -373,7 +394,14 @@ class RecipeController extends ChangeNotifier {
   void _onLegacyChanged() {
     if (_disposed) return;
     final changed = _syncActiveRemoteAnalyses();
-    if (changed) _notifyRecipeListeners();
+    final thumbnailSignature = jsonEncode(
+      legacy.hub.snapshot.sourcePosts
+          .map((post) => [post.id, post.displayThumbnailPath])
+          .toList(),
+    );
+    final thumbnailChanged = thumbnailSignature != _intakeThumbnailSignature;
+    _intakeThumbnailSignature = thumbnailSignature;
+    if (changed || thumbnailChanged) _notifyRecipeListeners();
     if (_activeOwnerId != null && !_switchingIdentity) {
       unawaited(syncFromIntake());
     }
@@ -1301,37 +1329,30 @@ class RecipeController extends ChangeNotifier {
   }
 
   Future<void> addToShoppingList(Recipe recipe, double multiplier) async {
-    final items = List<ShoppingItem>.of(snapshot.shoppingItems);
-    for (final ingredient in recipe.allIngredients) {
-      final index = items.indexWhere(
-        (item) =>
-            item.name.trim().toLowerCase() ==
-            ingredient.name.trim().toLowerCase(),
-      );
-      final quantity = ingredient.quantityFor(multiplier);
-      if (index < 0) {
-        items.add(
-          ShoppingItem(
-            name: ingredient.name,
-            quantity: quantity,
-            recipeIds: [recipe.id],
-          ),
-        );
-      } else {
-        final current = items[index];
-        items[index] = ShoppingItem(
-          id: current.id,
-          name: current.name,
-          quantity: [
-            current.quantity,
-            quantity,
-          ].where((value) => value.trim().isNotEmpty).join(' + '),
-          checked: current.checked,
-          recipeIds: {...current.recipeIds, recipe.id}.toList(),
-        );
-      }
-    }
-    snapshot = _copySnapshot(shoppingItems: items);
+    snapshot = _copySnapshot(
+      shoppingItems: addRecipeShoppingItems(
+        snapshot.shoppingItems,
+        recipe,
+        multiplier,
+      ),
+    );
+    await _persist();
+  }
+
+  Future<void> setShoppingItemsChecked(
+    Iterable<String> ids,
+    bool checked,
+  ) async {
+    final selected = ids.toSet();
+    snapshot = _copySnapshot(
+      shoppingItems: snapshot.shoppingItems
+          .map(
+            (item) => selected.contains(item.id)
+                ? item.copyWith(checked: checked)
+                : item,
+          )
+          .toList(),
+    );
     await _persist();
   }
 
@@ -1347,13 +1368,21 @@ class RecipeController extends ChangeNotifier {
     await _persist();
   }
 
-  Future<void> addShoppingItem(String name, String quantity) async {
+  Future<void> addShoppingItem(
+    String name,
+    String quantity, {
+    String? recipeId,
+  }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     snapshot = _copySnapshot(
       shoppingItems: [
         ...snapshot.shoppingItems,
-        ShoppingItem(name: trimmed, quantity: quantity.trim()),
+        ShoppingItem(
+          name: trimmed,
+          quantity: quantity.trim(),
+          recipeIds: recipeId == null ? [] : [recipeId],
+        ),
       ],
     );
     await _persist();
