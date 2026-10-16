@@ -463,6 +463,7 @@ class Recipe {
     List<RecipePart>? parts,
     List<RecipeEvidence>? evidence,
     String? coverImagePath,
+    bool clearCoverImage = false,
     String? sourceUrl,
     String? sourceService,
     String? sourceAuthor,
@@ -494,7 +495,9 @@ class Recipe {
     method: method ?? this.method,
     parts: parts ?? this.parts,
     evidence: evidence ?? this.evidence,
-    coverImagePath: coverImagePath ?? this.coverImagePath,
+    coverImagePath: clearCoverImage
+        ? null
+        : coverImagePath ?? this.coverImagePath,
     sourceUrl: sourceUrl ?? this.sourceUrl,
     sourceService: sourceService ?? this.sourceService,
     sourceAuthor: sourceAuthor ?? this.sourceAuthor,

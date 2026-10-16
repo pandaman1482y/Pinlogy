@@ -40,7 +40,11 @@ Recipe mergeAnalyzedRecipe({
         : incoming.category,
     parts: keepEditedParts ? existing.parts : incoming.parts,
     evidence: keepEditedParts ? existing.evidence : incoming.evidence,
-    coverImagePath: incoming.coverImagePath ?? existing.coverImagePath,
+    clearCoverImage:
+        edited.contains('coverImagePath') && existing.coverImagePath == null,
+    coverImagePath: edited.contains('coverImagePath')
+        ? existing.coverImagePath
+        : incoming.coverImagePath ?? existing.coverImagePath,
     sourceUrl: incoming.sourceUrl ?? existing.sourceUrl,
     isFavorite: existing.isFavorite,
     isSaved: existing.isSaved || saveAutomatically,

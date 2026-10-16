@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 import 'recipe_widgets.dart';
+import 'shopping_list_page.dart';
 import '../../services/notification_service.dart';
 import 'billing_page.dart';
 import '../../services/billing_service.dart';
@@ -12,6 +13,8 @@ import '../../services/cloud_sync_service.dart';
 import '../../services/ai_analysis_consent.dart';
 import '../../services/legal_consent_service.dart';
 import 'legal_document_page.dart';
+
+export 'shopping_list_page.dart' show ShoppingListPage;
 
 const _enableGoogleLogin = bool.fromEnvironment('ENABLE_GOOGLE_LOGIN');
 const _enableTestEmailLogin = bool.fromEnvironment('ENABLE_TEST_EMAIL_LOGIN');
@@ -1307,103 +1310,6 @@ class NotificationDiagnosticsPage extends StatelessWidget {
       },
     ),
   );
-}
-
-class ShoppingListPage extends StatefulWidget {
-  const ShoppingListPage({super.key});
-
-  @override
-  State<ShoppingListPage> createState() => _ShoppingListPageState();
-}
-
-class _ShoppingListPageState extends State<ShoppingListPage> {
-  @override
-  Widget build(BuildContext context) {
-    final controller = RecipeScope.of(context);
-    final items = controller.snapshot.shoppingItems;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('買い物リスト'),
-        actions: [
-          if (items.any((item) => item.checked))
-            TextButton(
-              onPressed: controller.clearPurchasedItems,
-              child: const Text('購入済みを削除'),
-            ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: '買うものを追加',
-        onPressed: () => _add(context),
-        child: const Icon(Icons.add_rounded),
-      ),
-      body: items.isEmpty
-          ? const Center(child: Text('買うものはまだありません'))
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
-              itemCount: items.length,
-              itemBuilder: (_, index) {
-                final item = items[index];
-                return CheckboxListTile(
-                  value: item.checked,
-                  onChanged: (_) => controller.toggleShoppingItem(item),
-                  title: Text(
-                    item.name,
-                    style: TextStyle(
-                      decoration: item.checked
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                  ),
-                  subtitle: item.quantity.isEmpty ? null : Text(item.quantity),
-                  controlAffinity: ListTileControlAffinity.leading,
-                );
-              },
-            ),
-    );
-  }
-
-  Future<void> _add(BuildContext context) async {
-    final name = TextEditingController();
-    final quantity = TextEditingController();
-    final accepted = await showDialog<bool>(
-      barrierDismissible: false,
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('買うものを追加'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: '品名'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: quantity,
-              decoration: const InputDecoration(labelText: '数量（任意）'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('キャンセル'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('追加'),
-          ),
-        ],
-      ),
-    );
-    if (accepted == true && context.mounted) {
-      await RecipeScope.read(context).addShoppingItem(name.text, quantity.text);
-    }
-    name.dispose();
-    quantity.dispose();
-  }
 }
 
 class AllergySettingsPage extends StatefulWidget {
