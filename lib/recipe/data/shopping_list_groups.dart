@@ -1,10 +1,13 @@
 import '../models/recipe_models.dart';
+import 'recipe_quantity.dart';
+export 'recipe_quantity.dart' show combineShoppingQuantities;
 
 class ShoppingRecipeGroup {
   ShoppingRecipeGroup(this.id, this.title);
   final String id;
   final String title;
   final List<ShoppingItem> items = [];
+  String? get recipeId => id.startsWith('recipe:') ? id.substring(7) : null;
 }
 
 List<ShoppingRecipeGroup> shoppingRecipeGroups(
@@ -54,140 +57,60 @@ List<ShoppingItem> addRecipeShoppingItems(
   Recipe recipe,
   double multiplier,
 ) {
-  final items = List<ShoppingItem>.of(existing);
-  for (final ingredient in recipe.allIngredients) {
-    final quantity = ingredient.quantityFor(multiplier);
-    final index = items.indexWhere(
-      (item) =>
-          !item.checked &&
-          item.recipeIds.length == 1 &&
-          item.recipeIds.single == recipe.id &&
-          item.name.trim().toLowerCase() ==
-              ingredient.name.trim().toLowerCase(),
-    );
-    if (index < 0) {
-      items.add(
-        ShoppingItem(
-          name: ingredient.name,
-          quantity: quantity,
-          recipeIds: [recipe.id],
-        ),
-      );
-    } else {
-      items[index] = items[index].copyWith(
-        quantity: combineShoppingQuantities([items[index].quantity, quantity]),
-      );
-    }
-  }
-  return items;
+  if (!multiplier.isFinite || multiplier <= 0) return List.of(existing);
+  final batch = newShoppingBatchId();
+  return [
+    ...existing,
+    for (final ingredient in recipe.allIngredients)
+      ShoppingItem(
+        name: ingredient.name,
+        quantity: ingredient.quantityFor(multiplier),
+        recipeIds: [recipe.id],
+        batchId: batch,
+        baseQuantity: ingredient.quantityFor(1),
+        batchServings: (recipe.servings > 0 ? recipe.servings : 1) * multiplier,
+        quantityMultiplier: multiplier,
+      ),
+  ];
 }
 
-class _Quantity {
-  _Quantity(this.numerator, this.denominator, this.unit, this.prefix);
-  final BigInt numerator, denominator;
-  final String unit;
-  final bool prefix;
-}
+String newShoppingBatchId() => ShoppingItem(name: '').id;
 
-_Quantity? _parseQuantity(String source) {
-  final value = source
-      .trim()
-      .replaceAllMapped(
-        RegExp('[０-９]'),
-        (match) => String.fromCharCode(match[0]!.codeUnitAt(0) - 0xfee0),
-      )
-      .replaceAll('．', '.')
-      .replaceAll('／', '/');
-  const number = r'(\d+(?:\.\d+)?|\d+\s*/\s*\d+)';
-  final prefix = RegExp('^(大さじ|小さじ|カップ)\\s*$number\$').firstMatch(value);
-  final suffix = RegExp(
-    '^$number\\s*(kg|mg|g|ml|mL|L|個|本|枚|束|袋|片|缶|パック|玉|丁|合)\$',
-  ).firstMatch(value);
-  if (prefix == null && suffix == null) return null;
-  final raw = (prefix != null ? prefix[2]! : suffix![1]!).replaceAll(
-    RegExp(r'\s+'),
-    '',
+Map<String, double> shoppingBatches(Iterable<ShoppingItem> items) => {
+  for (final item in items)
+    if (item.batchId != null && item.batchServings != null)
+      item.batchId!: item.batchServings!,
+};
+
+double shoppingServings(Iterable<ShoppingItem> items) =>
+    shoppingBatches(items).values.fold(0.0, (a, b) => a + b);
+
+List<ShoppingItem> resizeShoppingRecipe(
+  List<ShoppingItem> items,
+  String recipeId,
+  double servings,
+) {
+  final selected = items.where(
+    (i) =>
+        i.recipeIds.length == 1 &&
+        i.recipeIds.single == recipeId &&
+        i.batchId != null,
   );
-  final unit = (prefix != null ? prefix[1]! : suffix![2]!).replaceAll(
-    'mL',
-    'ml',
-  );
-  if (raw.length > 30) return null;
-  BigInt n, d;
-  if (raw.contains('/')) {
-    final values = raw.split('/');
-    n = BigInt.parse(values[0]);
-    d = BigInt.parse(values[1]);
-    if (d == BigInt.zero) return null;
-  } else if (raw.contains('.')) {
-    final values = raw.split('.');
-    d = BigInt.one;
-    for (var i = 0; i < values[1].length; i++) {
-      d *= BigInt.from(10);
-    }
-    n = BigInt.parse(values[0]) * d + BigInt.parse(values[1]);
-  } else {
-    n = BigInt.parse(raw);
-    d = BigInt.one;
-  }
-  return _Quantity(n, d, unit, prefix != null);
-}
-
-String _formatFraction(BigInt numerator, BigInt denominator) {
-  final gcd = numerator.gcd(denominator);
-  final n = numerator ~/ gcd, d = denominator ~/ gcd;
-  if (d == BigInt.one) return '$n';
-  var remaining = d;
-  while (remaining % BigInt.two == BigInt.zero) {
-    remaining ~/= BigInt.two;
-  }
-  while (remaining % BigInt.from(5) == BigInt.zero) {
-    remaining ~/= BigInt.from(5);
-  }
-  if (remaining != BigInt.one) return '$n/$d';
-  // Render terminating decimals with integer arithmetic, never rounding quantities.
-  final whole = n ~/ d;
-  var remainder = n % d;
-  final decimals = StringBuffer();
-  while (remainder != BigInt.zero) {
-    remainder *= BigInt.from(10);
-    decimals.write(remainder ~/ d);
-    remainder %= d;
-  }
-  return '$whole.$decimals';
-}
-
-/// Only explicit numbers with the same unit are added. No unit conversions or estimates.
-String combineShoppingQuantities(Iterable<String> quantities) {
-  final values = quantities.map((value) => value.trim()).toList();
-  if (values.length == 1) return values.single;
-  final groups = <String, List<String>>{};
-  var unknown = 0;
-  for (final value in values) {
-    final parsed = _parseQuantity(value);
-    final key = parsed == null
-        ? 'text:${unknown++}'
-        : '${parsed.prefix}:${parsed.unit}';
-    (groups[key] ??= []).add(value.isEmpty ? '分量記載なし' : value);
-  }
-  final output = <String>[];
-  for (final group in groups.values) {
-    final first = _parseQuantity(group.first);
-    if (group.length == 1 || first == null) {
-      output.add(group.first);
-      continue;
-    }
-    var n = BigInt.zero, d = BigInt.one;
-    for (final value in group) {
-      final parsed = _parseQuantity(value)!;
-      n = n * parsed.denominator + parsed.numerator * d;
-      d *= parsed.denominator;
-      final gcd = n.gcd(d);
-      n ~/= gcd;
-      d ~/= gcd;
-    }
-    final amount = _formatFraction(n, d);
-    output.add(first.prefix ? '${first.unit}$amount' : '$amount${first.unit}');
-  }
-  return output.join(' ＋ ');
+  final current = shoppingServings(selected);
+  if (current <= 0 || !servings.isFinite || servings <= 0) return items;
+  final ratio = servings / current;
+  return [
+    for (final item in items)
+      if (selected.contains(item) && item.baseQuantity != null)
+        item.copyWith(
+          quantity: scaleRecipeQuantity(
+            item.baseQuantity!,
+            item.quantityMultiplier * ratio,
+          ),
+          quantityMultiplier: item.quantityMultiplier * ratio,
+          batchServings: item.batchServings! * ratio,
+        )
+      else
+        item,
+  ];
 }

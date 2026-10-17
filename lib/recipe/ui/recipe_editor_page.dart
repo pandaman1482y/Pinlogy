@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:async';
+
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/ids.dart';
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
@@ -1023,19 +1025,16 @@ class _IngredientEditorDialogState extends State<_IngredientEditorDialog> {
       final original = widget.original;
       Navigator.pop(
         context,
-        original == null
-            ? RecipeIngredient(
-                name: _name.text.trim(),
-                originalText: _quantity.text.trim(),
-                scalable: false,
-                userEdited: true,
-              )
-            : original.copyWith(
-                name: _name.text.trim(),
-                originalText: _quantity.text.trim(),
-                scalable: false,
-                userEdited: true,
-              ),
+        RecipeIngredient(
+          id: original?.id,
+          name: _name.text.trim(),
+          originalText: _quantity.text.trim(),
+          scalable: true,
+          note: original?.note,
+          evidenceId: original?.evidenceId,
+          confidencePercent: original?.confidencePercent,
+          userEdited: true,
+        ),
       );
     },
   );

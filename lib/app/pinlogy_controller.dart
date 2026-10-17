@@ -1,3 +1,4 @@
+import '../recipe/data/analysis_thumbnail.dart';
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -379,23 +380,23 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       );
       if (coverImages.isNotEmpty) {
         post = await sourcePosts.getById(sourcePostId) ?? post;
-        final imagesWithCover = <String>{
-          ...coverImages,
-          ...post.imagePaths,
-        }.take(SourceMediaStore.maxImages).toList(growable: false);
+
         post = await sourcePosts.update(
           post.copyWith(
-            imagePaths: imagesWithCover,
-            thumbnailPath: imagesWithCover.first,
+            thumbnailPath: coverImages.first,
             updatedAt: DateTime.now(),
           ),
         );
       }
+      final media = result['shared_media'];
+      final completeOrder =
+          media is Map && media['image_order'] == 'analysis_v1';
       var recoveredImages = await service.saveRecoveredImages(
         sourcePostId,
         result,
       );
       if (recoveredImages.isEmpty &&
+          !completeOrder &&
           AiPostAnalysisService.supportsRemotePreviewUrl(post.url)) {
         recoveredImages = await service.fetchSocialPostPreviews(
           PostAnalysisRequest(sourcePostId: sourcePostId, url: post.url),
@@ -403,14 +404,18 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (recoveredImages.isEmpty) return;
       post = await sourcePosts.getById(sourcePostId) ?? post;
-      final mergedImages = <String>{
-        ...post.imagePaths,
-        ...recoveredImages,
-      }.take(SourceMediaStore.maxImages).toList(growable: false);
+      final mergedImages = completeOrder
+          ? recoveredImages
+          : {
+              ...post.imagePaths,
+              ...recoveredImages,
+            }.take(SourceMediaStore.maxImages).toList(growable: false);
       await sourcePosts.update(
         post.copyWith(
           imagePaths: mergedImages,
-          thumbnailPath: mergedImages.first,
+          thumbnailPath:
+              coverImages.firstOrNull ??
+              analysisThumbnailPath(result, mergedImages),
           updatedAt: DateTime.now(),
         ),
       );

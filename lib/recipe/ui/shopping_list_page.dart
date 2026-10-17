@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme.dart';
 import '../data/shopping_list_groups.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
+import 'recipe_widgets.dart';
 
 class ShoppingListPage extends StatefulWidget {
   const ShoppingListPage({super.key});
@@ -31,12 +33,15 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
     final recipes = controller.snapshot.recipes;
     final groups = shoppingRecipeGroups(items, recipes);
     final totals = shoppingTotalRows(items);
-    final checked = items.where((item) => item.checked).length;
+    final displayedRows = _combined
+        ? totals
+        : [for (final group in groups) ...shoppingTotalRows(group.items)];
+    final checked = displayedRows.where((row) => row.checked).length;
     return Scaffold(
       appBar: AppBar(
         title: const Text('買い物リスト'),
         actions: [
-          if (checked > 0)
+          if (items.any((item) => item.checked))
             TextButton(
               onPressed: () => _perform(controller.clearPurchasedItems),
               child: const Text('購入済みを削除'),
@@ -79,7 +84,7 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '未購入 ${items.length - checked}件',
+                        '未購入 ${displayedRows.length - checked}件',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
@@ -93,7 +98,9 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(99),
                   child: LinearProgressIndicator(
-                    value: items.isEmpty ? 0 : checked / items.length,
+                    value: displayedRows.isEmpty
+                        ? 0
+                        : checked / displayedRows.length,
                     minHeight: 5,
                     backgroundColor: mint,
                   ),
@@ -195,18 +202,71 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               subtitle: Text(
-                                '${group.items.where((item) => item.checked).length} / ${group.items.length} 件購入済み',
+                                [
+                                  if (shoppingBatches(group.items).isNotEmpty)
+                                    '${shoppingBatches(group.items).length}回追加',
+                                  if (group.recipeId != null &&
+                                      group.items.any((i) => i.batchId == null))
+                                    '以前の項目・個別追加を含む',
+                                  '${shoppingTotalRows(group.items).where((row) => row.checked).length} / ${shoppingTotalRows(group.items).length} 件購入済み',
+                                ].join('・'),
                               ),
                               children: [
-                                for (final item in group.items)
+                                if (shoppingBatches(group.items).isNotEmpty &&
+                                    group.id.startsWith('recipe:'))
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      4,
+                                      12,
+                                      12,
+                                    ),
+                                    child: Wrap(
+                                      spacing: 12,
+                                      runSpacing: 8,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        const Text('追加した料理の合計'),
+                                        RecipeServingStepper(
+                                          servings: shoppingServings(
+                                            group.items,
+                                          ),
+                                          unit:
+                                              recipes
+                                                  .where(
+                                                    (r) =>
+                                                        r.id == group.recipeId!,
+                                                  )
+                                                  .firstOrNull
+                                                  ?.servingUnit ??
+                                              '人分',
+                                          onChanged: (value) => _perform(
+                                            () => controller
+                                                .setShoppingRecipeServings(
+                                                  group.recipeId!,
+                                                  value,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                for (final row in shoppingTotalRows(
+                                  group.items,
+                                ))
                                   _ShoppingTile(
-                                    key: ValueKey(item.id),
-                                    name: item.name,
-                                    quantity: item.quantity,
-                                    checked: item.checked,
+                                    key: ValueKey(row.name),
+                                    name: row.name,
+                                    quantity: row.quantity,
+                                    checked: row.checked,
+                                    partial: row.partiallyChecked,
                                     flat: true,
                                     onChanged: () => _perform(
-                                      () => controller.toggleShoppingItem(item),
+                                      () => controller.setShoppingItemsChecked(
+                                        row.items.map((i) => i.id),
+                                        !row.checked,
+                                      ),
                                     ),
                                   ),
                               ],
@@ -227,7 +287,13 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
     for (final item in items) {
       if (item.recipeIds.isEmpty) labels.add('その他');
       for (final id in item.recipeIds) {
-        labels.add(names[id] ?? '元の料理が削除された項目');
+        final source = items.where(
+          (i) => i.recipeIds.length == 1 && i.recipeIds.single == id,
+        );
+        final count = shoppingBatches(source).length;
+        labels.add(
+          '${names[id] ?? '元の料理が削除された項目'}${count > 0 ? '（$count回追加）' : ''}',
+        );
       }
     }
     final purchased = items.where((item) => item.checked).length;

@@ -1,3 +1,4 @@
+import { chooseVideoRecipeCovers } from "../_shared/recipe-cover.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const headers = { "Content-Type": "application/json; charset=utf-8" };
@@ -210,6 +211,7 @@ Deno.serve(async (request) => {
           "材料の分量は、その材料を実際に投入する瞬間だけでなく、直前の材料紹介、調味料を合わせる場面、画面字幕、投稿文、音声説明まで時系列で探してください。確認できた分量を対応するingredientのamount・unit・original_textへ保存し、『画像』『文字』『字幕』『音声』など根拠の種類を分量やunitへ入れないでください。" +
           "画像内の材料表は行単位で読み、同じ行または明確に対応する左右の列にある材料名と分量だけを組にしてください。材料名だけ確認できて分量が読めない場合はamountとunitをnullにし、別行の数字を流用しないでください。" +
           "完成量はservingsとserving_unitに分けます。『2人分』は2と人分、『春巻き12本』は12と本、『クッキー20枚』は20と枚です。完成個数の本・個・枚を人数に変換しないでください。根拠がなければ両方nullにします。" +
+          "動画フレームがある場合、cover_image_indexはその料理の完成状態が最も分かる動画フレームから選びます。SNSのプレビューや再生ボタン付きの画像を表紙に選ばず、他の料理の画像を混ぜません。" +
           "工程は実際の表示・音声の順番、数値、作業内容を変えず、元の言い回しをできるだけ残します。方言・口語・重複を軽く整え、曖昧な指示語は根拠内で対象が明確な場合だけ材料名に置き換えます。前後の画像や別料理を混ぜず、短すぎる要約にせず、初めて作る人がそのまま調理できる具体性で記述してください。" +
           "根拠から確認できる範囲で、下ごしらえ（切り方・大きさ・水気処理）、材料を入れる順番、混ぜ方・成形方法、使用する器具、火加減、加熱・待ち時間、裏返すタイミング、完成を判断する色・状態・食感をinstructionへ含めてください。" +
           "一つのinstructionへ無関係な作業を詰め込まず、調理者が手を止める自然な区切りで工程を分けてください。ただし『材料を取る』など単独では役に立たない細分化はしません。" +
@@ -254,6 +256,12 @@ Deno.serve(async (request) => {
     const parsedRecipes = Array.isArray(parsedOutput.recipes)
       ? parsedOutput.recipes
       : [];
+    const returnedImages = [...suppliedImages, ...fetchedSocialImages,
+      ...videoFrames.map((frame) => frame.data_url)];
+    const cleanCoverIndex = chooseVideoRecipeCovers(parsedRecipes,
+      suppliedImages.length + fetchedSocialImages.length, videoFrames.length);
+    console.info("analysis_cover_selected", `source=${videoFrames.length ? 'video_frame' : 'post_image'}`,
+      `index=${cleanCoverIndex ?? 0}`);
     console.info(
       "analysis_recipe_result",
       `recipes=${parsedRecipes.length}`,
@@ -274,7 +282,9 @@ Deno.serve(async (request) => {
         : "ai",
       shared_media: sharedMedia(
         sharedPage,
-        [...fetchedSocialImages, ...videoFrames.map((frame) => frame.data_url)],
+        returnedImages,
+        cleanCoverIndex ?? 0,
+        true,
       ),
     };
     if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
@@ -394,13 +404,15 @@ async function answerCookingQuestion(
     return reply({ error: "cooking_assistant_failed" }, 502);
   }
 }
-function sharedMedia(sharedPage: SharedPage | null, images: string[]) {
-  if (sharedPage == null) return null;
+function sharedMedia(sharedPage: SharedPage | null, images: string[], thumbnailIndex = 0, completeOrder = false) {
+  if (sharedPage == null && images.length === 0) return null;
   return {
-    is_photo_post: sharedPage.is_photo_post,
-    photo_access: images.length > 0 ? "available" : sharedPage.photo_access,
+    is_photo_post: sharedPage?.is_photo_post ?? false,
+    photo_access: images.length > 0 ? "available" : sharedPage?.photo_access,
+    thumbnail_index: thumbnailIndex,
+    image_order: completeOrder ? 'analysis_v1' : null,
     image_count: images.length,
-    thumbnail_data_url: images[0] ?? null,
+    thumbnail_data_url: images[thumbnailIndex] ?? images[0] ?? null,
     image_data_urls: images,
   };
 }

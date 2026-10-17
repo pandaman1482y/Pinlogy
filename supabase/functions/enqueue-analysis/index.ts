@@ -1,3 +1,4 @@
+import { validThumbnailIndex } from "../_shared/recipe-cover.ts";
 import { prepareKeywordComments } from "../_shared/tiktok-keyword-comments.ts";
 import { filterRecipeAuthorComments } from "../_shared/recipe-author-comments.ts";
 import { identityValues } from "../_shared/billing-identity.ts";
@@ -1650,7 +1651,7 @@ async function hydrateResultImages(value: unknown) {
     ...result,
     shared_media: {
       ...mediaRecord,
-      thumbnail_data_url: urls[0] ?? null,
+      thumbnail_data_url: urls[validThumbnailIndex(mediaRecord, urls.length)] ?? null,
       image_data_urls: urls,
     },
   };

@@ -1,4 +1,5 @@
 import '../../core/ids.dart';
+import '../data/recipe_quantity.dart';
 
 enum RecipeStatus {
   pending('解析中'),
@@ -131,8 +132,19 @@ class RecipeIngredient {
   final bool userEdited;
 
   String quantityFor(double multiplier) {
-    if (!scalable || amount == null) {
-      return _quantityOnlyFromOriginal(name, originalText);
+    final original = _quantityOnlyFromOriginal(name, originalText);
+    if (RegExp(r'[〜～~–—-]').hasMatch(original)) {
+      return scaleRecipeQuantity(original, multiplier);
+    }
+    if (amount == null || !scalable) {
+      // Old manually entered rows used scalable=false and no numeric amount.
+      return amount == null
+          ? scaleRecipeQuantity(original, multiplier)
+          : original;
+    }
+    final raw = '${amount! % 1 == 0 ? amount!.toInt() : amount!}${unit ?? ''}';
+    if (RegExp(r'[〜～~–—-]').hasMatch(raw)) {
+      return scaleRecipeQuantity(raw, multiplier);
     }
     final scaled = amount! * multiplier;
     final value = _practicalAmount(scaled, unit);
@@ -709,6 +721,10 @@ class ShoppingItem {
     this.quantity = '',
     this.checked = false,
     List<String>? recipeIds,
+    this.batchId,
+    this.baseQuantity,
+    this.batchServings,
+    this.quantityMultiplier = 1,
   }) : id = id ?? newId(),
        recipeIds = recipeIds ?? [];
 
@@ -718,12 +734,25 @@ class ShoppingItem {
   final bool checked;
   final List<String> recipeIds;
 
-  ShoppingItem copyWith({String? quantity, bool? checked}) => ShoppingItem(
+  final String? batchId, baseQuantity;
+  final double? batchServings;
+  final double quantityMultiplier;
+
+  ShoppingItem copyWith({
+    String? quantity,
+    bool? checked,
+    double? batchServings,
+    double? quantityMultiplier,
+  }) => ShoppingItem(
     id: id,
     name: name,
     quantity: quantity ?? this.quantity,
     checked: checked ?? this.checked,
     recipeIds: recipeIds,
+    batchId: batchId,
+    baseQuantity: baseQuantity,
+    batchServings: batchServings ?? this.batchServings,
+    quantityMultiplier: quantityMultiplier ?? this.quantityMultiplier,
   );
 
   Map<String, dynamic> toJson() => {
@@ -732,6 +761,10 @@ class ShoppingItem {
     'quantity': quantity,
     'checked': checked,
     'recipeIds': recipeIds,
+    'batchId': batchId,
+    'baseQuantity': baseQuantity,
+    'batchServings': batchServings,
+    'quantityMultiplier': quantityMultiplier,
   };
 
   factory ShoppingItem.fromJson(Map<String, dynamic> json) => ShoppingItem(
@@ -740,6 +773,10 @@ class ShoppingItem {
     quantity: json['quantity']?.toString() ?? '',
     checked: json['checked'] as bool? ?? false,
     recipeIds: _strings(json['recipeIds']),
+    batchId: json['batchId']?.toString(),
+    baseQuantity: json['baseQuantity']?.toString(),
+    batchServings: (json['batchServings'] as num?)?.toDouble(),
+    quantityMultiplier: (json['quantityMultiplier'] as num?)?.toDouble() ?? 1,
   );
 }
 

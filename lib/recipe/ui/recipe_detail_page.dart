@@ -149,9 +149,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     const SizedBox(height: 8),
                     Text(
                       recipe.description!,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyLarge?.copyWith(color: secondaryInk),
+                      style: Theme.of(context).textTheme.bodyLarge
+                          ?.copyWith(color: secondaryInk),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -213,7 +212,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                       ),
-                      _ServingStepper(
+                      RecipeServingStepper(
                         servings: servings,
                         unit: recipe.servingUnit,
                         onChanged: (value) => setState(() => _servings = value),
@@ -403,8 +402,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                             width: 142,
                             child: RecipeGridCard(
                               recipe: item,
-                              onTap: () =>
-                                  Navigator.of(context).pushReplacement(
+                              onTap: () => Navigator.of(context)
+                                  .pushReplacement(
                                     MaterialPageRoute<void>(
                                       builder: (_) =>
                                           RecipeDetailPage(recipeId: item.id),
@@ -428,9 +427,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     child: Text(
                       'AI解析には誤りや材料の見落としが含まれる場合があります。\nアレルギーがある場合は元投稿と商品表示を必ず確認してください。',
                       textAlign: TextAlign.center,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: secondaryInk),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: secondaryInk),
                     ),
                   ),
                 ],
@@ -649,9 +647,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   title: Text(type),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
-                    await RecipeScope.read(
-                      context,
-                    ).submitFeedback(recipe, type);
+                    await RecipeScope.read(context)
+                        .submitFeedback(recipe, type);
                     if (!sheetContext.mounted) return;
                     Navigator.pop(sheetContext);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -669,9 +666,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Future<void> _showCollections(BuildContext context, Recipe recipe) async {
     final controller = RecipeScope.read(context);
     if (controller.snapshot.collections.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('マイページでコレクションを作成できます')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('マイページでコレクションを作成できます')));
       return;
     }
     await showModalBottomSheet<void>(
@@ -722,48 +718,6 @@ class _InfoChip extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _ServingStepper extends StatelessWidget {
-  const _ServingStepper({
-    required this.servings,
-    required this.unit,
-    required this.onChanged,
-  });
-  final double servings;
-  final String unit;
-  final ValueChanged<double> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final step = unit == '人分' ? 0.5 : 1.0;
-    final value = servings.toStringAsFixed(servings % 1 == 0 ? 0 : 1);
-    return Container(
-      decoration: BoxDecoration(
-        color: mintSoft,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '数量を減らす',
-            visualDensity: VisualDensity.compact,
-            onPressed: servings <= step
-                ? null
-                : () => onChanged(servings - step),
-            icon: const Icon(Icons.remove_rounded, size: 18),
-          ),
-          Text('$value$unit'),
-          IconButton(
-            tooltip: '数量を増やす',
-            visualDensity: VisualDensity.compact,
-            onPressed: () => onChanged(servings + step),
-            icon: const Icon(Icons.add_rounded, size: 18),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _IngredientRow extends StatelessWidget {
@@ -851,28 +805,24 @@ class _StepRow extends StatelessWidget {
               ],
               Text(
                 step.instruction,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.normal,
-                ),
+                style: Theme.of(context).textTheme.bodyLarge
+                    ?.copyWith(fontSize: 15, fontWeight: FontWeight.normal),
               ),
               if (step.tips.isNotEmpty) ...[
                 const SizedBox(height: 5),
                 for (final tip in step.tips)
                   Text(
                     '• $tip',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: secondaryInk),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: secondaryInk),
                   ),
               ],
               if (step.durationSeconds != null) ...[
                 const SizedBox(height: 5),
                 Text(
                   '目安 ${_durationLabel(step.durationSeconds!)}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: mossDeep),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: mossDeep),
                 ),
               ],
             ],
@@ -999,9 +949,8 @@ class _EvidenceCard extends StatelessWidget {
                     : '${timestampLabel(evidence.timestampSeconds!)}  ${evidence.label}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelSmall?.copyWith(color: Colors.white),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: Colors.white),
               ),
             ),
           ],

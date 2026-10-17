@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -93,6 +94,7 @@ class RecipeController extends ChangeNotifier {
   String _intakeThumbnailSignature = '';
   DateTime _importSessionStartedAt = DateTime.now();
   final Map<String, String> _appliedAnalysisResults = {};
+  final Map<String, String> _appliedAnalysisMedia = {};
   bool _accountPresentationPending = false;
   bool get switchingAccount => _accountPresentationPending;
 
@@ -433,6 +435,7 @@ class RecipeController extends ChangeNotifier {
       if (!_disposed) notifyListeners();
       _importSessionStartedAt = DateTime.now();
       _appliedAnalysisResults.clear();
+      _appliedAnalysisMedia.clear();
       _activeRemoteAnalyses = const [];
       _activeOwnerId = nextOwnerId;
       _cloudPullReady = false;
@@ -588,6 +591,7 @@ class RecipeController extends ChangeNotifier {
       );
       final current = existingIndex < 0 ? null : imports[existingIndex];
       final result = job?.resultJson;
+      final mediaSignature = jsonEncode([post.thumbnailPath, post.imagePaths]);
       final sameCompletedResult =
           job?.status == AnalysisJobStatus.completed &&
           current != null &&
@@ -600,7 +604,8 @@ class RecipeController extends ChangeNotifier {
                 deletedRecipeIds.contains(id),
           ) &&
           (current.updatedAt == job?.updatedAt ||
-              _appliedAnalysisResults[post.id] == result);
+              _appliedAnalysisResults[post.id] == result) &&
+          _appliedAnalysisMedia[post.id] == mediaSignature;
       if (sameCompletedResult) continue;
       // Missing repository jobs must not resurrect completed/cancelled history.
       if (job == null &&
@@ -670,6 +675,7 @@ class RecipeController extends ChangeNotifier {
 
       if (job?.status == AnalysisJobStatus.completed && result != null) {
         _appliedAnalysisResults[post.id] = result;
+        _appliedAnalysisMedia[post.id] = mediaSignature;
       }
       final next = RecipeImport(
         id: current?.id,
@@ -964,7 +970,7 @@ class RecipeController extends ChangeNotifier {
       method: _text(json, 'method'),
       parts: parts,
       evidence: evidence,
-      coverImagePath: _coverFor(post, coverIndex),
+      coverImagePath: _coverFor(post, coverIndex) ?? post.displayThumbnailPath,
       sourceUrl: post.url,
       sourceService: post.service,
       status: status,
@@ -1334,6 +1340,20 @@ class RecipeController extends ChangeNotifier {
         snapshot.shoppingItems,
         recipe,
         multiplier,
+      ),
+    );
+    await _persist();
+  }
+
+  Future<void> setShoppingRecipeServings(
+    String recipeId,
+    double servings,
+  ) async {
+    snapshot = _copySnapshot(
+      shoppingItems: resizeShoppingRecipe(
+        snapshot.shoppingItems,
+        recipeId,
+        servings,
       ),
     );
     await _persist();

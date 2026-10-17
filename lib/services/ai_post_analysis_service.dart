@@ -1,3 +1,4 @@
+import '../recipe/data/analysis_thumbnail.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -161,16 +162,14 @@ class AiPostAnalysisService implements PostAnalysisService {
     final media = Map<String, dynamic>.from(mediaValue);
     final rawImages = media['image_data_urls'];
     String? firstImage;
-    if (rawImages is List) {
-      for (final value in rawImages) {
-        if (value is String && value.isNotEmpty) {
-          firstImage = value;
-          break;
-        }
-      }
-    } else if (media['thumbnail_data_url'] is String) {
-      firstImage = media['thumbnail_data_url'] as String;
+    if (rawImages is List && rawImages.isNotEmpty) {
+      final selected =
+          rawImages[analysisThumbnailIndex(media, rawImages.length)];
+      if (selected is String && selected.isNotEmpty) firstImage = selected;
     }
+    firstImage ??= media['thumbnail_data_url'] is String
+        ? media['thumbnail_data_url'] as String
+        : null;
     if (firstImage == null || firstImage.isEmpty) {
       return Future.value(const <String>[]);
     }
@@ -180,7 +179,7 @@ class AiPostAnalysisService implements PostAnalysisService {
       'image_data_urls': <String>[firstImage],
       'thumbnail_data_url': firstImage,
     };
-    return _savePreviewImages(sourcePostId, coverResult);
+    return _savePreviewImages(sourcePostId, coverResult, fileTag: '_cover');
   }
 
   Future<void> rememberRecoveredJob({
@@ -426,7 +425,10 @@ class AiPostAnalysisService implements PostAnalysisService {
             fetchedPreviewPaths.isEmpty;
 
         // TikTok動画は画像0件が正常。通知後の不要な画像再取得を行わない。
-        if (!isVideoWithoutImages && fetchedPreviewPaths.length <= 1) {
+        if (!(sharedMedia is Map &&
+                sharedMedia['image_order'] == 'analysis_v1') &&
+            !isVideoWithoutImages &&
+            fetchedPreviewPaths.length <= 1) {
           final refreshed = await fetchSocialPostPreviews(request);
           if (refreshed.length > fetchedPreviewPaths.length) {
             fetchedPreviewPaths = refreshed;
@@ -440,15 +442,23 @@ class AiPostAnalysisService implements PostAnalysisService {
         );
       }
 
-      final analysisImagePaths = {
-        ...encodedImages.sourcePaths,
-        ...fetchedPreviewPaths,
-      }.take(SourceMediaStore.maxImages).toList(growable: false);
+      final media = decoded['shared_media'];
+      final completeOrder =
+          media is Map && media['image_order'] == 'analysis_v1';
+      final analysisImagePaths = completeOrder && fetchedPreviewPaths.isNotEmpty
+          ? fetchedPreviewPaths
+          : {
+              ...encodedImages.sourcePaths,
+              ...fetchedPreviewPaths,
+            }.take(SourceMediaStore.maxImages).toList(growable: false);
       final result = PostAnalysisResponse.fromJson({
         ...decoded,
         // 非同期ジョブの結果にはsource_post_idが含まれないため補完する。
         'source_post_id': request.sourcePostId,
-        'preview_image_path': analysisImagePaths.firstOrNull,
+        'preview_image_path': analysisThumbnailPath(
+          decoded,
+          analysisImagePaths,
+        ),
         // AIへ渡した順番と端末で根拠画像を表示する順番を一致させる。
         'preview_image_paths': analysisImagePaths,
       });
@@ -793,8 +803,9 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   Future<List<String>> _savePreviewImages(
     String sourcePostId,
-    Map<String, dynamic> response,
-  ) async {
+    Map<String, dynamic> response, {
+    String fileTag = '',
+  }) async {
     try {
       final media = response['shared_media'];
       if (media is! Map) return const [];
@@ -821,9 +832,15 @@ class AiPostAnalysisService implements PostAnalysisService {
         final bytes = image.bytes;
         if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) continue;
         final extension = image.extension;
-        final file = File('${directory.path}/${safeId}_$index.$extension');
+        final file = File(
+          '${directory.path}/${safeId}${fileTag}_$index.$extension',
+        );
         await file.writeAsBytes(bytes, flush: true);
         paths.add(file.path);
+      }
+      if (media['image_order'] == 'analysis_v1' &&
+          paths.length != dataUrls.length) {
+        return const [];
       }
       return paths;
     } catch (_) {

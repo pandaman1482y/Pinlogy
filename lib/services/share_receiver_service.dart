@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +13,7 @@ import 'ai_post_analysis_service.dart';
 import 'location_services.dart';
 import 'platform_share_bridge.dart';
 import 'social_post_identity.dart';
+import 'shared_post_url_resolver.dart';
 import 'source_media_store.dart';
 
 class AnalysisFailureEvent {
@@ -234,6 +236,7 @@ class LocalShareReceiverService implements ShareReceiverService {
     required this.analysisService,
     this.autoAnalyze = true,
     this.officialPreviewLoader,
+    this.identityClient,
     SourceMediaStore? mediaStore,
   }) : _mediaStore = mediaStore ?? SourceMediaStore();
 
@@ -242,6 +245,7 @@ class LocalShareReceiverService implements ShareReceiverService {
   final PostAnalysisService analysisService;
   final bool autoAnalyze;
   final Future<String?> Function(String sharedUrl)? officialPreviewLoader;
+  final http.Client? identityClient;
   final SourceMediaStore _mediaStore;
 
   bool _busy = false;
@@ -454,28 +458,18 @@ class LocalShareReceiverService implements ShareReceiverService {
     if (cached != null && SocialPostIdentity.tryParse(cached) != null) {
       return cached;
     }
-    try {
-      final client = http.Client();
-      final request = http.Request('GET', uri!)
-        ..followRedirects = true
-        ..maxRedirects = 4;
-      try {
-        final response = await client
-            .send(request)
-            .timeout(const Duration(seconds: 5));
-        await response.stream.drain<void>();
-        final resolved = response.request?.url.toString();
-        if (SocialPostIdentity.tryParse(resolved) != null) {
-          await preferences.setString(cacheKey, resolved!);
-          return resolved;
-        }
-      } finally {
-        client.close();
-      }
-      throw const FormatException('投稿URLを確認できませんでした');
-    } catch (_) {
-      throw StateError('状態を確認できませんでした。時間をおいてもう一度お試しください');
+    final resolved = await resolveSharedPostUrl(
+      trimmed,
+      client: identityClient,
+    );
+    if (SocialPostIdentity.tryParse(resolved) != null) {
+      await preferences.setString(cacheKey, resolved);
+    } else {
+      // Persist the share and let the server resolve the short URL. The server
+      // still performs its existing source-key deduplication before enqueueing.
+      debugPrint('share_identity_resolution_deferred host=$host');
     }
+    return resolved;
   }
 
   Future<String?> _loadOfficialPreview(String sharedUrl) =>
