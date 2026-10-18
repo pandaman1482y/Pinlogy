@@ -92,7 +92,11 @@ Deno.serve(async (request) => {
     }
     const analysisKey = String(input.analysis_key ?? "");
     const deviceHash = await hashDeviceId(deviceId);
-    if (/^[0-9a-f]{8,32}$/i.test(analysisKey)) {
+    const forceReanalysis = input.force_reanalysis === true;
+    if (forceReanalysis) {
+      console.info("analysis_cache_bypassed", "reason=explicit_reanalysis");
+    }
+    if (!forceReanalysis && /^[0-9a-f]{8,32}$/i.test(analysisKey)) {
       const cached = await readAnalysisCache(deviceHash, analysisKey);
       if (cached != null) {
         return reply({

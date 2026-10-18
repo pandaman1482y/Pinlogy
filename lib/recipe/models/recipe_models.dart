@@ -131,30 +131,37 @@ class RecipeIngredient {
   final int? confidencePercent;
   final bool userEdited;
 
-  String quantityFor(double multiplier) {
+  /// Unrounded source quantity, also used when saving shopping-list additions.
+  String get calculationQuantity {
     final original = _quantityOnlyFromOriginal(name, originalText);
-    if (RegExp(r'[〜～~–—-]').hasMatch(original)) {
-      return scaleRecipeQuantity(original, multiplier);
+    // Trust a range only when the entire quantity (plus optional note) parses.
+    if (RegExp(r'[〜～~–—-]').hasMatch(original) &&
+        isNumericRecipeQuantity(original)) {
+      return original;
     }
-    if (amount == null || !scalable) {
-      // Old manually entered rows used scalable=false and no numeric amount.
-      return amount == null
-          ? scaleRecipeQuantity(original, multiplier)
-          : original;
+    if (amount != null && amount!.isFinite) {
+      final value = amount! % 1 == 0 ? '${amount!.toInt()}' : '$amount';
+      final u = unit?.trim() ?? '';
+      final structured = const {'大さじ', '小さじ', 'カップ'}.contains(u)
+          ? '$u$value'
+          : '$value$u';
+      if (isNumericRecipeQuantity(structured)) {
+        // A note containing a range must not hide the numeric amount.
+        final note =
+            RegExp(r'([（(].*[）)])$').firstMatch(original)?.group(1) ?? '';
+        return '$structured$note';
+      }
+      if (original.isEmpty) return structured;
     }
-    final raw = '${amount! % 1 == 0 ? amount!.toInt() : amount!}${unit ?? ''}';
-    if (RegExp(r'[〜～~–—-]').hasMatch(raw)) {
-      return scaleRecipeQuantity(raw, multiplier);
-    }
-    final scaled = amount! * multiplier;
-    final value = _practicalAmount(scaled, unit);
-    final unitText = unit?.trim() ?? '';
-    if (unitText.isEmpty) return value;
-    const prefixUnits = {'大さじ', '小さじ', 'カップ'};
-    return prefixUnits.contains(unitText)
-        ? '$unitText$value'
-        : '$value$unitText';
+    return original;
   }
+
+  bool get quantityCanScale => scalable || amount == null;
+
+  String quantityFor(double multiplier) => scaleRecipeQuantity(
+    calculationQuantity,
+    quantityCanScale ? multiplier : 1,
+  );
 
   RecipeIngredient copyWith({
     String? name,
@@ -219,9 +226,10 @@ String _quantityOnlyFromOriginal(String ingredientName, String? originalText) {
     );
   }
   value = value.replaceFirst(RegExp(r'^[\s：:・…⋯.．。-]+'), '');
-  value = value
-      .replaceFirst(RegExp(r'^[（(]'), '')
-      .replaceFirst(RegExp(r'[）)]$'), '');
+  if ((value.startsWith('（') && value.endsWith('）')) ||
+      (value.startsWith('(') && value.endsWith(')'))) {
+    value = value.substring(1, value.length - 1);
+  }
   if (value == normalizedName || value.isEmpty) return '';
   return value.trim();
 }
@@ -725,6 +733,7 @@ class ShoppingItem {
     this.baseQuantity,
     this.batchServings,
     this.quantityMultiplier = 1,
+    this.quantityCanScale,
   }) : id = id ?? newId(),
        recipeIds = recipeIds ?? [];
 
@@ -737,6 +746,7 @@ class ShoppingItem {
   final String? batchId, baseQuantity;
   final double? batchServings;
   final double quantityMultiplier;
+  final bool? quantityCanScale;
 
   ShoppingItem copyWith({
     String? quantity,
@@ -751,6 +761,7 @@ class ShoppingItem {
     recipeIds: recipeIds,
     batchId: batchId,
     baseQuantity: baseQuantity,
+    quantityCanScale: quantityCanScale,
     batchServings: batchServings ?? this.batchServings,
     quantityMultiplier: quantityMultiplier ?? this.quantityMultiplier,
   );
@@ -763,6 +774,7 @@ class ShoppingItem {
     'recipeIds': recipeIds,
     'batchId': batchId,
     'baseQuantity': baseQuantity,
+    'quantityCanScale': quantityCanScale,
     'batchServings': batchServings,
     'quantityMultiplier': quantityMultiplier,
   };
@@ -775,6 +787,7 @@ class ShoppingItem {
     recipeIds: _strings(json['recipeIds']),
     batchId: json['batchId']?.toString(),
     baseQuantity: json['baseQuantity']?.toString(),
+    quantityCanScale: json['quantityCanScale'] as bool?,
     batchServings: (json['batchServings'] as num?)?.toDouble(),
     quantityMultiplier: (json['quantityMultiplier'] as num?)?.toDouble() ?? 1,
   );
@@ -946,41 +959,3 @@ List<String> _strings(dynamic value) => value is List
 
 DateTime? _date(dynamic value) =>
     value == null ? null : DateTime.tryParse(value.toString());
-
-String _practicalAmount(double value, String? unit) {
-  if (value <= 0) return '0';
-  final normalizedUnit = unit?.trim().toLowerCase();
-  if (normalizedUnit == 'g' || normalizedUnit == 'ml') {
-    final rounded = value >= 100 ? (value / 5).round() * 5 : value.round();
-    return '$rounded';
-  }
-  final whole = value.floor();
-  final fraction = value - whole;
-  final candidates = <double, String>{
-    1 / 8: '1/8',
-    1 / 6: '1/6',
-    1 / 4: '1/4',
-    1 / 3: '1/3',
-    1 / 2: '1/2',
-    2 / 3: '2/3',
-    3 / 4: '3/4',
-    5 / 6: '5/6',
-    7 / 8: '7/8',
-  };
-  var closest = candidates.keys.first;
-  for (final candidate in candidates.keys) {
-    if ((fraction - candidate).abs() < (fraction - closest).abs()) {
-      closest = candidate;
-    }
-  }
-  if (fraction < 0.04) return '$whole';
-  if (fraction > 0.96) return '${whole + 1}';
-  if ((fraction - closest).abs() <= 0.035) {
-    final fractionText = candidates[closest]!;
-    return whole == 0 ? fractionText : '$wholeと$fractionText';
-  }
-
-  // 料理で一般的な分数から離れた値は、無理に丸めず小数で表示する。
-  final decimal = value.toStringAsFixed(2);
-  return decimal.replaceFirst(RegExp(r'\.?0+$'), '');
-}

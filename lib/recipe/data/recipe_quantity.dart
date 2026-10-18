@@ -32,19 +32,42 @@ _Number? _number(String text) {
 }
 
 class _Quantity {
-  _Quantity(this.low, this.high, this.unit, this.prefix);
+  _Quantity(
+    this.low,
+    this.high,
+    this.unit,
+    this.prefix, [
+    this.annotation = '',
+  ]);
   final _Number low, high;
   final String unit;
   final bool prefix;
+  final String annotation;
   String format() {
-    final a = low.text, b = high.text;
+    String display(_Number value) {
+      final divisor = value.n.gcd(value.d);
+      final n = value.n ~/ divisor, d = value.d ~/ divisor;
+      if (prefix &&
+          const {2, 3, 4, 6, 8}.contains(d.toInt()) &&
+          n > BigInt.zero) {
+        final whole = n ~/ d, remainder = n % d;
+        if (remainder != BigInt.zero) {
+          return whole == BigInt.zero
+              ? '$remainder/$d'
+              : '$wholeと$remainder/$d';
+        }
+      }
+      return value.text;
+    }
+
+    final a = display(low), b = display(high);
     final amount = a == b ? a : '$a〜$b';
-    return prefix ? '$unit$amount' : '$amount$unit';
+    return '${prefix ? '$unit$amount' : '$amount$unit'}$annotation';
   }
 }
 
 _Quantity? _parseQuantity(String source) {
-  final value = source
+  var value = source
       .trim()
       .replaceAllMapped(
         RegExp('[０-９]'),
@@ -52,12 +75,18 @@ _Quantity? _parseQuantity(String source) {
       )
       .replaceAll('．', '.')
       .replaceAll('／', '/');
+  var annotation = '';
+  final note = RegExp(r'^(.*?)([（(].*[）)])$').firstMatch(value);
+  if (note != null) {
+    value = note[1]!.trim();
+    annotation = note[2]!;
+  }
   const n = r'(?:\d+\s*/\s*\d+|\d+(?:\.\d+)?)';
   const number = '(?:$nと$n|$n)';
   const span = '($number)(?:\\s*[〜～~–—-]\\s*($number))?';
   final prefix = RegExp('^(大さじ|小さじ|カップ)\\s*$span\$').firstMatch(value);
   final suffix = RegExp(
-    '^$span\\s*(kg|mg|g|ml|mL|L|個|本|枚|束|袋|片|缶|パック|玉|丁|合|人前|人分)?\$',
+    '^$span\\s*(kg|mg|g|ml|mL|L|cc|dl|dL|cm|mm|m|個|本|枚|束|袋|片|缶|パック|玉|丁|合|人前|人分|切れ|尾|匹|粒|かけ|房|株|杯)?\$',
   ).firstMatch(value);
   if (prefix == null && suffix == null) return null;
   final low = _number(prefix != null ? prefix[2]! : suffix![1]!);
@@ -70,19 +99,36 @@ _Quantity? _parseQuantity(String source) {
     high,
     (prefix != null ? prefix[1]! : suffix![3] ?? '').replaceAll('mL', 'ml'),
     prefix != null,
+    annotation,
   );
+}
+
+bool isNumericRecipeQuantity(String source) => _parseQuantity(source) != null;
+
+_Number? _multiplier(double value) {
+  // Recover simple serving ratios (1/3, 2/3, etc.) instead of truncating them.
+  for (var denominator = 1; denominator <= 1000; denominator++) {
+    final scaled = value * denominator;
+    if (!scaled.isFinite) return null;
+    final numerator = scaled.round();
+    if ((scaled - numerator).abs() <= 1e-12 && numerator > 0) {
+      return _Number(BigInt.from(numerator), BigInt.from(denominator));
+    }
+  }
+  return _number(value.toStringAsFixed(12));
 }
 
 String scaleRecipeQuantity(String source, double multiplier) {
   if (!multiplier.isFinite || multiplier <= 0) return source;
   final quantity = _parseQuantity(source);
-  final factor = _number(multiplier.toStringAsFixed(6));
+  final factor = _multiplier(multiplier);
   if (quantity == null || factor == null) return source;
   return _Quantity(
     quantity.low * factor,
     quantity.high * factor,
     quantity.unit,
     quantity.prefix,
+    quantity.annotation,
   ).format();
 }
 
@@ -121,7 +167,7 @@ String combineShoppingQuantities(Iterable<String> quantities) {
       if (texts.add(value)) output.add(value);
       continue;
     }
-    final key = '${parsed.prefix}:${parsed.unit}';
+    final key = '${parsed.prefix}:${parsed.unit}:${parsed.annotation}';
     final old = groups[key];
     if (old == null) {
       groups[key] = parsed;
@@ -132,6 +178,7 @@ String combineShoppingQuantities(Iterable<String> quantities) {
         old.high + parsed.high,
         old.unit,
         old.prefix,
+        old.annotation,
       );
     }
   }

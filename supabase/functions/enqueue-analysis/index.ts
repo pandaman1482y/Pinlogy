@@ -65,7 +65,8 @@ Deno.serve(async (request) => {
     delete payload.tiktok_external_post;
     delete payload.__apify_instagram;
     delete payload.instagram_external_post;
-    delete payload.force_reanalysis;
+    // Persist the explicit retry flag through asynchronous preparation/requeues.
+    payload.force_reanalysis = forceReanalysis;
 
     const db = adminClient();
     const blockedPost = await findBlockedPost(db, sourceKey);

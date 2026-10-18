@@ -67,7 +67,8 @@ List<ShoppingItem> addRecipeShoppingItems(
         quantity: ingredient.quantityFor(multiplier),
         recipeIds: [recipe.id],
         batchId: batch,
-        baseQuantity: ingredient.quantityFor(1),
+        baseQuantity: ingredient.calculationQuantity,
+        quantityCanScale: ingredient.quantityCanScale,
         batchServings: (recipe.servings > 0 ? recipe.servings : 1) * multiplier,
         quantityMultiplier: multiplier,
       ),
@@ -105,7 +106,9 @@ List<ShoppingItem> resizeShoppingRecipe(
         item.copyWith(
           quantity: scaleRecipeQuantity(
             item.baseQuantity!,
-            item.quantityMultiplier * ratio,
+            item.quantityCanScale == false
+                ? 1
+                : item.quantityMultiplier * ratio,
           ),
           quantityMultiplier: item.quantityMultiplier * ratio,
           batchServings: item.batchServings! * ratio,
