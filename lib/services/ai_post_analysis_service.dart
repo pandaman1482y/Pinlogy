@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -274,10 +275,15 @@ class AiPostAnalysisService implements PostAnalysisService {
 
   @override
   Future<PostAnalysisResponse> analyze(PostAnalysisRequest request) async {
-    final local = await fallback.analyze(request);
-    if (!await AiAnalysisConsent().hasConsented() || !backendConfigured) {
-      return local;
+    if (!await AiAnalysisConsent().hasConsented()) {
+      throw StateError(
+        'AI解析がオフのため、投稿からレシピを自動作成できません。マイページで「AI解析を利用する」をオンにして再試行するか、手入力で作成してください。すでに受付済みの解析は継続する場合があります。',
+      );
     }
+    if (!backendConfigured) {
+      throw StateError('AI解析の接続設定がありません。設定を含めてビルドしたアプリでお試しください。');
+    }
+    final local = await fallback.analyze(request);
     final cacheKey = _cacheKey(request, local.evidenceText);
     final preferences = await SharedPreferences.getInstance();
     final forceReanalysis =
@@ -832,8 +838,9 @@ class AiPostAnalysisService implements PostAnalysisService {
         final bytes = image.bytes;
         if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) continue;
         final extension = image.extension;
+        final digest = sha256.convert(bytes).toString().substring(0, 12);
         final file = File(
-          '${directory.path}/${safeId}${fileTag}_$index.$extension',
+          '${directory.path}/${safeId}${fileTag}_${index}_$digest.$extension',
         );
         await file.writeAsBytes(bytes, flush: true);
         paths.add(file.path);
@@ -1078,6 +1085,7 @@ class AiPostAnalysisService implements PostAnalysisService {
     return const [
       'tiktokcdn.com',
       'tiktokcdn-us.com',
+      'tiktokcdn-eu.com',
       'muscdn.com',
       'ytimg.com',
     ].any((domain) => host == domain || host.endsWith('.$domain'));

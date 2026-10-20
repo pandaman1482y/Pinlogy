@@ -1,3 +1,5 @@
+import { normalizeNutritionCoverage } from "../_shared/nutrition-coverage.ts";
+import { publishProgressCover } from "../_shared/analysis-progress-cover.ts";
 import { chooseVideoRecipeCovers } from "../_shared/recipe-cover.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -197,6 +199,15 @@ Deno.serve(async (request) => {
       analysisImageIndex++;
     }
 
+    // Prefer a real frame, preserving the no-play-button thumbnail behavior.
+    await publishProgressCover({
+      request,
+      jobId: asyncJobId,
+      image: videoFrames.at(-1)?.data_url ?? fetchedSocialImages[0] ?? suppliedImages[0],
+      supabaseUrl: Deno.env.get("SUPABASE_URL"),
+      serviceKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    });
+
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -232,7 +243,7 @@ Deno.serve(async (request) => {
           "工程が『調味料を入れる』『合わせ調味料を加える』などの総称でも、直前の字幕・音声・材料準備で中身が示されている場合は、その具体的な材料すべてをingredient_indexesへ設定し、instructionにも材料名を簡潔に補ってください。直前に作ったタレや合わせ調味料を後で加える場合は、そのpartの材料と工程の関係を維持してください。" +
           "evidenceには画像番号・時刻・投稿文抜粋などの根拠を登録し、各材料と工程のevidence_indexから対応させてください。画像番号は入力で示した0始まり番号です。" +
           "category、cuisine、main_ingredient、methodは料理ごとに個別判断し、複数料理へ同じ値を機械的にコピーしないでください。" +
-          "アレルゲンは明記または一般的な原材料として高い確度で含むものだけを列挙し、安全を保証しないでください。栄養値は十分な分量がある場合だけ概算し、不足時はnullにしてください。" +
+          "アレルゲンは明記または一般的な原材料として高い確度で含むものだけを列挙し、安全を保証しないでください。栄養値は一般的な食品成分から、全partsを合わせた表示元の分量で概算し、1人分へ割らないでください。すべての材料の分量が分かる場合はnutrition.basisをrecipe_total、excluded_ingredientsを空配列にします。分量不明の材料が一部あっても全栄養値をnullにはせず、確認できる分量の材料だけを合計し、basisをknown_ingredients_total、excluded_ingredientsに計算から除いた材料名を列挙してください。分量不明の材料の量を推測したりingredientの分量を埋めたりしないでください。どの材料も計算できない場合は栄養値をnull、basisをunknownにします。" +
           "後方互換用candidatesは常に空配列にしてください。recipeを特定できない場合はrecipesを空にし、raw_summaryへ不足している根拠を書いてください。",
         input: [{ role: "user", content }],
         text: { verbosity: "medium", format: recipeSchema },
@@ -260,6 +271,7 @@ Deno.serve(async (request) => {
     const parsedRecipes = Array.isArray(parsedOutput.recipes)
       ? parsedOutput.recipes
       : [];
+    parsedRecipes.forEach(normalizeNutritionCoverage);
     const returnedImages = [...suppliedImages, ...fetchedSocialImages,
       ...videoFrames.map((frame) => frame.data_url)];
     const cleanCoverIndex = chooseVideoRecipeCovers(parsedRecipes,
@@ -575,8 +587,10 @@ const recipeSchema = {
             nutrition: {
               type: "object",
               additionalProperties: false,
-              required: ["calories", "protein_grams", "fat_grams", "carbohydrate_grams"],
+              required: ["calories", "protein_grams", "fat_grams", "carbohydrate_grams", "basis", "excluded_ingredients"],
               properties: {
+                basis: { type: "string", enum: ["recipe_total", "known_ingredients_total", "unknown"] },
+                excluded_ingredients: { type: "array", maxItems: 60, items: { type: "string" } },
                 calories: { type: ["integer", "null"], minimum: 0, maximum: 10000 },
                 protein_grams: { type: ["number", "null"], minimum: 0, maximum: 1000 },
                 fat_grams: { type: ["number", "null"], minimum: 0, maximum: 1000 },

@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 import 'recipe_widgets.dart';
+import 'food_tag_editor.dart';
 import 'shopping_list_page.dart';
 import '../../services/notification_service.dart';
 import 'billing_page.dart';
@@ -785,8 +786,9 @@ class _AiAnalysisConsentTileState extends State<_AiAnalysisConsentTile> {
         SnackBar(content: Text(enabled ? 'AI解析をオンにしました' : 'AI解析をオフにしました')),
       );
     } catch (_) {
+      final stored = await AiAnalysisConsent().hasConsented();
       if (!mounted) return;
-      setState(() => _enabled = !enabled);
+      setState(() => _enabled = stored);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('AI解析設定を更新できませんでした')));
@@ -803,7 +805,9 @@ class _AiAnalysisConsentTileState extends State<_AiAnalysisConsentTile> {
       child: Icon(Icons.auto_awesome_outlined, color: mossDeep, size: 23),
     ),
     title: const Text('AI解析を利用する'),
-    subtitle: const Text('投稿の文章・画像などをAI解析に送信します'),
+    subtitle: const Text(
+      'オンで投稿からレシピを自動作成します。オフでも保存済みレシピの閲覧・手入力は利用できます。受付済みの解析は継続する場合があります。',
+    ),
     value: _enabled ?? false,
     onChanged: _enabled == null || _updating ? null : _setEnabled,
   );
@@ -1324,6 +1328,8 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
   late Set<String> _selected;
   final _other = TextEditingController();
   final _disliked = TextEditingController();
+  List<String> _otherFoods = [];
+  List<String> _dislikedFoods = [];
   bool _initialized = false;
 
   @override
@@ -1333,10 +1339,10 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
     _initialized = true;
     final settings = RecipeScope.read(context).snapshot.allergySettings;
     _selected = settings.allergens.where(common.contains).toSet();
-    _other.text = settings.allergens
+    _otherFoods = settings.allergens
         .where((value) => !common.contains(value))
-        .join('、');
-    _disliked.text = settings.dislikedFoods.join('、');
+        .toList();
+    _dislikedFoods = settings.dislikedFoods.toSet().toList();
   }
 
   @override
@@ -1357,52 +1363,118 @@ class _AllergySettingsPageState extends State<AllergySettingsPage> {
       children: [
         const SoftPanel(
           child: Text(
-            'AI提案では該当食材を避けます。ただし抽出漏れや製造時の混入まで保証できません。必ず元投稿と商品表示を確認してください。',
+            '取り込みは止めず、登録した食材を材料欄で色分けします。AI提案では一致する食材を含む候補を除きます。ただし抽出漏れや製造時の混入まで判定できないため、元投稿と商品表示も確認してください。',
           ),
         ),
         const SizedBox(height: 22),
         Text('アレルギー', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final item in common)
-              FilterChip(
-                label: Text(item),
-                selected: _selected.contains(item),
-                onSelected: (selected) => setState(
-                  () => selected ? _selected.add(item) : _selected.remove(item),
+        GridView.builder(
+          key: const ValueKey('common_allergen_grid'),
+          primary: false,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: common.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4,
+            mainAxisExtent: 56,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+          ),
+          itemBuilder: (context, index) {
+            final item = common[index];
+            final selected = _selected.contains(item);
+            const selectedColor = Color(0xFFB3261E);
+            return Semantics(
+              selected: selected,
+              button: true,
+              child: Material(
+                color: selected ? const Color(0xFFFFEDEA) : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: selected ? selectedColor : const Color(0xFFD7DDD8),
+                    width: 1.5,
+                  ),
+                ),
+                child: InkWell(
+                  key: ValueKey('allergen_$item'),
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => setState(
+                    () =>
+                        selected ? _selected.remove(item) : _selected.add(item),
+                  ),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              item,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: selected ? selectedColor : ink,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Icon(
+                          selected
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          size: 12,
+                          color: selected ? selectedColor : secondaryInk,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-          ],
+            );
+          },
         ),
         const SizedBox(height: 14),
-        TextField(
+        FoodTagEditor(
           controller: _other,
-          decoration: const InputDecoration(labelText: 'その他（読点区切り）'),
+          values: _otherFoods,
+          label: 'その他のアレルギー',
+          fieldKey: 'other_allergens',
+          onChanged: (values) => setState(() => _otherFoods = values),
         ),
         const SizedBox(height: 22),
         Text('苦手な食材', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        TextField(
+        FoodTagEditor(
           controller: _disliked,
-          decoration: const InputDecoration(labelText: '例：パクチー、レバー'),
+          values: _dislikedFoods,
+          label: '苦手な食材',
+          fieldKey: 'disliked_foods',
+          onChanged: (values) => setState(() => _dislikedFoods = values),
         ),
       ],
     ),
   );
 
   Future<void> _save() async {
-    List<String> split(String value) => value
-        .split(RegExp(r'[,，、\n]'))
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList();
+    FocusScope.of(context).unfocus();
     await RecipeScope.read(context).updateAllergySettings(
       AllergySettings(
-        allergens: {..._selected, ...split(_other.text)}.toList(),
-        dislikedFoods: split(_disliked.text),
+        allergens: {
+          ..._selected,
+          ..._otherFoods,
+          ...splitFoodEntries(_other.text),
+        }.toList(),
+        dislikedFoods: {
+          ..._dislikedFoods,
+          ...splitFoodEntries(_disliked.text),
+        }.toList(),
       ),
     );
     if (mounted) Navigator.pop(context);

@@ -1,4 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 class AiAnalysisConsent {
   static const _key = 'ai_post_analysis_consent_v1';
@@ -16,5 +18,17 @@ class AiAnalysisConsent {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_key, value);
     await preferences.setBool(_decisionKey, true);
+    await syncShareExtension();
+  }
+
+  Future<void> syncShareExtension() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    final enabled = await hasConsented();
+    final saved = await const MethodChannel('com.pinlogy/share')
+        .invokeMethod<bool>('configureBackgroundIntake', {
+          'aiAnalysisEnabled': enabled,
+        });
+    if (saved != true)
+      throw StateError('共有機能のAI解析設定を保存できませんでした。アプリを再起動して設定を確認してください。');
   }
 }

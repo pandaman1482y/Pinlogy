@@ -72,6 +72,7 @@ bool shouldShowImportInSession({
       status == RecipeImportStatus.cancelled)
     return false;
   if (status == RecipeImportStatus.awaitingSelection) return true;
+  if (localTerminal) return false;
   if (remoteActive) return true;
   if (status == RecipeImportStatus.queued ||
       status == RecipeImportStatus.fetching ||

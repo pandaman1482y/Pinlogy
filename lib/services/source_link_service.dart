@@ -21,11 +21,18 @@ class SourceLinkService {
       return false;
     }
 
-    // インストール済みなら各アプリが https リンクを受け取って開く
-    if (await canLaunchUrl(httpsUri)) {
-      return launchUrl(httpsUri, mode: LaunchMode.externalApplication);
+    try {
+      if (await launchUrl(httpsUri, mode: LaunchMode.externalApplication)) {
+        return true;
+      }
+    } catch (_) {
+      // An unavailable external application can still fall back to a browser.
     }
-    return launchUrl(httpsUri, mode: LaunchMode.platformDefault);
+    try {
+      return await launchUrl(httpsUri, mode: LaunchMode.platformDefault);
+    } catch (_) {
+      return false;
+    }
   }
 
   String serviceLabel(SourcePost? post) {

@@ -364,6 +364,8 @@ class RecipeNutrition {
     this.fatGrams,
     this.carbohydrateGrams,
     this.approximate = true,
+    this.basis,
+    this.excludedIngredients = const [],
   });
 
   final int? calories;
@@ -372,22 +374,56 @@ class RecipeNutrition {
   final double? carbohydrateGrams;
   final bool approximate;
 
+  /// `recipe_total` means the entire recipe at its original serving count.
+  /// Older records have unknown basis and must not be silently scaled.
+  final String? basis;
+  final List<String> excludedIngredients;
+  bool get isPartial => basis == 'known_ingredients_total';
+  bool get hasValues =>
+      calories != null ||
+      proteinGrams != null ||
+      fatGrams != null ||
+      carbohydrateGrams != null;
+
   Map<String, dynamic> toJson() => {
     'calories': calories,
     'proteinGrams': proteinGrams,
     'fatGrams': fatGrams,
     'carbohydrateGrams': carbohydrateGrams,
     'approximate': approximate,
+    'basis': basis,
+    'excludedIngredients': excludedIngredients,
   };
 
-  factory RecipeNutrition.fromJson(Map<String, dynamic> json) =>
-      RecipeNutrition(
-        calories: (json['calories'] as num?)?.round(),
-        proteinGrams: (json['proteinGrams'] as num?)?.toDouble(),
-        fatGrams: (json['fatGrams'] as num?)?.toDouble(),
-        carbohydrateGrams: (json['carbohydrateGrams'] as num?)?.toDouble(),
-        approximate: json['approximate'] as bool? ?? true,
-      );
+  factory RecipeNutrition.fromJson(Map<String, dynamic> json) {
+    double? number(String key, [String? alternate]) {
+      final value = json[key] ?? (alternate == null ? null : json[alternate]);
+      final parsed = value is num
+          ? value.toDouble()
+          : double.tryParse('$value');
+      return parsed != null && parsed.isFinite && parsed >= 0 ? parsed : null;
+    }
+
+    return RecipeNutrition(
+      calories: number('calories')?.round(),
+      proteinGrams: number('proteinGrams', 'protein_grams'),
+      fatGrams: number('fatGrams', 'fat_grams'),
+      carbohydrateGrams: number('carbohydrateGrams', 'carbohydrate_grams'),
+      approximate: json['approximate'] is bool
+          ? json['approximate'] as bool
+          : true,
+      basis:
+          const [
+            'recipe_total',
+            'known_ingredients_total',
+          ].contains(json['basis'])
+          ? json['basis'] as String
+          : null,
+      excludedIngredients: _strings(
+        json['excludedIngredients'] ?? json['excluded_ingredients'],
+      ),
+    );
+  }
 }
 
 class Recipe {

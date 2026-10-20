@@ -23,6 +23,8 @@ class PinlogyNotificationService {
   bool _enabled = true;
   StreamSubscription<String>? _tokenSubscription;
   StreamSubscription<RemoteMessage>? _openedSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundSubscription;
+  final _foregroundCompletionController = StreamController<String?>.broadcast();
   final _completionController = StreamController<String?>.broadcast();
   String? _initialCompletionSourcePostId;
   static const _shareChannel = MethodChannel('com.pinlogy/share');
@@ -33,6 +35,8 @@ class PinlogyNotificationService {
   bool get enabled => _enabled;
   bool get firebaseReady => _firebaseReady;
   Stream<String?> get completionSourcePostIds => _completionController.stream;
+  Stream<String?> get foregroundCompletionSourcePostIds =>
+      _foregroundCompletionController.stream;
 
   String? consumeInitialCompletionSourcePostId() {
     final value = _initialCompletionSourcePostId;
@@ -61,11 +65,18 @@ class PinlogyNotificationService {
       _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
         _handleOpenedMessage,
       );
-      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+      await _foregroundSubscription?.cancel();
+      _foregroundSubscription = FirebaseMessaging.onMessage.listen((message) {
+        if (message.data['type'] != 'analysis_completed') return;
+        final id = message.data['source_post_id']?.toString();
+        _foregroundCompletionController.add(id?.isNotEmpty == true ? id : null);
+      });
+      final initialMessage = await FirebaseMessaging.instance
+          .getInitialMessage();
       if (initialMessage != null &&
           initialMessage.data['type'] == 'analysis_completed') {
-        _initialCompletionSourcePostId =
-            initialMessage.data['source_post_id']?.toString();
+        _initialCompletionSourcePostId = initialMessage.data['source_post_id']
+            ?.toString();
       }
       if (_enabled) {
         await FirebaseMessaging.instance.requestPermission(
@@ -116,7 +127,8 @@ class PinlogyNotificationService {
     // 実機登録を少し待ってから再試行し、通知付きジョブにtokenを確実に載せる。
     for (var attempt = 0; attempt < 20; attempt++) {
       try {
-        final apnsReady = defaultTargetPlatform != TargetPlatform.iOS ||
+        final apnsReady =
+            defaultTargetPlatform != TargetPlatform.iOS ||
             ((await FirebaseMessaging.instance.getAPNSToken())?.isNotEmpty ??
                 false);
         if (apnsReady) {
@@ -148,7 +160,8 @@ class PinlogyNotificationService {
       final settings = await FirebaseMessaging.instance
           .getNotificationSettings();
       final token = await FirebaseMessaging.instance.getToken();
-      final apnsReady = defaultTargetPlatform != TargetPlatform.iOS ||
+      final apnsReady =
+          defaultTargetPlatform != TargetPlatform.iOS ||
           ((await FirebaseMessaging.instance.getAPNSToken())?.isNotEmpty ??
               false);
       final authorization = settings.authorizationStatus;

@@ -87,6 +87,8 @@ class RecipeController extends ChangeNotifier {
   bool _cloudPullReady = false;
   bool _cloudSavePending = false;
   StreamSubscription<void>? _authSubscription;
+  StreamSubscription<String?>? _foregroundCompletionSubscription;
+  Timer? _intakeChangeTimer;
   static const _deletedRecipeIdsPrefix = 'recipe_deleted_ids_v1_';
   List<RecoveredAnalysisJob> _activeRemoteAnalyses = const [];
 
@@ -200,6 +202,11 @@ class RecipeController extends ChangeNotifier {
 
     for (final remote in _activeRemoteAnalyses) {
       if (knownSourceIds.contains(remote.sourcePostId)) continue;
+      final localStatus = legacy.jobForPost(remote.sourcePostId)?.status;
+      if (localStatus == AnalysisJobStatus.completed ||
+          localStatus == AnalysisJobStatus.cancelled ||
+          localStatus == AnalysisJobStatus.failed)
+        continue;
       final post = legacy.hub.snapshot.sourcePosts
           .where((value) => value.id == remote.sourcePostId)
           .firstOrNull;
@@ -330,6 +337,12 @@ class RecipeController extends ChangeNotifier {
     _notifyRecipeListeners();
     try {
       legacy.addListener(_onLegacyChanged);
+      _foregroundCompletionSubscription = PinlogyNotificationService
+          .instance
+          .foregroundCompletionSourcePostIds
+          .listen((id) {
+            unawaited(_refreshNotifiedImport(id));
+          });
       if (legacy.cloud.isConfigured) {
         await legacy.cloud.prepareAuth();
         final current = legacy.cloud.user;
@@ -405,7 +418,10 @@ class RecipeController extends ChangeNotifier {
     _intakeThumbnailSignature = thumbnailSignature;
     if (changed || thumbnailChanged) _notifyRecipeListeners();
     if (_activeOwnerId != null && !_switchingIdentity) {
-      unawaited(syncFromIntake());
+      _intakeChangeTimer?.cancel();
+      _intakeChangeTimer = Timer(const Duration(milliseconds: 80), () {
+        if (!_disposed) unawaited(syncFromIntake());
+      });
     }
   }
 
@@ -530,6 +546,14 @@ class RecipeController extends ChangeNotifier {
 
   /// 完了通知のタップ時に、既存ジョブの最新結果を回収して同期する。
   /// pending/processing中の既存ジョブだけを確認し、新規ジョブは作らない。
+  Future<void> _refreshNotifiedImport(String? id) async {
+    try {
+      await refreshCompletedImport(id);
+    } catch (error) {
+      debugPrint('recipe_notified_refresh_failed $error');
+    }
+  }
+
   Future<void> refreshCompletedImport(String? sourcePostId) async {
     if (sourcePostId == null || sourcePostId.isEmpty) {
       await refreshFromServer();
@@ -539,30 +563,18 @@ class RecipeController extends ChangeNotifier {
     // ローカル投稿がまだ存在しない場合もここで一覧へ復元する。
     await legacy.refreshRemoteAnalyses(sourcePostId: sourcePostId);
     await syncFromIntake();
-    // 通知配信と結果DB反映にはわずかな順序差があり得るため、通知タップ時は
-    // 新規ジョブを作らず、既存ジョブだけを短時間再確認する。
+    // Re-read the existing server job only. Never enqueue or re-analyze on a notification.
     for (var attempt = 0; attempt < 3; attempt++) {
-      final post = legacy.hub.snapshot.sourcePosts
-          .where((value) => value.id == sourcePostId)
-          .firstOrNull;
       final job = legacy.jobForPost(sourcePostId);
-      if (post == null ||
-          (job?.status != AnalysisJobStatus.pending &&
-              job?.status != AnalysisJobStatus.processing)) {
+      if (job?.status == AnalysisJobStatus.completed ||
+          job?.status == AnalysisJobStatus.failed ||
+          job?.status == AnalysisJobStatus.cancelled)
         break;
-      }
-      try {
-        await legacy.analyzeSharedPost(post);
-        break;
-      } on AnalysisPendingException {
-        if (attempt < 2) {
-          await Future<void>.delayed(const Duration(seconds: 2));
-        }
-      } on PreviousAnalysisFailedException {
-        break;
-      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (_disposed) return;
+      await legacy.refreshRemoteAnalyses(sourcePostId: sourcePostId);
+      await syncFromIntake();
     }
-    await syncFromIntake();
   }
 
   Future<void> _performSync() async {
@@ -931,27 +943,7 @@ class RecipeController extends ChangeNotifier {
         : RecipeStatus.needsReview;
     final nutritionJson = json['nutrition'];
     final nutrition = nutritionJson is Map
-        ? RecipeNutrition(
-            calories: _integer(
-              Map<String, dynamic>.from(nutritionJson),
-              'calories',
-            ),
-            proteinGrams: _number(
-              Map<String, dynamic>.from(nutritionJson),
-              'protein_grams',
-              'proteinGrams',
-            ),
-            fatGrams: _number(
-              Map<String, dynamic>.from(nutritionJson),
-              'fat_grams',
-              'fatGrams',
-            ),
-            carbohydrateGrams: _number(
-              Map<String, dynamic>.from(nutritionJson),
-              'carbohydrate_grams',
-              'carbohydrateGrams',
-            ),
-          )
+        ? RecipeNutrition.fromJson(Map<String, dynamic>.from(nutritionJson))
         : null;
 
     return Recipe(
@@ -1622,6 +1614,8 @@ class RecipeController extends ChangeNotifier {
     _startupSyncRetryTimer?.cancel();
     _authSubscription?.cancel();
     legacy.removeListener(_onLegacyChanged);
+    _intakeChangeTimer?.cancel();
+    _foregroundCompletionSubscription?.cancel();
     super.dispose();
   }
 }

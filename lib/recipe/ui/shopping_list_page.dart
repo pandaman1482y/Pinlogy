@@ -5,6 +5,7 @@ import '../data/shopping_list_groups.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 import 'recipe_widgets.dart';
+import 'ingredient_name.dart';
 
 class ShoppingListPage extends StatefulWidget {
   const ShoppingListPage({super.key});
@@ -348,7 +349,7 @@ class _ShoppingTile extends StatelessWidget {
         onChanged: (_) => onChanged(),
         controlAffinity: ListTileControlAffinity.leading,
         contentPadding: const EdgeInsets.fromLTRB(2, 4, 12, 4),
-        title: Text(
+        title: IngredientName(
           name,
           style: TextStyle(
             decoration: checked ? TextDecoration.lineThrough : null,

@@ -30,6 +30,7 @@ class AnalysisFailureEvent {
   bool get creditsExhausted => message.contains('解析回数が不足しています');
   bool get blocked => message.contains('権利者からの申し出により登録できません');
   bool get recipeNotFound => message.contains('レシピを検出できませんでした');
+  bool get aiDisabled => message.contains('AI解析がオフ');
 }
 
 final _analysisFailureController =
@@ -283,7 +284,9 @@ class LocalShareReceiverService implements ShareReceiverService {
         );
       }
     }
-    final preview = await _loadOfficialPreview(post.url!);
+    final preview = await _loadOfficialPreview(
+      await _resolveIdentityUrl(post.url) ?? post.url!,
+    );
     if (preview == null) {
       throw StateError('この投稿から利用できる画像を取得できませんでした');
     }
@@ -421,7 +424,9 @@ class LocalShareReceiverService implements ShareReceiverService {
 
   Future<SourcePost> _attachOfficialPreview(SourcePost post) async {
     try {
-      final preview = await _loadOfficialPreview(post.url!);
+      final preview = await _loadOfficialPreview(
+        await _resolveIdentityUrl(post.url) ?? post.url!,
+      );
       if (preview == null) return post;
       final persisted = await _mediaStore.persist(post.id, [preview]);
       if (persisted.isEmpty) return post;
@@ -486,6 +491,7 @@ class LocalShareReceiverService implements ShareReceiverService {
       allowedImageDomains = const [
         'tiktokcdn.com',
         'tiktokcdn-us.com',
+        'tiktokcdn-eu.com',
         'muscdn.com',
       ];
     } else if (_matchesHost(host, 'youtube.com') || host == 'youtu.be') {

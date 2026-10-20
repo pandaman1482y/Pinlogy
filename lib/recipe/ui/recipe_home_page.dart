@@ -47,7 +47,9 @@ class _RecipeHomePageState extends State<RecipeHomePage>
   }
 
   void _handleControllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _updateAnalysisPolling();
   }
 
   Future<void> _refresh() async {

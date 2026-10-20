@@ -13,6 +13,7 @@ import '../repositories/local_data_store.dart';
 import '../repositories/local_repositories.dart';
 import '../repositories/repository_interfaces.dart';
 import '../services/device_location_service.dart';
+import '../services/ai_analysis_consent.dart';
 import '../services/ai_post_analysis_service.dart';
 import '../services/billing_service.dart';
 import '../services/cloud_sync_service.dart';
@@ -175,6 +176,8 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> configureShareBackgroundIntake() async {
     if (!enablePlatformShare) return;
+    // Consent must reach the extension before token retrieval can delay setup.
+    await AiAnalysisConsent().syncShareExtension();
     final notification = PinlogyNotificationService.instance;
     final notificationToken = await notification.tokenForAnalysis();
     await shareIntake.bridge.configureBackgroundIntake(
@@ -328,6 +331,20 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
           );
         } else if (remote.status == 'processing' ||
             remote.status == 'pending') {
+          // A recovery request may finish after another runner saved completion.
+          // Do not downgrade it with an older server snapshot; a newer explicit
+          // reanalysis from another device may still replace the old result.
+          localJob =
+              await analysis.getBySourcePostId(localSourcePostId) ?? localJob;
+          if (localJob.status == AnalysisJobStatus.completed &&
+              (remote.updatedAt == null ||
+                  !remote.updatedAt!.isAfter(localJob.updatedAt)))
+            continue;
+          if (remote.result != null) {
+            unawaited(
+              _restoreProgressCover(service, localSourcePostId, remote.result!),
+            );
+          }
           await analysis.update(
             localJob.copyWith(
               status: remote.status == 'processing'
@@ -362,6 +379,43 @@ class PinlogyController extends ChangeNotifier with WidgetsBindingObserver {
           newestProcessedUpdate.toUtc().toIso8601String(),
         );
       }
+    }
+  }
+
+  final Set<String> _restoringProgressCovers = {};
+  final Map<String, String> _progressCoverVersions = {};
+
+  Future<void> _restoreProgressCover(
+    AiPostAnalysisService service,
+    String sourcePostId,
+    Map<String, dynamic> result,
+  ) async {
+    final media = result['shared_media'];
+    final version = media is Map
+        ? jsonEncode(media['image_storage_paths'])
+        : '';
+    if (version.isEmpty ||
+        _progressCoverVersions[sourcePostId] == version ||
+        !_restoringProgressCovers.add(sourcePostId))
+      return;
+    try {
+      final paths = await service.saveRecoveredCoverImage(sourcePostId, result);
+      final post = await sourcePosts.getById(sourcePostId);
+      final status = jobForPost(sourcePostId)?.status;
+      if (post == null ||
+          paths.isEmpty ||
+          (status != AnalysisJobStatus.pending &&
+              status != AnalysisJobStatus.processing))
+        return;
+      await sourcePosts.update(
+        post.copyWith(thumbnailPath: paths.first, updatedAt: DateTime.now()),
+      );
+      if (_progressCoverVersions.length >= 256) _progressCoverVersions.clear();
+      _progressCoverVersions[sourcePostId] = version;
+    } catch (error) {
+      debugPrint('analysis_progress_cover_restore_failed $error');
+    } finally {
+      _restoringProgressCovers.remove(sourcePostId);
     }
   }
 

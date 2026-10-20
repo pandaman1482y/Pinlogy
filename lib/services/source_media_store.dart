@@ -228,6 +228,7 @@ class SourceMediaStore {
     return const [
       'tiktokcdn.com',
       'tiktokcdn-us.com',
+      'tiktokcdn-eu.com',
       'muscdn.com',
       'byteimg.com',
       'cdninstagram.com',

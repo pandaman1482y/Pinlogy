@@ -11,6 +11,7 @@ final class ShareViewController: UIViewController {
   private let backendUrlKey = "pinlogy.share_backend_url"
   private let backendAnonKey = "pinlogy.share_backend_anon_key"
   private let backendAccessTokenKey = "pinlogy.share_backend_access_token"
+  private let aiAnalysisEnabledKey = "pinlogy.share_ai_analysis_enabled"
   private let notificationEnabledKey = "pinlogy.share_notification_enabled"
   private let notificationTokenKey = "pinlogy.share_notification_token"
   private let analysisDeviceIdKey = "pinlogy.analysis_device_id"
@@ -33,7 +34,9 @@ final class ShareViewController: UIViewController {
     titleLabel.adjustsFontForContentSizeCategory = true
     titleLabel.textAlignment = .center
 
-    messageLabel.text = "投稿を受け付け、画像・材料・工程をバックグラウンドで解析します。"
+    messageLabel.text = aiAnalysisEnabled
+      ? "投稿を受け付け、画像・材料・工程をバックグラウンドで解析します。"
+      : "AI解析がオフになっています。自動でレシピを作成するには、ツクレピのマイページでAI解析をオンにしてください。"
     messageLabel.font = .preferredFont(forTextStyle: .body)
     messageLabel.adjustsFontForContentSizeCategory = true
     messageLabel.textColor = .secondaryLabel
@@ -73,7 +76,17 @@ final class ShareViewController: UIViewController {
     ])
   }
 
+  private var aiAnalysisEnabled: Bool {
+    // No saved consent means OFF, including the first launch after installation.
+    UserDefaults(suiteName: appGroupId)?.bool(forKey: aiAnalysisEnabledKey) == true
+  }
+
   @objc private func saveSharedPost() {
+    guard aiAnalysisEnabled else {
+      messageLabel.text = "AI解析がオフのため、自動取り込みは開始しません。ツクレピのマイページでオンにするか、アプリ内で手入力してください。"
+      messageLabel.textColor = .secondaryLabel
+      return
+    }
     setBusy(true)
     Task {
       var payload = await collectPayload()
@@ -87,6 +100,13 @@ final class ShareViewController: UIViewController {
         payload["analysisDeviceId"] = remote.deviceId
         payload["sourcePostId"] = remote.sourcePostId
         payload["duplicateShare"] = remote.reused
+      }
+      if !aiAnalysisEnabled && payload["remoteAnalysisJobId"] == nil {
+        await MainActor.run {
+          self.setBusy(false)
+          self.messageLabel.text = "AI解析がオフになったため、取り込みを開始しませんでした。"
+        }
+        return
       }
       guard persist(payload) else {
         await MainActor.run {
@@ -128,6 +148,7 @@ final class ShareViewController: UIViewController {
   ) async -> (jobId: String, deviceId: String, sourcePostId: String, reused: Bool)? {
     guard
       let defaults = UserDefaults(suiteName: appGroupId),
+      defaults.bool(forKey: aiAnalysisEnabledKey),
       let base = defaults.string(forKey: backendUrlKey),
       let key = defaults.string(forKey: backendAnonKey),
       let accessToken = defaults.string(forKey: backendAccessTokenKey),

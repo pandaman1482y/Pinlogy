@@ -577,7 +577,9 @@ class _RecipeRootShellState extends State<RecipeRootShell> {
 
   Future<void> _showAnalysisFailure(AnalysisFailureEvent event) async {
     if (!mounted) return;
-    final title = event.creditsExhausted
+    final title = event.aiDisabled
+        ? 'AI解析がオフになっています'
+        : event.creditsExhausted
         ? '解析回数が足りません'
         : event.blocked
         ? 'この投稿は登録できません'

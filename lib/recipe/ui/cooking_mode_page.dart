@@ -13,6 +13,7 @@ import '../../core/theme.dart';
 import '../models/recipe_models.dart';
 import '../recipe_scope.dart';
 import 'recipe_widgets.dart';
+import 'ingredient_name.dart';
 
 class CookingModePage extends StatefulWidget {
   const CookingModePage({
@@ -961,9 +962,8 @@ class _IngredientLine extends StatelessWidget {
       children: [
         Expanded(
           flex: 6,
-          child: Text(
+          child: IngredientName(
             ingredient.name,
-            softWrap: true,
             style: const TextStyle(fontSize: 16, height: 1.4),
           ),
         ),

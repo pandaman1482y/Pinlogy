@@ -258,7 +258,7 @@ async function recover(
       : {};
     const recoveredSource = sourceFromRecoveryKey(String(row.source_key ?? ""));
     let result = null;
-    if (row.status === "completed" && row.result_json != null) {
+    if (["completed", "pending", "processing"].includes(String(row.status)) && row.result_json != null) {
       try {
         result = await hydrateResultImages(row.result_json);
       } catch (error) {
