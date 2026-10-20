@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../services/source_link_service.dart';
+import 'ingredient_name.dart';
 
 import '../../core/theme.dart';
 import '../models/recipe_models.dart';
@@ -54,7 +55,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  RecipeImage(path: recipe.coverImagePath),
+                  RecipeImage(path: recipe.coverImagePath, cacheWidth: 1080),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -149,8 +150,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     const SizedBox(height: 8),
                     Text(
                       recipe.description!,
-                      style: Theme.of(context).textTheme.bodyLarge
-                          ?.copyWith(color: secondaryInk),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.copyWith(color: secondaryInk),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -173,6 +175,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                         _InfoChip(
                           Icons.play_circle_outline_rounded,
                           recipe.sourceService!,
+                          onTap: recipe.sourceUrl?.trim().isNotEmpty == true
+                              ? () => _openSource(recipe.sourceUrl!)
+                              : null,
                         ),
                     ],
                   ),
@@ -302,7 +307,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   ),
                   if (recipe.nutrition != null) ...[
                     const SizedBox(height: 30),
-                    _NutritionPanel(nutrition: recipe.nutrition!),
+                    _NutritionPanel(
+                      nutrition: recipe.nutrition!,
+                      multiplier: multiplier,
+                      servings: servings,
+                      servingUnit: recipe.servingUnit,
+                    ),
                   ],
                   if (recipe.evidence.isNotEmpty) ...[
                     const SizedBox(height: 30),
@@ -402,8 +412,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                             width: 142,
                             child: RecipeGridCard(
                               recipe: item,
-                              onTap: () => Navigator.of(context)
-                                  .pushReplacement(
+                              onTap: () =>
+                                  Navigator.of(context).pushReplacement(
                                     MaterialPageRoute<void>(
                                       builder: (_) =>
                                           RecipeDetailPage(recipeId: item.id),
@@ -427,8 +437,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                     child: Text(
                       'AI解析には誤りや材料の見落としが含まれる場合があります。\nアレルギーがある場合は元投稿と商品表示を必ず確認してください。',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall
-                          ?.copyWith(color: secondaryInk),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: secondaryInk),
                     ),
                   ),
                 ],
@@ -479,8 +490,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Future<void> _openSource(String raw) async {
-    final uri = Uri.tryParse(raw);
-    if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final opened = await SourceLinkService().openUrl(raw);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('元投稿を開けませんでした。通信状態や投稿URLを確認してください。')),
+      );
+    }
   }
 
   Future<void> _showEvidence(
@@ -647,8 +662,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                   title: Text(type),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
-                    await RecipeScope.read(context)
-                        .submitFeedback(recipe, type);
+                    await RecipeScope.read(
+                      context,
+                    ).submitFeedback(recipe, type);
                     if (!sheetContext.mounted) return;
                     Navigator.pop(sheetContext);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -666,8 +682,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   Future<void> _showCollections(BuildContext context, Recipe recipe) async {
     final controller = RecipeScope.read(context);
     if (controller.snapshot.collections.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('マイページでコレクションを作成できます')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('マイページでコレクションを作成できます')));
       return;
     }
     await showModalBottomSheet<void>(
@@ -698,24 +715,40 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip(this.icon, this.label);
+  const _InfoChip(this.icon, this.label, {this.onTap});
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
+  Widget build(BuildContext context) => Semantics(
+    button: onTap != null,
+    child: Material(
       color: mintSoft,
       borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: mossDeep),
-        const SizedBox(width: 5),
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
-      ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: mossDeep),
+              const SizedBox(width: 5),
+              Text(label, style: Theme.of(context).textTheme.labelLarge),
+              if (onTap != null) ...[
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.open_in_new_rounded,
+                  size: 13,
+                  color: mossDeep,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -735,7 +768,7 @@ class _IngredientRow extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(flex: 6, child: Text(ingredient.name, softWrap: true)),
+        Expanded(flex: 6, child: IngredientName(ingredient.name)),
         const SizedBox(width: 12),
         Expanded(
           flex: 4,
@@ -805,24 +838,28 @@ class _StepRow extends StatelessWidget {
               ],
               Text(
                 step.instruction,
-                style: Theme.of(context).textTheme.bodyLarge
-                    ?.copyWith(fontSize: 15, fontWeight: FontWeight.normal),
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.normal,
+                ),
               ),
               if (step.tips.isNotEmpty) ...[
                 const SizedBox(height: 5),
                 for (final tip in step.tips)
                   Text(
                     '• $tip',
-                    style: Theme.of(context).textTheme.bodySmall
-                        ?.copyWith(color: secondaryInk),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: secondaryInk),
                   ),
               ],
               if (step.durationSeconds != null) ...[
                 const SizedBox(height: 5),
                 Text(
                   '目安 ${_durationLabel(step.durationSeconds!)}',
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: mossDeep),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: mossDeep),
                 ),
               ],
             ],
@@ -849,7 +886,7 @@ class _ReviewWarning extends StatelessWidget {
   final Recipe recipe;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => Ink(
     width: double.infinity,
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
@@ -884,33 +921,67 @@ class _ReviewWarning extends StatelessWidget {
 }
 
 class _NutritionPanel extends StatelessWidget {
-  const _NutritionPanel({required this.nutrition});
+  const _NutritionPanel({
+    required this.nutrition,
+    required this.multiplier,
+    required this.servings,
+    required this.servingUnit,
+  });
   final RecipeNutrition nutrition;
+  final double multiplier;
+  final double servings;
+  final String servingUnit;
 
   @override
-  Widget build(BuildContext context) => SoftPanel(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('栄養の目安', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 10),
-        Text(
-          [
-            if (nutrition.calories != null) '${nutrition.calories} kcal',
-            if (nutrition.proteinGrams != null) 'P ${nutrition.proteinGrams}g',
-            if (nutrition.fatGrams != null) 'F ${nutrition.fatGrams}g',
-            if (nutrition.carbohydrateGrams != null)
-              'C ${nutrition.carbohydrateGrams}g',
-          ].join('  ·  '),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'AIによる概算です。実際の商品・分量で変わります。',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final knownBasis = nutrition.basis == 'recipe_total' || nutrition.isPartial;
+    final factor = knownBasis ? multiplier : 1.0;
+    String grams(double value) => (value * factor).toStringAsFixed(1);
+    return SoftPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('栄養の目安', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 10),
+          if (!nutrition.hasValues)
+            const Text('栄養値は取得できていません。材料の分量が分かる投稿を再解析すると、取得できる場合があります。')
+          else ...[
+            Text(
+              nutrition.isPartial
+                  ? '分量が分かる材料分のみの参考値（表示中の${servings.toStringAsFixed(servings % 1 == 0 ? 0 : 1)}$servingUnit）'
+                  : knownBasis
+                  ? '表示中の分量全体（${servings.toStringAsFixed(servings % 1 == 0 ? 0 : 1)}$servingUnit）'
+                  : '対象人数が未確認の栄養値です。人数変更は反映していません。',
+            ),
+            const SizedBox(height: 6),
+            Text(
+              [
+                if (nutrition.calories != null)
+                  '${(nutrition.calories! * factor).round()} kcal',
+                if (nutrition.proteinGrams != null)
+                  'たんぱく質 ${grams(nutrition.proteinGrams!)}g',
+                if (nutrition.fatGrams != null)
+                  '脂質 ${grams(nutrition.fatGrams!)}g',
+                if (nutrition.carbohydrateGrams != null)
+                  '炭水化物 ${grams(nutrition.carbohydrateGrams!)}g',
+              ].join('  ·  '),
+            ),
+            if (nutrition.isPartial) ...[
+              const SizedBox(height: 8),
+              const Text('レシピ全体の栄養値ではありません。分量不明の材料は計算に含めていません。'),
+              if (nutrition.excludedIngredients.isNotEmpty)
+                Text('計算から除いた材料：${nutrition.excludedIngredients.join('、')}'),
+            ],
+          ],
+          const SizedBox(height: 6),
+          Text(
+            'AIによる概算です。実際の商品・分量で変わります。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EvidenceCard extends StatelessWidget {
@@ -949,8 +1020,9 @@ class _EvidenceCard extends StatelessWidget {
                     : '${timestampLabel(evidence.timestampSeconds!)}  ${evidence.label}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: Colors.white),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: Colors.white),
               ),
             ),
           ],
